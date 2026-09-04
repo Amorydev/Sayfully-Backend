@@ -202,3 +202,57 @@ class ReviewStatsOut(Schema):
     due_today: int
     reviewed_today: int
     retention_percent: int
+
+
+# --------------------------------------------------------------- vocab status (C6, §5.6)
+class VocabSummaryOut(Schema):
+    total: int
+    studied: int
+    mastered: int
+    learning: int
+    due_today: int
+    percent: int
+
+
+class VocabNotebookOut(Schema):
+    total: int
+    categories: int
+
+
+class VocabTopicOut(Schema):
+    id: int
+    done: int
+    total: int
+
+
+class VocabStatusOut(Schema):
+    level: str
+    summary: VocabSummaryOut
+    week: list[bool]
+    notebook: VocabNotebookOut
+    topics: list[VocabTopicOut]
+    learned_ids: list[int]
+    due_ids: list[int]
+    fav_ids: list[int]
+
+
+# --------------------------------------------------------------- notebook (C47)
+class NotebookEntryOut(Schema):
+    id: int
+    vocab_id: int | None
+    headword: str
+    ipa: str
+    meaning_vi: str
+    audio_url: str | None
+    note: str
+    tags: list[str]
+    srs_state: int | None
+    created_at: datetime
+
+
+class NotebookCreateIn(Schema):
+    vocab_id: int | None = None
+    custom_word: str = ""
+    custom_meaning: str = ""
+    note: str = ""
+    tags: list[str] = []

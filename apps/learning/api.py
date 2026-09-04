@@ -10,24 +10,27 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
+from django.http import HttpResponse
 from django.utils import timezone as djtz
 from ninja import Query, Router
 
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
-from apps.content.models import Lesson, Unit
+from apps.content.models import Lesson, Level, Topic, Unit, Vocabulary
+from apps.content.schemas import Page
 from apps.gamification.models import Badge, UserBadge
 from apps.notifications.models import Notification
 
 from . import schemas as s
 from . import services
-from .models import DailyActivity, LessonProgress, SRSCard, SRSReviewLog
+from .models import DailyActivity, LessonProgress, NotebookEntry, SRSCard, SRSReviewLog
 
 router = Router()
 
 _WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
 XP_PER_REVIEW = 2
+NOTEBOOK_LIMITS = {False: 100, True: 4000}  # free / premium
 
 
 def _media(path: str | None) -> str | None:
@@ -519,3 +522,197 @@ def review_stats(request):
         reviewed_today=reviewed_today,
         retention_percent=round(good / total * 100) if total else 0,
     )
+
+
+# =============================================================== vocab status + notebook
+def _notebook_out(entry: NotebookEntry, accent: str, srs: dict) -> s.NotebookEntryOut:
+    v = entry.vocabulary
+    if v is not None:
+        return s.NotebookEntryOut(
+            id=entry.id,
+            vocab_id=v.id,
+            headword=v.headword,
+            ipa=v.ipa_us if accent == "US" else v.ipa_uk,
+            meaning_vi=v.meaning_vi,
+            audio_url=_media(v.audio_us_path if accent == "US" else v.audio_uk_path),
+            note=entry.note,
+            tags=entry.tags or [],
+            srs_state=srs.get(v.id),
+            created_at=entry.created_at,
+        )
+    return s.NotebookEntryOut(
+        id=entry.id,
+        vocab_id=None,
+        headword=entry.custom_word,
+        ipa="",
+        meaning_vi=entry.custom_meaning,
+        audio_url=None,
+        note=entry.note,
+        tags=entry.tags or [],
+        srs_state=None,
+        created_at=entry.created_at,
+    )
+
+
+@router.get(
+    "/learn/vocabulary/status",
+    response={200: s.VocabStatusOut, 401: ErrorOut},
+    summary="Trạng thái từ vựng của một cấp (động cơ tab Từ vựng)",
+    description="Tổng hợp + 7 ô tuần + tiến độ chủ đề + sổ tay + 3 mảng id để lọc tab cục bộ.",
+)
+def vocabulary_status(request, level: str):
+    user = request.auth
+    profile = ensure_profile(user)
+    lv = level.upper()
+    today = services.local_today(profile)
+    end_today = datetime.combine(today, dtime.max, ZoneInfo(profile.timezone))
+
+    total = Level.objects.filter(code=lv).values_list("word_target", flat=True).first() or 0
+    cards = list(
+        SRSCard.objects.filter(user=user, vocabulary__level_id=lv).values(
+            "vocabulary_id", "state", "due_at"
+        )
+    )
+    studied = len(cards)
+    mastered = sum(1 for c in cards if c["state"] == SRSCard.State.REVIEW)
+    learned_ids = [c["vocabulary_id"] for c in cards]
+    due_ids = [
+        c["vocabulary_id"]
+        for c in cards
+        if c["due_at"] <= end_today and c["state"] != SRSCard.State.SUSPENDED
+    ]
+
+    nb = list(NotebookEntry.objects.filter(user=user).values("vocabulary_id", "tags"))
+    fav_level_ids = list(
+        NotebookEntry.objects.filter(
+            user=user, vocabulary__level_id=lv, vocabulary__isnull=False
+        ).values_list("vocabulary_id", flat=True)
+    )
+    categories = len({t for n in nb for t in (n["tags"] or [])})
+
+    topic_vocab: dict[int, set[int]] = {}
+    for tid, vid in Vocabulary.objects.filter(level_id=lv, topics__isnull=False).values_list(
+        "topics", "id"
+    ):
+        topic_vocab.setdefault(tid, set()).add(vid)
+    learned_set = set(learned_ids)
+    topics = [
+        s.VocabTopicOut(id=t.id, done=len(vids & learned_set), total=len(vids))
+        for t in Topic.objects.filter(id__in=topic_vocab.keys())
+        if (vids := topic_vocab[t.id])
+    ]
+
+    week = [d.active for d in _week_progress(user, today)]
+
+    return s.VocabStatusOut(
+        level=lv,
+        summary=s.VocabSummaryOut(
+            total=total,
+            studied=studied,
+            mastered=mastered,
+            learning=studied - mastered,
+            due_today=len(due_ids),
+            percent=min(100, round(studied / total * 100)) if total else 0,
+        ),
+        week=week,
+        notebook=s.VocabNotebookOut(total=len(nb), categories=categories),
+        topics=topics,
+        learned_ids=learned_ids,
+        due_ids=due_ids,
+        fav_ids=fav_level_ids,
+    )
+
+
+@router.get(
+    "/learn/notebook",
+    response={200: Page[s.NotebookEntryOut], 401: ErrorOut},
+    summary="Sổ tay từ vựng",
+    description="Danh sách mục sổ tay (lọc theo `tag`), kèm trạng thái SRS mỗi từ.",
+)
+def notebook_list(
+    request,
+    tag: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    user = request.auth
+    profile = ensure_profile(user)
+    qs = NotebookEntry.objects.filter(user=user).select_related("vocabulary")
+    if tag:
+        qs = qs.filter(tags__contains=[tag])
+    qs = qs.order_by("-created_at")
+    count = qs.count()
+    items = list(qs[offset : offset + limit])
+    srs = dict(
+        SRSCard.objects.filter(
+            user=user, vocabulary_id__in=[e.vocabulary_id for e in items if e.vocabulary_id]
+        ).values_list("vocabulary_id", "state")
+    )
+    return Page(
+        items=[_notebook_out(e, profile.accent, srs) for e in items],
+        count=count,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/learn/notebook",
+    response={200: s.NotebookEntryOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    summary="Lưu từ vào sổ tay",
+    description="Free ≤100, Premium ≤4.000 → `notebook_limit`. Trùng từ thì cập nhật ghi chú/tag.",
+)
+def notebook_add(request, payload: s.NotebookCreateIn):
+    user = request.auth
+    profile = ensure_profile(user)
+
+    vocab = None
+    if payload.vocab_id is not None:
+        vocab = Vocabulary.objects.filter(id=payload.vocab_id).first()
+        if vocab is None:
+            raise NotFound("Không tìm thấy từ vựng")
+
+    existing = None
+    if vocab is not None:
+        existing = NotebookEntry.objects.filter(user=user, vocabulary=vocab).first()
+
+    if existing is None:
+        limit = NOTEBOOK_LIMITS[profile.is_premium]
+        if NotebookEntry.objects.filter(user=user).count() >= limit:
+            raise Forbidden(f"Sổ tay đã đầy (tối đa {limit} từ)", code="notebook_limit")
+
+    entry, _ = NotebookEntry.objects.update_or_create(
+        user=user,
+        vocabulary=vocab,
+        custom_word=payload.custom_word if vocab is None else "",
+        defaults={
+            "custom_meaning": payload.custom_meaning if vocab is None else "",
+            "note": payload.note,
+            "tags": payload.tags,
+        },
+    )
+    srs = {}
+    if vocab is not None:
+        state = (
+            SRSCard.objects.filter(user=user, vocabulary=vocab)
+            .values_list("state", flat=True)
+            .first()
+        )
+        if state is not None:
+            srs[vocab.id] = state
+    return _notebook_out(entry, profile.accent, srs)
+
+
+@router.delete(
+    "/learn/notebook/{id}",
+    response={204: None, 401: ErrorOut, 404: ErrorOut},
+    summary="Xoá mục sổ tay",
+    description="Chỉ xoá mục của chính người dùng.",
+)
+def notebook_delete(request, id: int):
+    user = request.auth
+    ensure_profile(user)
+    deleted, _ = NotebookEntry.objects.filter(user=user, id=id).delete()
+    if not deleted:
+        raise NotFound("Không tìm thấy mục sổ tay")
+    return HttpResponse(status=204)

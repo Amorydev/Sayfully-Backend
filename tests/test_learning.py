@@ -217,3 +217,83 @@ def test_review_stats(api, token, user, levels):
     body = api.get("/learn/review/stats", token=token).json()
     assert body["studied"] == 1 and body["reviewed_today"] == 1
     assert body["retention_percent"] == 100
+
+
+# --------------------------------------------------------------- vocab status + notebook
+def test_vocab_status(api, token, user, levels):
+    from django.utils import timezone as djtz
+
+    from apps.content.models import Topic, Vocabulary
+    from apps.learning.models import SRSCard
+
+    a1, _ = levels
+    a1.word_target = 10
+    a1.save()
+    t = Topic.objects.create(code="travel", name_vi="Du lịch", name_en="Travel")
+    v1 = Vocabulary.objects.create(headword="a", pos="n", level=a1, meaning_vi="x")
+    v2 = Vocabulary.objects.create(headword="b", pos="n", level=a1, meaning_vi="y")
+    v1.topics.add(t)
+    v2.topics.add(t)
+    SRSCard.objects.create(user=user, vocabulary=v1, due_at=djtz.now(), state=2)  # đã vững
+    SRSCard.objects.create(
+        user=user, vocabulary=v2, due_at=djtz.now(), state=1
+    )  # đang học, đến hạn
+    api.post("/learn/notebook", {"vocab_id": v1.id, "tags": ["IELTS"]}, token=token)
+
+    body = api.get("/learn/vocabulary/status?level=A1", token=token).json()
+    assert body["summary"] == {
+        "total": 10,
+        "studied": 2,
+        "mastered": 1,
+        "learning": 1,
+        "due_today": 2,
+        "percent": 20,
+    }
+    assert v1.id in body["learned_ids"] and v1.id in body["fav_ids"]
+    assert v2.id in body["due_ids"]
+    assert body["notebook"] == {"total": 1, "categories": 1}
+    assert body["topics"][0] == {"id": t.id, "done": 2, "total": 2}
+
+
+def test_notebook_add_list_delete(api, token, user, levels):
+    from apps.content.models import Vocabulary
+
+    a1, _ = levels
+    v = Vocabulary.objects.create(
+        headword="apple", pos="n", level=a1, meaning_vi="táo", ipa_us="/æ/"
+    )
+    r = api.post(
+        "/learn/notebook", {"vocab_id": v.id, "note": "hay", "tags": ["IELTS"]}, token=token
+    )
+    eid = r.json()["id"]
+    assert r.json()["headword"] == "apple" and r.json()["tags"] == ["IELTS"]
+    assert api.get("/learn/notebook", token=token).json()["count"] == 1
+    assert api.get("/learn/notebook?tag=IELTS", token=token).json()["count"] == 1
+    assert api.get("/learn/notebook?tag=XXX", token=token).json()["count"] == 0
+    assert api.delete(f"/learn/notebook/{eid}", token=token).status_code == 204
+    assert api.delete(f"/learn/notebook/{eid}", token=token).status_code == 404
+
+
+def test_notebook_duplicate_updates(api, token, user, levels):
+    from apps.content.models import Vocabulary
+    from apps.learning.models import NotebookEntry
+
+    a1, _ = levels
+    v = Vocabulary.objects.create(headword="apple", pos="n", level=a1, meaning_vi="táo")
+    api.post("/learn/notebook", {"vocab_id": v.id, "note": "one"}, token=token)
+    api.post("/learn/notebook", {"vocab_id": v.id, "note": "two"}, token=token)
+    assert NotebookEntry.objects.filter(user=user).count() == 1
+    assert NotebookEntry.objects.get(user=user).note == "two"
+
+
+def test_notebook_limit_403(api, token, user, levels, monkeypatch):
+    from apps.content.models import Vocabulary
+    from apps.learning import api as lapi
+
+    monkeypatch.setattr(lapi, "NOTEBOOK_LIMITS", {False: 1, True: 1})
+    a1, _ = levels
+    v1 = Vocabulary.objects.create(headword="a", pos="n", level=a1, meaning_vi="x")
+    v2 = Vocabulary.objects.create(headword="b", pos="n", level=a1, meaning_vi="y")
+    api.post("/learn/notebook", {"vocab_id": v1.id}, token=token)
+    r = api.post("/learn/notebook", {"vocab_id": v2.id}, token=token)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "notebook_limit"
