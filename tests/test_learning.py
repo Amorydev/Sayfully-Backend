@@ -346,3 +346,97 @@ def test_skills_overview_va_goi_y(api, token, user, levels):
     kinds = {sk["kind"] for sk in body["skills"]}
     assert kinds == {"speaking", "listening", "reading", "writing"}
     assert body["suggestion"]["kind"] != "speaking"  # gợi ý kỹ năng yếu nhất, không phải nói
+
+
+# --------------------------------------------------------------- preferences / avatar
+def test_preferences_partial_update(api, token, user):
+    body = api.patch(
+        "/me/preferences",
+        {"accent": "UK", "daily_goal_words": 20, "reminder_time": "07:30", "full_name": "Quyền"},
+        token=token,
+    ).json()
+    assert body["accent"] == "UK" and body["daily_goal_words"] == 20
+    assert body["reminder_time"] == "07:30" and body["full_name"] == "Quyền"
+    user.profile.refresh_from_db()
+    assert user.profile.accent == "UK" and user.profile.daily_goal_words == 20
+
+
+def test_preferences_accent_sai_422(api, token, user):
+    assert api.patch("/me/preferences", {"accent": "XX"}, token=token).status_code == 422
+
+
+def test_preferences_reminder_time_sai_422(api, token, user):
+    r = api.patch("/me/preferences", {"reminder_time": "25h"}, token=token)
+    assert r.status_code == 422
+
+
+def test_avatar_upload(client, token, user, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from apps.learning import api as lapi
+
+    monkeypatch.setattr(lapi, "upload_avatar", lambda key, data, ct: key)
+    f = SimpleUploadedFile("a.png", b"imgdata", content_type="image/png")
+    r = client.post(
+        "/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert r.json()["avatar_url"].endswith(f"avatars/{user.id}.png")
+    user.refresh_from_db()
+    assert user.avatar_path == f"avatars/{user.id}.png"
+
+
+def test_avatar_type_sai_415(client, token, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from apps.learning import api as lapi
+
+    monkeypatch.setattr(lapi, "upload_avatar", lambda key, data, ct: key)
+    f = SimpleUploadedFile("a.gif", b"x", content_type="image/gif")
+    r = client.post(
+        "/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 415
+
+
+# --------------------------------------------------------------- placement
+def _placement_qs(a1):
+    from apps.learning.models import PlacementQuestion
+
+    for i in range(3):
+        PlacementQuestion.objects.create(
+            order=i + 1, skill="vocab", level="A1", prompt_en=f"Q{i}",
+            options=["a", "b"], answer_index=0,
+        )
+    for i in range(3):
+        PlacementQuestion.objects.create(
+            order=i + 4, skill="grammar", level="A2", prompt_en=f"G{i}",
+            options=["a", "b"], answer_index=1,
+        )
+
+
+def test_placement_questions_khong_lo_dap_an(api, token, levels):
+    a1, _ = levels
+    _placement_qs(a1)
+    body = api.get("/placement/questions", token=token).json()
+    assert len(body) == 6
+    assert "answer_index" not in body[0]  # không lộ đáp án
+
+
+def test_placement_submit_cham_va_de_xuat(api, token, user, levels):
+    from apps.content.models import Unit
+    from apps.learning.models import PlacementQuestion
+
+    a1, a2 = levels
+    Unit.objects.create(level=a2, order=1, code="a2-u1", title_vi="U", title_en="U")
+    _placement_qs(a1)
+    qs = list(PlacementQuestion.objects.order_by("order"))
+    # trả lời đúng hết A1 (answer 0) và A2 (answer 1) -> đề xuất A2
+    answers = [{"question_id": q.id, "answer": q.answer_index} for q in qs]
+    body = api.post("/placement/submit", answers, token=token).json()
+    assert body["suggested_level"] == "A2"
+    assert body["start_unit_code"] == "a2-u1"
+    skills = {s["skill"]: s for s in body["skill_scores"]}
+    assert skills["vocab"]["correct"] == 3 and skills["grammar"]["correct"] == 3
+    user.profile.refresh_from_db()
+    assert user.profile.cefr_level == "A2"
