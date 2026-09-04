@@ -459,3 +459,17 @@ class ShadowingSentence(models.Model):
 
     def __str__(self) -> str:
         return str(self.text_en)
+
+
+class ContentBundle(models.Model):
+    """Bản đóng gói JSON tĩnh của 1 cấp trên CDN (G5). Manifest ghép từ các dòng này."""
+
+    level = models.OneToOneField(Level, on_delete=models.CASCADE, related_name="bundle")
+    version = models.PositiveIntegerField(default=1)
+    url = models.CharField(max_length=255)
+    checksum = models.CharField(max_length=64)  # sha256 hex
+    size = models.PositiveIntegerField(default=0)
+    built_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.level_id} v{self.version}"
