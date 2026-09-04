@@ -8,9 +8,11 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone as djtz
 from ninja import Header, Query, Router
 
+from apps.accounts.models import User
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Conflict, NotFound
 from apps.common.schemas import ErrorOut
@@ -24,6 +26,8 @@ from .models import (
     Badge,
     Challenge,
     CoinTransaction,
+    Game,
+    GameScore,
     LeagueMembership,
     ShopItem,
     UserBadge,
@@ -68,10 +72,7 @@ def _list_challenges(request, scope):
     today = learn.local_today(profile)
     dailies = _dailies(user, scope, today)
     pk = services.period_key(scope, today)
-    claims = {
-        uc.challenge_id: uc
-        for uc in UserChallenge.objects.filter(user=user, period_key=pk)
-    }
+    claims = {uc.challenge_id: uc for uc in UserChallenge.objects.filter(user=user, period_key=pk)}
     return [
         _challenge_out(ch, services.challenge_progress(ch, dailies), claims.get(ch.id))
         for ch in Challenge.objects.filter(scope=scope, is_active=True).order_by("tier", "code")
@@ -229,18 +230,32 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
             if ws.user_id == user.id:
                 my_rank = i + 1
         return s.LeaderboardOut(
-            scope="global", tier="", time_left_sec=_week_left(now), promote_top=0,
-            safe_top=0, my_rank=my_rank, xp_to_promote=0, entries=entries,
+            scope="global",
+            tier="",
+            time_left_sec=_week_left(now),
+            promote_top=0,
+            safe_top=0,
+            my_rank=my_rank,
+            xp_to_promote=0,
+            entries=entries,
         )
 
     group, ranked, xp_map, my_rank, _, xp_to_promote = _league_ranking(user)
     entries = [
-        _entry(i + 1, mm.user, getattr(mm.user, "profile", None), xp_map.get(mm.user_id, 0), user.id)
+        _entry(
+            i + 1, mm.user, getattr(mm.user, "profile", None), xp_map.get(mm.user_id, 0), user.id
+        )
         for i, mm in enumerate(ranked)
     ]
     return s.LeaderboardOut(
-        scope="league", tier=group.get_tier_display(), time_left_sec=_week_left(now),
-        promote_top=5, safe_top=20, my_rank=my_rank, xp_to_promote=xp_to_promote, entries=entries,
+        scope="league",
+        tier=group.get_tier_display(),
+        time_left_sec=_week_left(now),
+        promote_top=5,
+        safe_top=20,
+        my_rank=my_rank,
+        xp_to_promote=xp_to_promote,
+        entries=entries,
     )
 
 
@@ -308,8 +323,10 @@ def shop_purchase(
     ).first()
     if existing:
         return s.PurchaseResultOut(
-            item_code=item.code, coins_spent=-existing.amount,
-            balance=existing.balance_after, effect=item.effect or {},
+            item_code=item.code,
+            coins_spent=-existing.amount,
+            balance=existing.balance_after,
+            effect=item.effect or {},
         )
     if profile.coins < item.cost_coins:
         raise Conflict("Không đủ xu", code="insufficient_coins")
@@ -323,8 +340,12 @@ def shop_purchase(
             profile.streak_freezes += int(eff["streak_freeze"])
         profile.save(update_fields=["coins", "hearts", "streak_freezes"])
         CoinTransaction.objects.create(
-            user=user, amount=-item.cost_coins, reason="shop_purchase",
-            ref_type="shop_purchase", ref_id=idempotency_key, balance_after=profile.coins,
+            user=user,
+            amount=-item.cost_coins,
+            reason="shop_purchase",
+            ref_type="shop_purchase",
+            ref_id=idempotency_key,
+            balance_after=profile.coins,
         )
     return s.PurchaseResultOut(
         item_code=item.code, coins_spent=item.cost_coins, balance=profile.coins, effect=eff
@@ -337,9 +358,7 @@ def shop_purchase(
     summary="Sổ cái xu",
     description="Lịch sử giao dịch xu (mới nhất trước).",
 )
-def coin_transactions(
-    request, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)
-):
+def coin_transactions(request, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
     user = request.auth
     ensure_profile(user)
     qs = CoinTransaction.objects.filter(user=user).order_by("-created_at")
@@ -348,12 +367,131 @@ def coin_transactions(
     return Page(
         items=[
             s.CoinTxOut(
-                amount=t.amount, reason=t.reason, ref_type=t.ref_type, ref_id=t.ref_id,
-                balance_after=t.balance_after, created_at=t.created_at,
+                amount=t.amount,
+                reason=t.reason,
+                ref_type=t.ref_type,
+                ref_id=t.ref_id,
+                balance_after=t.balance_after,
+                created_at=t.created_at,
             )
             for t in items
         ],
         count=count,
         limit=limit,
         offset=offset,
+    )
+
+
+# =============================================================== mini-games (C12, C31, C32)
+@router.get(
+    "/games",
+    response={200: list[s.GameOut], 401: ErrorOut},
+    summary="Danh sách trò chơi",
+    description="Trò chơi + kỷ lục cá nhân.",
+)
+def games(request):
+
+    user = request.auth
+    ensure_profile(user)
+    best = dict(
+        GameScore.objects.filter(user=user)
+        .values_list("game")
+        .annotate(m=Max("score"))
+        .values_list("game", "m")
+    )
+    return [
+        s.GameOut(
+            id=g.id,
+            code=g.code,
+            title_vi=g.title_vi,
+            description_vi=g.description_vi,
+            kind=g.kind,
+            icon_url=_media(g.icon_path),
+            min_level=g.min_level,
+            is_featured=g.is_featured,
+            personal_best=best.get(g.id, 0),
+        )
+        for g in Game.objects.filter(is_active=True).order_by("order")
+    ]
+
+
+@router.post(
+    "/games/{code}/scores",
+    response={200: s.GameScoreResultOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    summary="Nộp điểm ván chơi",
+    description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile.",
+)
+def submit_score(request, code: str, payload: s.GameScoreIn):
+
+    user = request.auth
+    profile = ensure_profile(user)
+    game = Game.objects.filter(code=code, is_active=True).first()
+    if game is None:
+        raise NotFound("Không tìm thấy trò chơi")
+
+    prev_best = GameScore.objects.filter(user=user, game=game).aggregate(m=Max("score"))["m"] or 0
+    coins = min(15, payload.score // 80)
+    xp = min(10, payload.score // 100)
+    with transaction.atomic():
+        learn.record(
+            profile, xp=xp, coins=coins, coin_reason="game", ref_type="game", ref_id=game.code
+        )
+        GameScore.objects.create(
+            user=user,
+            game=game,
+            level=profile.cefr_level,
+            score=payload.score,
+            coins_earned=coins,
+        )
+    total = GameScore.objects.filter(game=game).count()
+    below = GameScore.objects.filter(game=game, score__lt=payload.score).count()
+    return s.GameScoreResultOut(
+        score=payload.score,
+        coins_earned=coins,
+        xp_earned=xp,
+        is_record=payload.score > prev_best,
+        personal_best=max(prev_best, payload.score),
+        percentile=round(below / total * 100) if total else 0,
+    )
+
+
+@router.get(
+    "/games/leaderboard",
+    response={200: s.LeaderboardOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Bảng xếp hạng trò chơi",
+    description="Điểm cao nhất mỗi người cho một trò (`code`); `period=week|all`.",
+)
+def game_leaderboard(request, code: str, period: str = "week"):
+
+    user = request.auth
+    ensure_profile(user)
+    game = Game.objects.filter(code=code).first()
+    if game is None:
+        raise NotFound("Không tìm thấy trò chơi")
+    now = djtz.now()
+    qs = GameScore.objects.filter(game=game)
+    if period == "week":
+        qs = qs.filter(played_at__gte=now - timedelta(days=now.weekday()))
+    rows = list(qs.values_list("user_id").annotate(best=Max("score")).order_by("-best")[:50])
+
+    users = {
+        u.id: u for u in User.objects.filter(id__in=[r[0] for r in rows]).select_related("profile")
+    }
+    entries, my_rank = [], 0
+    for i, (uid, best) in enumerate(rows):
+        u = users.get(uid)
+        if u is None:
+            continue
+        entries.append(_entry(i + 1, u, getattr(u, "profile", None), best, user.id))
+        if uid == user.id:
+            my_rank = i + 1
+    return s.LeaderboardOut(
+        scope="game",
+        tier="",
+        time_left_sec=_week_left(now),
+        promote_top=0,
+        safe_top=0,
+        my_rank=my_rank,
+        xp_to_promote=0,
+        entries=entries,
     )

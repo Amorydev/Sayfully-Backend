@@ -184,3 +184,51 @@ def test_coin_transactions(client, api, token, user):
     _purchase(client, token, item.id, "key1")
     body = api.get("/coins/transactions", token=token).json()
     assert body["count"] == 1 and body["items"][0]["amount"] == -100
+
+
+# --------------------------------------------------------------- mini-games
+def _game(code="word_rain"):
+    from apps.gamification.models import Game
+
+    return Game.objects.create(code=code, title_vi="Mưa từ", description_vi="x", kind="reflex")
+
+
+def test_games_list(api, token, user):
+    from apps.gamification.models import GameScore
+
+    g = _game()
+    GameScore.objects.create(user=user, game=g, level="A1", score=500)
+    body = api.get("/games", token=token).json()
+    assert body[0]["code"] == "word_rain" and body[0]["personal_best"] == 500
+
+
+def test_submit_score(api, token, user):
+    _game()
+    body = api.post("/games/word_rain/scores", {"score": 800, "duration_sec": 60}, token=token).json()
+    assert body["coins_earned"] == 10 and body["xp_earned"] == 8
+    assert body["is_record"] is True and body["personal_best"] == 800
+    user.profile.refresh_from_db()
+    assert user.profile.coins == 10
+
+
+def test_submit_score_khong_ky_luc(api, token, user):
+    from apps.gamification.models import GameScore
+
+    g = _game()
+    GameScore.objects.create(user=user, game=g, level="A1", score=900)
+    body = api.post("/games/word_rain/scores", {"score": 500}, token=token).json()
+    assert body["is_record"] is False and body["personal_best"] == 900
+
+
+def test_submit_score_game_khong_ton_tai_404(api, token, user):
+    assert api.post("/games/nope/scores", {"score": 100}, token=token).status_code == 404
+
+
+def test_game_leaderboard(api, token, user):
+    from apps.gamification.models import GameScore
+
+    g = _game()
+    GameScore.objects.create(user=user, game=g, level="A1", score=700)
+    body = api.get("/games/leaderboard?code=word_rain&period=all", token=token).json()
+    assert body["scope"] == "game"
+    assert body["entries"][0]["xp_week"] == 700 and body["entries"][0]["is_me"] is True

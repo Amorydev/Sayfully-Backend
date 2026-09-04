@@ -92,3 +92,30 @@ class CoinTxOut(Schema):
     ref_id: str
     balance_after: int
     created_at: datetime
+
+
+# --------------------------------------------------------------- mini-games (C12, C31, C32)
+class GameOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    description_vi: str
+    kind: str
+    icon_url: str | None
+    min_level: str
+    is_featured: bool
+    personal_best: int
+
+
+class GameScoreIn(Schema):
+    score: int
+    duration_sec: int = 0
+
+
+class GameScoreResultOut(Schema):
+    score: int
+    coins_earned: int
+    xp_earned: int
+    is_record: bool
+    personal_best: int
+    percentile: int
