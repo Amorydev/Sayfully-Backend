@@ -1,0 +1,154 @@
+"""Schema G4 — chunk vòng học (home, path, lesson start/complete/progress)."""
+
+from datetime import datetime
+
+from ninja import Schema
+
+
+# --------------------------------------------------------------- home (C1, §5.7)
+class HomeProfileOut(Schema):
+    name: str
+    avatar_url: str | None
+    cefr_level: str
+    level: int
+    level_label: str
+    xp: int
+    coins: int
+    hearts: int
+    streak_days: int
+    is_premium: bool
+
+
+class DailyGoalOut(Schema):
+    words_done: int
+    words_target: int
+    minutes: int
+    xp: int
+    xp_target: int
+    percent: int
+
+
+class CurrentLessonOut(Schema):
+    code: str
+    level: str
+    unit_title: str
+    title_vi: str
+    percent: int
+    minutes_left: int
+
+
+class HomeChallengeOut(Schema):
+    id: int
+    title: str
+    current: int
+    target: int
+    reward_coins: int
+
+
+class HomeChallengesOut(Schema):
+    done: int
+    total: int
+    reward_coins: int
+    items: list[HomeChallengeOut]
+
+
+class HomeRankOut(Schema):
+    league_tier: str
+    rank: int
+    xp_week: int
+
+
+class HomeOut(Schema):
+    profile: HomeProfileOut
+    unread_notifications: int
+    due_review_count: int
+    daily_goal: DailyGoalOut
+    current_lesson: CurrentLessonOut | None
+    challenges: HomeChallengesOut
+    rank: HomeRankOut | None
+
+
+# --------------------------------------------------------------- learn path (C2)
+class PathLessonOut(Schema):
+    id: int
+    code: str
+    order: int
+    title_vi: str
+    est_minutes: int
+    xp_reward: int
+    status: str  # not_started | in_progress | completed
+    stars: int
+    is_locked: bool
+
+
+class PathUnitOut(Schema):
+    id: int
+    order: int
+    code: str
+    title_vi: str
+    title_en: str
+    reward: dict
+    lesson_count: int
+    done_count: int
+    lessons: list[PathLessonOut]
+
+
+class PathOut(Schema):
+    level: str
+    units: list[PathUnitOut]
+
+
+# --------------------------------------------------------------- lesson flow
+class LessonCompleteIn(Schema):
+    correct_count: int = 0
+    total: int = 0
+    duration_sec: int = 0
+
+
+class LessonProgressOut(Schema):
+    code: str
+    status: str
+    step_index: int
+    correct_count: int
+    total_questions: int
+    stars: int
+    xp_earned: int
+    completed_at: datetime | None
+
+
+class DayProgressOut(Schema):
+    label: str
+    active: bool
+    is_today: bool
+
+
+class MilestoneOut(Schema):
+    name: str
+    target_days: int
+    days_left: int
+
+
+class KeyVocabOut(Schema):
+    id: int
+    headword: str
+    ipa: str
+    meaning_vi: str
+
+
+class LessonResultOut(Schema):
+    code: str
+    percent: int
+    correct_count: int
+    total: int
+    stars: int
+    xp_earned: int
+    coins_earned: int
+    streak_days: int
+    is_streak_record: bool
+    leveled_up: bool
+    level: int
+    week_progress: list[DayProgressOut]
+    milestone: MilestoneOut | None
+    key_vocab: list[KeyVocabOut]
+    srs_cards_created: int
+    next_lesson_code: str | None

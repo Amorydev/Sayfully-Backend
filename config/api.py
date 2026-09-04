@@ -12,6 +12,7 @@ from apps.accounts.api import router as auth_router
 from apps.accounts.auth import bearer_auth
 from apps.common.exceptions import register_exception_handlers
 from apps.content.api import router as content_router
+from apps.learning.api import router as learning_router
 
 DESCRIPTION = """
 Backend học tiếng Anh cho người Việt, theo khung CEFR **A1 → C2**.
@@ -53,6 +54,7 @@ Bảng mã lỗi đầy đủ theo từng nhóm: `ENDPOINTS.md` §13.
 TAGS = [
     {"name": "auth", "description": "Đăng ký, đăng nhập, token, mật khẩu, xoá tài khoản."},
     {"name": "content", "description": "Nội dung học: lộ trình, từ vựng, ngữ pháp, đọc, truyện, video, tra cứu."},
+    {"name": "learning", "description": "Lõi học tập: trang chủ, lộ trình, bài học, ôn tập, hoạt động."},
 ]
 
 api = NinjaAPI(
@@ -68,3 +70,4 @@ register_exception_handlers(api)
 
 api.add_router("/auth", auth_router, tags=["auth"])
 api.add_router("/content", content_router, auth=bearer_auth, tags=["content"])
+api.add_router("", learning_router, auth=bearer_auth, tags=["learning"])

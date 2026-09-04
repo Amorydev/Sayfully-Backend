@@ -168,9 +168,7 @@ class UserSkill(models.Model):
     level = models.PositiveSmallIntegerField(default=1)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "kind"], name="uniq_user_skill")
-        ]
+        constraints = [models.UniqueConstraint(fields=["user", "kind"], name="uniq_user_skill")]
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.kind} · Lv{self.level}"
