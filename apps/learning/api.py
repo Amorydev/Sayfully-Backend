@@ -12,10 +12,11 @@ from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone as djtz
-from ninja import Query, Router
+from ninja import File, Query, Router
+from ninja.files import UploadedFile
 
 from apps.accounts.services import ensure_profile
-from apps.common.exceptions import Forbidden, NotFound
+from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.schemas import ErrorOut
 from apps.content.models import Lesson, Level, Topic, Unit, Vocabulary
 from apps.content.schemas import Page
@@ -28,10 +29,30 @@ from .models import (
     DailyActivity,
     LessonProgress,
     NotebookEntry,
+    PlacementAttempt,
+    PlacementQuestion,
     SRSCard,
     SRSReviewLog,
     UserSkill,
 )
+
+_CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_AVATAR_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_AVATAR_MAX = 5 * 1024 * 1024
+
+
+def upload_avatar(key: str, data: bytes, content_type: str) -> str:
+    import boto3  # noqa: PLC0415
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+        region_name="auto",
+    )
+    client.put_object(Bucket=settings.R2_BUCKET, Key=key, Body=data, ContentType=content_type)
+    return key
 
 router = Router()
 
@@ -848,3 +869,166 @@ def skills(request):
         kind=weakest.kind, title=_SKILL_LABELS[weakest.kind], est_minutes=4, xp=10
     )
     return s.SkillsOverviewOut(skills=out, suggestion=suggestion)
+
+
+# =============================================================== me preferences + avatar
+def _preferences_out(user, profile) -> s.PreferencesOut:
+    return s.PreferencesOut(
+        full_name=user.full_name,
+        goal_level=profile.goal_level,
+        cefr_level=profile.cefr_level,
+        accent=profile.accent,
+        show_ipa=profile.show_ipa,
+        daily_goal_xp=profile.daily_goal_xp,
+        daily_goal_words=profile.daily_goal_words,
+        timezone=profile.timezone,
+        ui_language=profile.ui_language,
+        reminder_enabled=profile.reminder_enabled,
+        reminder_time=profile.reminder_time.strftime("%H:%M"),
+        streak_reminder=profile.streak_reminder,
+        event_notifications=profile.event_notifications,
+        is_premium=profile.is_premium,
+    )
+
+
+@router.patch(
+    "/me/preferences",
+    response={200: s.PreferencesOut, 401: ErrorOut, 422: ErrorOut},
+    summary="Cập nhật tuỳ chọn (partial)",
+    description="Chỉ gửi trường cần đổi. `reminder_time` dạng 'HH:MM'.",
+)
+def update_preferences(request, payload: s.MePreferencesIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    data = payload.dict(exclude_unset=True)
+
+    if "full_name" in data:
+        user.full_name = data.pop("full_name")
+        user.save(update_fields=["full_name"])
+
+    if "reminder_time" in data:
+        try:
+            hh, mm = data["reminder_time"].split(":")
+            data["reminder_time"] = dtime(int(hh), int(mm))
+        except (ValueError, AttributeError) as e:
+            raise AppError(
+                "Giờ nhắc không hợp lệ (HH:MM)",
+                code="validation_error",
+                status_code=422,
+                details={"reminder_time": ["Định dạng HH:MM"]},
+            ) from e
+
+    for field, value in data.items():
+        setattr(profile, field, value)
+    if data:
+        profile.save()
+    return _preferences_out(user, profile)
+
+
+@router.post(
+    "/me/avatar",
+    response={200: s.AvatarOut, 401: ErrorOut, 413: ErrorOut, 415: ErrorOut},
+    summary="Tải ảnh đại diện",
+    description="Ảnh JPEG/PNG/WebP ≤ 5MB → upload R2, ghi đường dẫn hồ sơ.",
+)
+def avatar(request, file: UploadedFile = File(...)):
+    user = request.auth
+    ensure_profile(user)
+    ext = _AVATAR_TYPES.get(file.content_type)
+    if ext is None:
+        raise AppError(
+            "Chỉ nhận ảnh JPEG/PNG/WebP", code="unsupported_media_type", status_code=415
+        )
+    data = file.read()
+    if len(data) > _AVATAR_MAX:
+        raise AppError("Ảnh quá lớn (tối đa 5MB)", code="payload_too_large", status_code=413)
+    key = f"avatars/{user.id}.{ext}"
+    upload_avatar(key, data, file.content_type)
+    user.avatar_path = key
+    user.save(update_fields=["avatar_path"])
+    return s.AvatarOut(avatar_url=_media(key))
+
+
+# =============================================================== placement (C23)
+_PLACEMENT_LABELS = {"vocab": "Từ vựng", "grammar": "Ngữ pháp", "listening": "Nghe"}
+
+
+@router.get(
+    "/placement/questions",
+    response={200: list[s.PlacementQuestionOut], 401: ErrorOut},
+    summary="Câu hỏi xếp lớp đầu vào",
+    description="~12 câu, KHÔNG lộ đáp án. Chấm ở server sau khi nộp.",
+)
+def placement_questions(request):
+    ensure_profile(request.auth)
+    qs = PlacementQuestion.objects.filter(is_active=True).order_by("order")[:12]
+    return [
+        s.PlacementQuestionOut(
+            id=q.id,
+            order=q.order,
+            skill=q.skill,
+            prompt_en=q.prompt_en,
+            options=q.options,
+            audio_url=_media(q.audio_path),
+        )
+        for q in qs
+    ]
+
+
+@router.post(
+    "/placement/submit",
+    response={200: s.PlacementResultOut, 401: ErrorOut, 422: ErrorOut},
+    summary="Nộp bài xếp lớp",
+    description="Chấm server → cấp đề xuất + unit bắt đầu + điểm theo kỹ năng + số ngày tiết kiệm.",
+)
+def placement_submit(request, payload: list[s.PlacementAnswerIn]):
+    user = request.auth
+    profile = ensure_profile(user)
+    answers = {a.question_id: a.answer for a in payload}
+    questions = {q.id: q for q in PlacementQuestion.objects.filter(id__in=answers.keys())}
+
+    by_skill: dict[str, list[int]] = {}
+    by_level: dict[str, list[int]] = {}
+    for qid, ans in answers.items():
+        q = questions.get(qid)
+        if q is None:
+            continue
+        ok = int(ans == q.answer_index)
+        by_skill.setdefault(q.skill, [0, 0])
+        by_skill[q.skill][0] += ok
+        by_skill[q.skill][1] += 1
+        by_level.setdefault(q.level, [0, 0])
+        by_level[q.level][0] += ok
+        by_level[q.level][1] += 1
+
+    suggested = "A1"
+    for lv in _CEFR_ORDER:
+        c, t = by_level.get(lv, [0, 0])
+        if t > 0 and c / t >= 0.6:
+            suggested = lv
+
+    lv_order = _CEFR_ORDER.index(suggested)
+    start_unit = Unit.objects.filter(level_id=suggested).order_by("order").first()
+    skipped = Unit.objects.filter(level__order__lt=lv_order + 1).count()
+
+    PlacementAttempt.objects.create(
+        user=user,
+        answers={str(k): v for k, v in answers.items()},
+        score_by_skill={k: v[0] for k, v in by_skill.items()},
+        suggested_level=suggested,
+        suggested_unit=start_unit,
+    )
+    profile.cefr_level = suggested
+    profile.save(update_fields=["cefr_level"])
+
+    return s.PlacementResultOut(
+        suggested_level=suggested,
+        start_unit_code=start_unit.code if start_unit else None,
+        skill_scores=[
+            s.PlacementSkillScoreOut(
+                skill=k, correct=v[0], total=v[1], label=_PLACEMENT_LABELS.get(k, k)
+            )
+            for k, v in by_skill.items()
+        ],
+        days_saved=skipped * 2,
+    )

@@ -308,3 +308,73 @@ class PracticeSuggestionOut(Schema):
 class SkillsOverviewOut(Schema):
     skills: list[SkillProgressOut]
     suggestion: PracticeSuggestionOut | None
+
+
+# --------------------------------------------------------------- me preferences (C49, C21, C22)
+_CEFR = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
+
+
+class MePreferencesIn(Schema):
+    goal_level: _CEFR | None = None
+    cefr_level: _CEFR | None = None
+    accent: Literal["US", "UK"] | None = None
+    show_ipa: bool | None = None
+    daily_goal_xp: int | None = None
+    daily_goal_words: int | None = None
+    timezone: str | None = None
+    full_name: str | None = None
+    ui_language: str | None = None
+    reminder_enabled: bool | None = None
+    reminder_time: str | None = None  # "HH:MM"
+    streak_reminder: bool | None = None
+    event_notifications: bool | None = None
+
+
+class PreferencesOut(Schema):
+    full_name: str
+    goal_level: str
+    cefr_level: str
+    accent: str
+    show_ipa: bool
+    daily_goal_xp: int
+    daily_goal_words: int
+    timezone: str
+    ui_language: str
+    reminder_enabled: bool
+    reminder_time: str
+    streak_reminder: bool
+    event_notifications: bool
+    is_premium: bool
+
+
+class AvatarOut(Schema):
+    avatar_url: str
+
+
+# --------------------------------------------------------------- placement (C23)
+class PlacementQuestionOut(Schema):
+    id: int
+    order: int
+    skill: str
+    prompt_en: str
+    options: list[str]
+    audio_url: str | None
+
+
+class PlacementAnswerIn(Schema):
+    question_id: int
+    answer: int
+
+
+class PlacementSkillScoreOut(Schema):
+    skill: str
+    correct: int
+    total: int
+    label: str
+
+
+class PlacementResultOut(Schema):
+    suggested_level: str
+    start_unit_code: str | None
+    skill_scores: list[PlacementSkillScoreOut]
+    days_saved: int

@@ -49,6 +49,12 @@ class ApiClient:
     def get(self, path, token=None):
         return self.client.get(f"/api/v1{path}", headers=self._headers(token))
 
+    def patch(self, path, data=None, token=None):
+        return self.client.patch(
+            f"/api/v1{path}", data=data or {}, content_type="application/json",
+            headers=self._headers(token),
+        )
+
     def delete(self, path, token=None):
         return self.client.delete(f"/api/v1{path}", headers=self._headers(token))
 
