@@ -35,7 +35,9 @@ class Unit(models.Model):
     title_vi = models.CharField(max_length=128)
     title_en = models.CharField(max_length=128)
     description_vi = models.CharField(max_length=255, blank=True)
-    reward = models.JSONField(default=dict, blank=True)  # rương: {"coins": 150, "badge_code": "..."}
+    reward = models.JSONField(
+        default=dict, blank=True
+    )  # rương: {"coins": 150, "badge_code": "..."}
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["level", "order"], name="uniq_unit_order")]
