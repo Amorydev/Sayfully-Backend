@@ -4,7 +4,7 @@ Mọi thay đổi XP/xu/tim/streak đi qua `services.record`. `complete` idempot
 không cộng đôi). Chi tiết A2–C2 cần Premium; bài khoá theo lộ trình → `lesson_locked`.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
@@ -19,12 +19,19 @@ from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
 from apps.content.models import Lesson, Level, Topic, Unit, Vocabulary
 from apps.content.schemas import Page
-from apps.gamification.models import Badge, UserBadge
+from apps.gamification.models import Badge, CoinTransaction, UserBadge
 from apps.notifications.models import Notification
 
 from . import schemas as s
 from . import services
-from .models import DailyActivity, LessonProgress, NotebookEntry, SRSCard, SRSReviewLog
+from .models import (
+    DailyActivity,
+    LessonProgress,
+    NotebookEntry,
+    SRSCard,
+    SRSReviewLog,
+    UserSkill,
+)
 
 router = Router()
 
@@ -716,3 +723,128 @@ def notebook_delete(request, id: int):
     if not deleted:
         raise NotFound("Không tìm thấy mục sổ tay")
     return HttpResponse(status=204)
+
+
+# =============================================================== activity / practice / checkin / skills
+_SKILL_LABELS = {
+    "speaking": "Luyện nói",
+    "listening": "Luyện nghe",
+    "reading": "Đọc hiểu",
+    "writing": "Luyện viết",
+}
+
+
+@router.post(
+    "/learn/checkin",
+    response={200: s.CheckinOut, 401: ErrorOut},
+    summary="Điểm danh hàng ngày (idempotent)",
+    description="Lần đầu trong ngày: +5 XP, +10 xu, giữ streak. Gọi lại trong ngày: `already=true`.",
+)
+def checkin(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    today = services.local_today(profile)
+    tz = ZoneInfo(profile.timezone)
+    start_today = datetime.combine(today, dtime.min, tz)
+
+    already = CoinTransaction.objects.filter(
+        user=user, reason="checkin", created_at__gte=start_today
+    ).exists()
+    if already:
+        return s.CheckinOut(
+            already=True,
+            xp_earned=0,
+            coins_earned=0,
+            streak_days=profile.streak_current,
+            week=_week_progress(user, today),
+        )
+    reward = services.record(profile, xp=5, coins=10, coin_reason="checkin")
+    return s.CheckinOut(
+        already=False,
+        xp_earned=reward.xp_earned,
+        coins_earned=reward.coins_earned,
+        streak_days=reward.streak_days,
+        week=_week_progress(user, today),
+    )
+
+
+@router.get(
+    "/learn/activity",
+    response={200: list[s.DailyActivityOut], 401: ErrorOut},
+    summary="Lịch hoạt động (streak calendar)",
+    description="Mặc định 30 ngày gần nhất; lọc `from`/`to` (YYYY-MM-DD).",
+)
+def activity(
+    request,
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+):
+    user = request.auth
+    profile = ensure_profile(user)
+    today = services.local_today(profile)
+    lo = from_date or today - timedelta(days=29)
+    hi = to_date or today
+    rows = DailyActivity.objects.filter(user=user, date__gte=lo, date__lte=hi).order_by("date")
+    return [
+        s.DailyActivityOut(
+            date=r.date,
+            xp=r.xp,
+            lessons_completed=r.lessons_completed,
+            words_reviewed=r.words_reviewed,
+            speaking_count=r.speaking_count,
+            minutes=r.minutes,
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/learn/practice",
+    response={200: s.PracticeResultOut, 401: ErrorOut, 422: ErrorOut},
+    summary="Nộp kết quả luyện kỹ năng",
+    description="Server chỉ nhận KẾT QUẢ (chấm phát âm ở máy). Cộng XP theo điểm + nâng UserSkill.",
+)
+def practice(request, payload: s.PracticeIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    xp = max(1, min(15, round(payload.score / 10)))
+    with transaction.atomic():
+        services.record(
+            profile,
+            xp=xp,
+            speaking=1 if payload.kind in ("speaking", "shadowing") else 0,
+            minutes=round(payload.duration_sec / 60),
+        )
+        skill = services.bump_skill(user, payload.kind, xp)
+    return s.PracticeResultOut(
+        xp_earned=xp,
+        skill=skill.kind if skill else None,
+        skill_level=skill.level if skill else None,
+        skill_percent=services.skill_percent(skill.xp) if skill else None,
+    )
+
+
+@router.get(
+    "/learn/skills",
+    response={200: s.SkillsOverviewOut, 401: ErrorOut},
+    summary="Tiến độ 4 kỹ năng (Practice Hub)",
+    description="Tiến độ nói/nghe/đọc/viết + gợi ý luyện kỹ năng yếu nhất hôm nay.",
+)
+def skills(request):
+    user = request.auth
+    ensure_profile(user)
+    existing = {sk.kind: sk for sk in UserSkill.objects.filter(user=user)}
+    out = []
+    for kind in ["speaking", "listening", "reading", "writing"]:
+        sk = existing.get(kind)
+        xp = sk.xp if sk else 0
+        out.append(
+            s.SkillProgressOut(
+                kind=kind, percent=services.skill_percent(xp), level=sk.level if sk else 1
+            )
+        )
+    weakest = min(out, key=lambda x: (x.level, x.percent))
+    suggestion = s.PracticeSuggestionOut(
+        kind=weakest.kind, title=_SKILL_LABELS[weakest.kind], est_minutes=4, xp=10
+    )
+    return s.SkillsOverviewOut(skills=out, suggestion=suggestion)

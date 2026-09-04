@@ -47,6 +47,9 @@ extend-exclude = ["migrations"]
 select = ["E", "F", "I", "UP", "B", "DJ"]
 ignore = ["E501"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["ninja.Query"]  # Query(...) trong default là idiom ninja
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 python_files = ["test_*.py"]

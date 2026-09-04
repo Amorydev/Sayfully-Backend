@@ -14,13 +14,39 @@ from fsrs import Rating, Scheduler
 from apps.accounts.models import UserProfile
 from apps.gamification.models import CoinTransaction
 
-from .models import DailyActivity, SRSCard
+from .models import DailyActivity, SRSCard, UserSkill
 
 _scheduler = Scheduler()
 
 XP_PER_LEVEL = 400
 HEARTS_MAX = 5
 HEART_REGEN_MINUTES = 30
+SKILL_XP_PER_LEVEL = 100
+
+_SKILL_MAP = {
+    "speaking": UserSkill.Kind.SPEAKING,
+    "shadowing": UserSkill.Kind.SPEAKING,
+    "listening": UserSkill.Kind.LISTENING,
+    "dictation": UserSkill.Kind.LISTENING,
+    "reading": UserSkill.Kind.READING,
+    "story": UserSkill.Kind.READING,
+    "video": UserSkill.Kind.READING,
+}
+
+
+def skill_percent(xp: int) -> int:
+    return round(xp % SKILL_XP_PER_LEVEL / SKILL_XP_PER_LEVEL * 100)
+
+
+def bump_skill(user, practice_kind: str, xp: int) -> UserSkill | None:
+    kind = _SKILL_MAP.get(practice_kind)
+    if kind is None:
+        return None
+    skill, _ = UserSkill.objects.get_or_create(user=user, kind=kind)
+    skill.xp += xp
+    skill.level = skill.xp // SKILL_XP_PER_LEVEL + 1
+    skill.save(update_fields=["xp", "level"])
+    return skill
 
 
 def level_for_xp(xp: int) -> int:
