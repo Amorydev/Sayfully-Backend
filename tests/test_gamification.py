@@ -18,8 +18,14 @@ def token(api, user, password):
 
 def _daily_challenge(target=30, metric="xp"):
     return Challenge.objects.create(
-        code="daily_xp", scope="daily", metric=metric, title_vi="Kiếm XP",
-        description_vi="Đạt mục tiêu XP", target=target, reward_xp=20, reward_coins=10,
+        code="daily_xp",
+        scope="daily",
+        metric=metric,
+        title_vi="Kiếm XP",
+        description_vi="Đạt mục tiêu XP",
+        target=target,
+        reward_xp=20,
+        reward_coins=10,
     )
 
 
@@ -74,8 +80,16 @@ def test_claim_khong_ton_tai_404(api, token, user):
 
 
 def test_challenges_weekly(api, token, user):
-    Challenge.objects.create(code="wk", scope="weekly", metric="lessons", title_vi="Học",
-                             description_vi="x", target=5, reward_xp=50, reward_coins=20)
+    Challenge.objects.create(
+        code="wk",
+        scope="weekly",
+        metric="lessons",
+        title_vi="Học",
+        description_vi="x",
+        target=5,
+        reward_xp=50,
+        reward_coins=20,
+    )
     _activity_today(user, lessons_completed=3)
     body = api.get("/challenges/weekly", token=token).json()
     assert body[0]["current"] == 3 and body[0]["target"] == 5
@@ -83,10 +97,20 @@ def test_challenges_weekly(api, token, user):
 
 # --------------------------------------------------------------- badges
 def test_badges_mo_khoa_khi_du_dieu_kien(api, token, user):
-    Badge.objects.create(code="streak7", title_vi="7 ngày", description_vi="Chuỗi 7 ngày",
-                         condition={"metric": "streak", "value": 7}, order=1)
-    Badge.objects.create(code="streak30", title_vi="30 ngày", description_vi="Chuỗi 30",
-                         condition={"metric": "streak", "value": 30}, order=2)
+    Badge.objects.create(
+        code="streak7",
+        title_vi="7 ngày",
+        description_vi="Chuỗi 7 ngày",
+        condition={"metric": "streak", "value": 7},
+        order=1,
+    )
+    Badge.objects.create(
+        code="streak30",
+        title_vi="30 ngày",
+        description_vi="Chuỗi 30",
+        condition={"metric": "streak", "value": 30},
+        order=2,
+    )
     user.profile.streak_best = 10
     user.profile.save()
     body = api.get("/badges", token=token).json()
@@ -123,14 +147,18 @@ def _item(cost=150, effect=None, code="refill_hearts"):
     from apps.gamification.models import ShopItem
 
     return ShopItem.objects.create(
-        code=code, title_vi="Bơm tim", description_vi="x", cost_coins=cost,
+        code=code,
+        title_vi="Bơm tim",
+        description_vi="x",
+        cost_coins=cost,
         effect=effect or {"hearts": 5},
     )
 
 
 def _purchase(client, token, item_id, key):
     return client.post(
-        "/api/v1/shop/purchase", data=json.dumps({"item_id": item_id}),
+        "/api/v1/shop/purchase",
+        data=json.dumps({"item_id": item_id}),
         content_type="application/json",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": key},
     )
@@ -204,7 +232,9 @@ def test_games_list(api, token, user):
 
 def test_submit_score(api, token, user):
     _game()
-    body = api.post("/games/word_rain/scores", {"score": 800, "duration_sec": 60}, token=token).json()
+    body = api.post(
+        "/games/word_rain/scores", {"score": 800, "duration_sec": 60}, token=token
+    ).json()
     assert body["coins_earned"] == 10 and body["xp_earned"] == 8
     assert body["is_record"] is True and body["personal_best"] == 800
     user.profile.refresh_from_db()
@@ -232,3 +262,50 @@ def test_game_leaderboard(api, token, user):
     body = api.get("/games/leaderboard?code=word_rain&period=all", token=token).json()
     assert body["scope"] == "game"
     assert body["entries"][0]["xp_week"] == 700 and body["entries"][0]["is_me"] is True
+
+
+# --------------------------------------------------------------- notifications + devices
+def test_notifications_list_va_unread(api, token, user):
+    from apps.notifications.models import Notification
+
+    Notification.objects.create(
+        user=user, kind="streak", title_vi="Streak!", body_vi="x", data={"screen": "C13"}
+    )
+    Notification.objects.create(user=user, kind="reward", title_vi="Quà", body_vi="y")
+    n3 = Notification.objects.create(user=user, kind="system", title_vi="Hệ thống", body_vi="z")
+    from django.utils import timezone as djtz
+
+    n3.read_at = djtz.now()
+    n3.save()
+
+    body = api.get("/notifications", token=token).json()
+    assert body["count"] == 3
+    assert api.get("/notifications/unread-count", token=token).json()["count"] == 2
+
+
+def test_mark_read_all(api, token, user):
+    from apps.notifications.models import Notification
+
+    Notification.objects.create(user=user, kind="streak", title_vi="a", body_vi="x")
+    Notification.objects.create(user=user, kind="reward", title_vi="b", body_vi="y")
+    api.post("/notifications/read", {"all": True}, token=token)
+    assert api.get("/notifications/unread-count", token=token).json()["count"] == 0
+
+
+def test_mark_read_ids(api, token, user):
+    from apps.notifications.models import Notification
+
+    n1 = Notification.objects.create(user=user, kind="streak", title_vi="a", body_vi="x")
+    Notification.objects.create(user=user, kind="reward", title_vi="b", body_vi="y")
+    api.post("/notifications/read", {"ids": [n1.id]}, token=token)
+    assert api.get("/notifications/unread-count", token=token).json()["count"] == 1
+
+
+def test_register_device_upsert(api, token, user):
+    from apps.notifications.models import Device
+
+    body = api.post("/devices", {"fcm_token": "tok123", "platform": "ios"}, token=token).json()
+    assert body["platform"] == "ios" and body["is_active"] is True
+    api.post("/devices", {"fcm_token": "tok123", "platform": "android"}, token=token)  # cùng token
+    assert Device.objects.filter(fcm_token="tok123").count() == 1
+    assert Device.objects.get(fcm_token="tok123").platform == "android"
