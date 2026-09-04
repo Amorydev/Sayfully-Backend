@@ -13,6 +13,7 @@ from apps.accounts.auth import bearer_auth
 from apps.billing.api import billing_router, webhooks_router
 from apps.common.exceptions import register_exception_handlers
 from apps.content.api import router as content_router
+from apps.gamification.api import router as gamification_router
 from apps.learning.api import router as learning_router
 
 DESCRIPTION = """
@@ -57,6 +58,7 @@ TAGS = [
     {"name": "content", "description": "Nội dung học: lộ trình, từ vựng, ngữ pháp, đọc, truyện, video, tra cứu."},
     {"name": "learning", "description": "Lõi học tập: trang chủ, lộ trình, bài học, ôn tập, hoạt động."},
     {"name": "billing", "description": "Thanh toán: gói Premium, đăng ký, mã quà tặng, webhook."},
+    {"name": "gamification", "description": "Game hoá: thử thách, huy hiệu, xếp hạng, cửa hàng, trò chơi, thông báo."},
 ]
 
 api = NinjaAPI(
@@ -75,3 +77,4 @@ api.add_router("/content", content_router, auth=bearer_auth, tags=["content"])
 api.add_router("", learning_router, auth=bearer_auth, tags=["learning"])
 api.add_router("/billing", billing_router, auth=bearer_auth, tags=["billing"])
 api.add_router("/webhooks", webhooks_router, tags=["billing"])
+api.add_router("", gamification_router, auth=bearer_auth, tags=["gamification"])
