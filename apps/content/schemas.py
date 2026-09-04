@@ -452,3 +452,16 @@ class IPASoundOut(Schema):
     minimal_pair: dict
     audio_uk_url: str | None
     audio_us_url: str | None
+
+
+# --------------------------------------------------------------- 2.7 Bundle manifest (G5)
+class ManifestLevelOut(Schema):
+    code: str
+    url: str
+    checksum: str
+    size: int
+
+
+class ManifestOut(Schema):
+    version: int
+    levels: list[ManifestLevelOut]

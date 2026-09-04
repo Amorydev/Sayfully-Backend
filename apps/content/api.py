@@ -954,3 +954,22 @@ def list_ipa_sounds(request, kind: str | None = None):
         )
         for snd in qs.order_by("kind", "order")
     ]
+
+
+# =============================================================== 2.7 Bundle manifest (G5)
+@router.get(
+    "/manifest",
+    response={200: s.ManifestOut, 401: ErrorOut},
+    summary="Manifest bundle nội dung",
+    description="Version hiện tại + URL/checksum/size mỗi cấp. App so version → tải bundle CDN.",
+)
+def manifest(request):
+    bundles = list(m.ContentBundle.objects.select_related("level").order_by("level__order"))
+    version = max((b.version for b in bundles), default=0)
+    return s.ManifestOut(
+        version=version,
+        levels=[
+            s.ManifestLevelOut(code=b.level_id, url=b.url, checksum=b.checksum, size=b.size)
+            for b in bundles
+        ],
+    )
