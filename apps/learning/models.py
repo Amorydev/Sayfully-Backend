@@ -155,6 +155,27 @@ class WeeklyStat(models.Model):
         return f"{self.user_id} · {self.iso_year}-W{self.iso_week:02d}"
 
 
+class UserSkill(models.Model):
+    class Kind(models.TextChoices):
+        SPEAKING = "speaking", "Nói"
+        LISTENING = "listening", "Nghe"
+        READING = "reading", "Đọc"
+        WRITING = "writing", "Viết"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="skills")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    xp = models.PositiveIntegerField(default=0)
+    level = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "kind"], name="uniq_user_skill")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.kind} · Lv{self.level}"
+
+
 class PlacementQuestion(models.Model):
     """Bài kiểm tra xếp lớp 3 phút (C23) — ~12 câu, không thuộc đề thi nào."""
 
