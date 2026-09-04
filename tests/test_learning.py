@@ -158,3 +158,62 @@ def test_streak_tang_qua_ngay(api, user, password, unit):
         ).json()
         assert b2["streak_days"] == 2 and b2["is_streak_record"] is True
     assert DailyActivity.objects.filter(user=user).count() == 2
+
+
+# --------------------------------------------------------------- SRS review
+def _due_card(user, level, hw="apple"):
+    from django.utils import timezone as djtz
+
+    from apps.content.models import Vocabulary
+    from apps.learning.models import SRSCard
+
+    v = Vocabulary.objects.create(
+        headword=hw,
+        pos="n",
+        level=level,
+        meaning_vi="táo",
+        ipa_us="/æ/",
+        ipa_syllables=["æ"],
+        primary_stress=0,
+    )
+    return SRSCard.objects.create(user=user, vocabulary=v, due_at=djtz.now())
+
+
+def test_review_due_liet_ke(api, token, user, levels):
+    a1, _ = levels
+    _due_card(user, a1)
+    body = api.get("/learn/review/due", token=token).json()
+    assert len(body) == 1 and body[0]["headword"] == "apple"
+
+
+def test_review_cap_nhat_va_xp(api, token, user, levels):
+    from django.utils import timezone as djtz
+
+    from apps.learning.models import SRSReviewLog
+
+    a1, _ = levels
+    card = _due_card(user, a1)
+    body = api.post(
+        "/learn/review", [{"vocab_id": card.vocabulary_id, "rating": 3}], token=token
+    ).json()
+    assert body["reviewed"] == 1 and body["xp_earned"] == 2
+    card.refresh_from_db()
+    assert card.reps == 1 and card.due_at > djtz.now()  # dời lịch tương lai
+    assert SRSReviewLog.objects.filter(user=user).count() == 1
+    assert api.get("/learn/review/due", token=token).json() == []  # hết đến hạn
+
+
+def test_review_rating_sai_422(api, token, user, levels):
+    a1, _ = levels
+    card = _due_card(user, a1)
+    r = api.post("/learn/review", [{"vocab_id": card.vocabulary_id, "rating": 9}], token=token)
+    assert r.status_code == 422
+
+
+def test_review_stats(api, token, user, levels):
+    a1, _ = levels
+    card = _due_card(user, a1)
+    api.post("/learn/review", [{"vocab_id": card.vocabulary_id, "rating": 3}], token=token)
+    body = api.get("/learn/review/stats", token=token).json()
+    assert body["studied"] == 1 and body["reviewed_today"] == 1
+    assert body["retention_percent"] == 100

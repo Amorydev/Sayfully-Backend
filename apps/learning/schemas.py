@@ -3,6 +3,9 @@
 from datetime import datetime
 
 from ninja import Schema
+from pydantic import Field
+
+from apps.content.schemas import CollocationOut, ExampleOut, SyllableOut
 
 
 # --------------------------------------------------------------- home (C1, §5.7)
@@ -152,3 +155,50 @@ class LessonResultOut(Schema):
     key_vocab: list[KeyVocabOut]
     srs_cards_created: int
     next_lesson_code: str | None
+
+
+# --------------------------------------------------------------- SRS review (C48, C7)
+class ReviewCardOut(Schema):
+    vocab_id: int
+    headword: str
+    pos: str
+    level: str
+    ipa: str
+    syllables: list[SyllableOut]
+    meaning_vi: str
+    definition_en: str
+    audio_uk_url: str | None
+    audio_us_url: str | None
+    examples: list[ExampleOut]
+    collocations: list[CollocationOut]
+    word_family: list[str]
+    due_at: datetime
+    state: int
+
+
+class ReviewItemIn(Schema):
+    vocab_id: int
+    rating: int = Field(ge=1, le=4)  # 1 Quên · 2 Khó · 3 Tốt · 4 Dễ
+    duration_ms: int = 0
+
+
+class ReviewCardResultOut(Schema):
+    vocab_id: int
+    state: int
+    due_at: datetime
+
+
+class ReviewResultOut(Schema):
+    reviewed: int
+    xp_earned: int
+    streak_days: int
+    cards: list[ReviewCardResultOut]
+
+
+class ReviewStatsOut(Schema):
+    studied: int
+    mastered: int
+    learning: int
+    due_today: int
+    reviewed_today: int
+    retention_percent: int

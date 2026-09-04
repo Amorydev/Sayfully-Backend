@@ -8,11 +8,15 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone as djtz
+from fsrs import Card as FsrsCard
+from fsrs import Rating, Scheduler
 
 from apps.accounts.models import UserProfile
 from apps.gamification.models import CoinTransaction
 
 from .models import DailyActivity, SRSCard
+
+_scheduler = Scheduler()
 
 XP_PER_LEVEL = 400
 HEARTS_MAX = 5
@@ -134,6 +138,50 @@ def record(
         streak_days=profile.streak_current,
         is_streak_record=is_record,
     )
+
+
+def review_srs_card(card: SRSCard, rating: int, now) -> int:
+    """Cập nhật thẻ theo FSRS. Trả về state trước khi ôn (để đếm lapse)."""
+    if card.reps == 0 or card.state == SRSCard.State.NEW:
+        fcard = FsrsCard()
+    else:
+        fcard = FsrsCard.from_dict(
+            {
+                "card_id": card.id,
+                "state": int(card.state),
+                "step": card.fsrs_step,
+                "stability": card.stability or None,
+                "difficulty": card.difficulty or None,
+                "due": card.due_at.isoformat(),
+                "last_review": (
+                    card.last_reviewed_at.isoformat() if card.last_reviewed_at else None
+                ),
+            }
+        )
+    state_before = int(card.state)
+    new, _ = _scheduler.review_card(fcard, Rating(rating), review_datetime=now)
+    card.state = int(new.state)
+    card.fsrs_step = new.step or 0
+    card.stability = new.stability or 0.0
+    card.difficulty = new.difficulty or 0.0
+    card.due_at = new.due
+    card.last_reviewed_at = now
+    card.reps += 1
+    if rating == Rating.Again and state_before == SRSCard.State.REVIEW:
+        card.lapses += 1
+    card.save(
+        update_fields=[
+            "state",
+            "fsrs_step",
+            "stability",
+            "difficulty",
+            "due_at",
+            "last_reviewed_at",
+            "reps",
+            "lapses",
+        ]
+    )
+    return state_before
 
 
 def create_srs_cards(user, vocab_ids) -> int:

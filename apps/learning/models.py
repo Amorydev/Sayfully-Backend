@@ -52,6 +52,7 @@ class SRSCard(models.Model):
     due_at = models.DateTimeField()
     stability = models.FloatField(default=0)  # S của FSRS
     difficulty = models.FloatField(default=0)  # D của FSRS
+    fsrs_step = models.PositiveSmallIntegerField(default=0)  # bước học FSRS
     reps = models.PositiveIntegerField(default=0)
     lapses = models.PositiveIntegerField(default=0)
     last_reviewed_at = models.DateTimeField(null=True, blank=True)

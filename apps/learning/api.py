@@ -4,12 +4,14 @@ Mọi thay đổi XP/xu/tim/streak đi qua `services.record`. `complete` idempot
 không cộng đôi). Chi tiết A2–C2 cần Premium; bài khoá theo lộ trình → `lesson_locked`.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone as djtz
-from ninja import Router
+from ninja import Query, Router
 
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
@@ -20,11 +22,12 @@ from apps.notifications.models import Notification
 
 from . import schemas as s
 from . import services
-from .models import DailyActivity, LessonProgress, SRSCard
+from .models import DailyActivity, LessonProgress, SRSCard, SRSReviewLog
 
 router = Router()
 
 _WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+XP_PER_REVIEW = 2
 
 
 def _media(path: str | None) -> str | None:
@@ -81,6 +84,42 @@ def _milestone(user, streak: int) -> s.MilestoneOut | None:
     if best is None:
         return None
     return s.MilestoneOut(name=best[1], target_days=best[0], days_left=best[0] - streak)
+
+
+def _syllables(v) -> list[s.SyllableOut]:
+    return [
+        s.SyllableOut(
+            text=t, is_primary=(i == v.primary_stress), is_secondary=(i == v.secondary_stress)
+        )
+        for i, t in enumerate(v.ipa_syllables or [])
+    ]
+
+
+def _review_card(card: SRSCard, accent: str) -> s.ReviewCardOut:
+    v = card.vocabulary
+    return s.ReviewCardOut(
+        vocab_id=v.id,
+        headword=v.headword,
+        pos=v.pos,
+        level=v.level_id,
+        ipa=v.ipa_us if accent == "US" else v.ipa_uk,
+        syllables=_syllables(v),
+        meaning_vi=v.meaning_vi,
+        definition_en=v.definition_en,
+        audio_uk_url=_media(v.audio_uk_path),
+        audio_us_url=_media(v.audio_us_path),
+        examples=[
+            s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path))
+            for e in v.examples.all()
+        ],
+        collocations=[
+            s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
+            for c in v.collocations.all()
+        ],
+        word_family=[w.headword for w in v.word_family.all()],
+        due_at=card.due_at,
+        state=card.state,
+    )
 
 
 def _key_vocab(lesson: Lesson, accent: str) -> list[s.KeyVocabOut]:
@@ -384,4 +423,99 @@ def complete_lesson(request, code: str, payload: s.LessonCompleteIn):
         key_vocab=_key_vocab(lesson, profile.accent),
         srs_cards_created=srs_created,
         next_lesson_code=next_lesson,
+    )
+
+
+# =============================================================== SRS review (FSRS)
+@router.get(
+    "/learn/review/due",
+    response={200: list[s.ReviewCardOut], 401: ErrorOut},
+    summary="Từ đến hạn ôn tập",
+    description="Thẻ SRS đến hạn (bỏ thẻ tạm dừng), sớm nhất trước. Nuôi màn ôn tập / flashcard.",
+)
+def review_due(request, limit: int = Query(20, ge=1, le=100)):
+    user = request.auth
+    profile = ensure_profile(user)
+    cards = (
+        SRSCard.objects.filter(user=user, due_at__lte=djtz.now())
+        .exclude(state=SRSCard.State.SUSPENDED)
+        .select_related("vocabulary")
+        .prefetch_related(
+            "vocabulary__examples", "vocabulary__collocations", "vocabulary__word_family"
+        )
+        .order_by("due_at")[:limit]
+    )
+    return [_review_card(c, profile.accent) for c in cards]
+
+
+@router.post(
+    "/learn/review",
+    response={200: s.ReviewResultOut, 401: ErrorOut, 422: ErrorOut},
+    summary="Nộp kết quả ôn tập (theo lô)",
+    description="Cập nhật lịch FSRS cho từng thẻ, ghi nhật ký, cộng XP theo số từ đã ôn.",
+)
+def submit_review(request, payload: list[s.ReviewItemIn]):
+    user = request.auth
+    profile = ensure_profile(user)
+    now = djtz.now()
+    cards_map = {
+        c.vocabulary_id: c
+        for c in SRSCard.objects.filter(user=user, vocabulary_id__in=[i.vocab_id for i in payload])
+    }
+    results = []
+    with transaction.atomic():
+        for item in payload:
+            card = cards_map.get(item.vocab_id)
+            if card is None:
+                continue
+            state_before = services.review_srs_card(card, item.rating, now)
+            SRSReviewLog.objects.create(
+                user=user,
+                vocabulary_id=item.vocab_id,
+                rating=item.rating,
+                state_before=state_before,
+            )
+            results.append(
+                s.ReviewCardResultOut(vocab_id=item.vocab_id, state=card.state, due_at=card.due_at)
+            )
+        n = len(results)
+        reward = services.record(profile, xp=XP_PER_REVIEW * n, words=n, minutes=0) if n else None
+    return s.ReviewResultOut(
+        reviewed=n,
+        xp_earned=reward.xp_earned if reward else 0,
+        streak_days=reward.streak_days if reward else profile.streak_current,
+        cards=results,
+    )
+
+
+@router.get(
+    "/learn/review/stats",
+    response={200: s.ReviewStatsOut, 401: ErrorOut},
+    summary="Thống kê ôn tập",
+    description="Đã học / đã vững / đang học / đến hạn hôm nay / đã ôn hôm nay / tỷ lệ nhớ 30 ngày.",
+)
+def review_stats(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    now = djtz.now()
+    today = services.local_today(profile)
+    tz = ZoneInfo(profile.timezone)
+    start_today = datetime.combine(today, dtime.min, tz)
+    end_today = datetime.combine(today, dtime.max, tz)
+
+    cards = SRSCard.objects.filter(user=user)
+    studied = cards.count()
+    mastered = cards.filter(state=SRSCard.State.REVIEW).count()
+    due_today = cards.filter(due_at__lte=end_today).exclude(state=SRSCard.State.SUSPENDED).count()
+    reviewed_today = SRSReviewLog.objects.filter(user=user, reviewed_at__gte=start_today).count()
+    logs30 = SRSReviewLog.objects.filter(user=user, reviewed_at__gte=now - timedelta(days=30))
+    total = logs30.count()
+    good = logs30.filter(rating__gte=3).count()
+    return s.ReviewStatsOut(
+        studied=studied,
+        mastered=mastered,
+        learning=studied - mastered,
+        due_today=due_today,
+        reviewed_today=reviewed_today,
+        retention_percent=round(good / total * 100) if total else 0,
     )
