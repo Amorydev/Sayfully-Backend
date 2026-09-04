@@ -297,3 +297,52 @@ def test_notebook_limit_403(api, token, user, levels, monkeypatch):
     api.post("/learn/notebook", {"vocab_id": v1.id}, token=token)
     r = api.post("/learn/notebook", {"vocab_id": v2.id}, token=token)
     assert r.status_code == 403 and r.json()["error"]["code"] == "notebook_limit"
+
+
+# --------------------------------------------------------------- checkin / activity / practice / skills
+def test_checkin_idempotent(api, token, user, levels):
+    r1 = api.post("/learn/checkin", token=token).json()
+    assert r1["already"] is False and r1["xp_earned"] == 5 and r1["coins_earned"] == 10
+    assert r1["streak_days"] == 1 and len(r1["week"]) == 7
+    r2 = api.post("/learn/checkin", token=token).json()
+    assert r2["already"] is True and r2["xp_earned"] == 0
+    user.profile.refresh_from_db()
+    assert user.profile.coins == 10 and user.profile.xp_total == 5  # không cộng đôi
+
+
+def test_activity_range(api, token, user, levels):
+    from datetime import date, timedelta
+
+    from apps.learning.models import DailyActivity
+
+    today = date(2026, 3, 10)
+    DailyActivity.objects.create(user=user, date=today, xp=50, words_reviewed=10)
+    DailyActivity.objects.create(user=user, date=today - timedelta(days=1), xp=20)
+    body = api.get("/learn/activity?from=2026-03-01&to=2026-03-31", token=token).json()
+    assert len(body) == 2 and body[-1]["date"] == "2026-03-10" and body[-1]["xp"] == 50
+
+
+def test_practice_xp_va_skill(api, token, user, levels):
+    from apps.learning.models import UserSkill
+
+    body = api.post(
+        "/learn/practice", {"kind": "speaking", "score": 80, "duration_sec": 60}, token=token
+    ).json()
+    assert body["xp_earned"] == 8 and body["skill"] == "speaking" and body["skill_level"] == 1
+    assert UserSkill.objects.get(user=user, kind="speaking").xp == 8
+    user.profile.refresh_from_db()
+    assert user.profile.xp_total == 8
+
+
+def test_practice_kind_sai_422(api, token, user, levels):
+    r = api.post("/learn/practice", {"kind": "dancing", "score": 50}, token=token)
+    assert r.status_code == 422
+
+
+def test_skills_overview_va_goi_y(api, token, user, levels):
+    api.post("/learn/practice", {"kind": "speaking", "score": 100}, token=token)
+    body = api.get("/learn/skills", token=token).json()
+    assert len(body["skills"]) == 4
+    kinds = {sk["kind"] for sk in body["skills"]}
+    assert kinds == {"speaking", "listening", "reading", "writing"}
+    assert body["suggestion"]["kind"] != "speaking"  # gợi ý kỹ năng yếu nhất, không phải nói

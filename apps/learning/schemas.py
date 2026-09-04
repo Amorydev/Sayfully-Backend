@@ -1,6 +1,7 @@
 """Schema G4 — chunk vòng học (home, path, lesson start/complete/progress)."""
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from ninja import Schema
 from pydantic import Field
@@ -256,3 +257,54 @@ class NotebookCreateIn(Schema):
     custom_meaning: str = ""
     note: str = ""
     tags: list[str] = []
+
+
+# --------------------------------------------------------------- activity / checkin (C13, C14)
+class CheckinOut(Schema):
+    already: bool
+    xp_earned: int
+    coins_earned: int
+    streak_days: int
+    week: list[DayProgressOut]
+
+
+class DailyActivityOut(Schema):
+    date: date
+    xp: int
+    lessons_completed: int
+    words_reviewed: int
+    speaking_count: int
+    minutes: int
+
+
+# --------------------------------------------------------------- practice + skills (C4, C8-C10)
+class PracticeIn(Schema):
+    kind: Literal["speaking", "listening", "dictation", "shadowing", "reading", "story", "video"]
+    score: int = Field(ge=0, le=100)
+    duration_sec: int = 0
+    ref_id: str = ""
+
+
+class PracticeResultOut(Schema):
+    xp_earned: int
+    skill: str | None
+    skill_level: int | None
+    skill_percent: int | None
+
+
+class SkillProgressOut(Schema):
+    kind: str
+    percent: int
+    level: int
+
+
+class PracticeSuggestionOut(Schema):
+    kind: str
+    title: str
+    est_minutes: int
+    xp: int
+
+
+class SkillsOverviewOut(Schema):
+    skills: list[SkillProgressOut]
+    suggestion: PracticeSuggestionOut | None
