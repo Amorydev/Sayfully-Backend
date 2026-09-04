@@ -15,10 +15,11 @@ from ninja import Header, Query, Router
 from apps.accounts.models import User
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Conflict, NotFound
-from apps.common.schemas import ErrorOut
+from apps.common.schemas import ErrorOut, MessageOut
 from apps.content.schemas import Page
 from apps.learning import services as learn
 from apps.learning.models import DailyActivity, WeeklyStat
+from apps.notifications.models import Device, Notification
 
 from . import schemas as s
 from . import services
@@ -495,3 +496,86 @@ def game_leaderboard(request, code: str, period: str = "week"):
         xp_to_promote=0,
         entries=entries,
     )
+
+
+# =============================================================== notifications + devices (C46)
+@router.get(
+    "/notifications",
+    response={200: Page[s.NotificationOut], 401: ErrorOut},
+    summary="Trung tâm thông báo",
+    description="Thông báo (mới nhất trước), kèm cờ đã đọc + deep-link ở `data`.",
+)
+def notifications(request, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
+    user = request.auth
+    ensure_profile(user)
+    qs = Notification.objects.filter(user=user).order_by("-created_at")
+    count = qs.count()
+    items = qs[offset : offset + limit]
+    return Page(
+        items=[
+            s.NotificationOut(
+                id=n.id,
+                kind=n.kind,
+                title_vi=n.title_vi,
+                body_vi=n.body_vi,
+                data=n.data or {},
+                is_read=n.read_at is not None,
+                created_at=n.created_at,
+            )
+            for n in items
+        ],
+        count=count,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/notifications/unread-count",
+    response={200: s.UnreadCountOut, 401: ErrorOut},
+    summary="Số thông báo chưa đọc",
+    description="Cho chấm đỏ trên chuông.",
+)
+def unread_count(request):
+    user = request.auth
+    ensure_profile(user)
+    return s.UnreadCountOut(
+        count=Notification.objects.filter(user=user, read_at__isnull=True).count()
+    )
+
+
+@router.post(
+    "/notifications/read",
+    response={200: MessageOut, 401: ErrorOut},
+    summary="Đánh dấu đã đọc",
+    description="`all=true` đọc hết, hoặc `ids=[...]` đọc theo danh sách.",
+)
+def mark_read(request, payload: s.NotificationReadIn):
+    user = request.auth
+    ensure_profile(user)
+    qs = Notification.objects.filter(user=user, read_at__isnull=True)
+    if not payload.all:
+        qs = qs.filter(id__in=payload.ids or [])
+    qs.update(read_at=djtz.now())
+    return MessageOut(message="Đã đánh dấu đã đọc")
+
+
+@router.post(
+    "/devices",
+    response={200: s.DeviceOut, 401: ErrorOut},
+    summary="Đăng ký thiết bị nhận push",
+    description="Upsert theo `fcm_token`. Bắt buộc để nhắc streak.",
+)
+def register_device(request, payload: s.DeviceIn):
+    user = request.auth
+    ensure_profile(user)
+    device, _ = Device.objects.update_or_create(
+        fcm_token=payload.fcm_token,
+        defaults={
+            "user": user,
+            "platform": payload.platform,
+            "app_version": payload.app_version,
+            "is_active": True,
+        },
+    )
+    return s.DeviceOut(id=device.id, platform=device.platform, is_active=device.is_active)

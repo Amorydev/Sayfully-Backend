@@ -119,3 +119,35 @@ class GameScoreResultOut(Schema):
     is_record: bool
     personal_best: int
     percentile: int
+
+
+# --------------------------------------------------------------- notifications + devices (C46)
+class NotificationOut(Schema):
+    id: int
+    kind: str
+    title_vi: str
+    body_vi: str
+    data: dict
+    is_read: bool
+    created_at: datetime
+
+
+class UnreadCountOut(Schema):
+    count: int
+
+
+class NotificationReadIn(Schema):
+    ids: list[int] | None = None
+    all: bool = False
+
+
+class DeviceIn(Schema):
+    fcm_token: str
+    platform: str
+    app_version: str = ""
+
+
+class DeviceOut(Schema):
+    id: int
+    platform: str
+    is_active: bool
