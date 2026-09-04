@@ -35,6 +35,7 @@ class Unit(models.Model):
     title_vi = models.CharField(max_length=128)
     title_en = models.CharField(max_length=128)
     description_vi = models.CharField(max_length=255, blank=True)
+    reward = models.JSONField(default=dict, blank=True)  # rương: {"coins": 150, "badge_code": "..."}
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["level", "order"], name="uniq_unit_order")]
@@ -97,6 +98,7 @@ class Vocabulary(TimeStampedModel):
     audio_us_path = models.CharField(max_length=255, blank=True)
 
     frequency_rank = models.IntegerField(null=True, blank=True)  # Oxford 3000/5000
+    synonyms = models.JSONField(default=list, blank=True)  # ["household", "folks"]
     topics = models.ManyToManyField(Topic, blank=True, related_name="vocabulary")
     word_family = models.ManyToManyField("self", blank=True, symmetrical=True)
 
@@ -149,6 +151,9 @@ class GrammarPoint(models.Model):
     formula = models.CharField(max_length=160, blank=True)  # "I + am + [tên]"
     explanation_vi = models.TextField()
     common_mistake_vi = models.TextField(blank=True)  # card amber trong UI
+    conjugation = models.JSONField(
+        default=list, blank=True
+    )  # bảng chia: [{"subject": "I", "form": "am"}, ...]
 
     class Meta:
         constraints = [
@@ -165,6 +170,7 @@ class GrammarExample(models.Model):
     )
     order = models.PositiveSmallIntegerField(default=0)
     text_en = models.CharField(max_length=255)
+    ipa = models.CharField(max_length=255, blank=True)  # IPA cả câu (G3 sinh)
     text_vi = models.CharField(max_length=255)
     audio_path = models.CharField(max_length=255, blank=True)
 
@@ -188,7 +194,9 @@ class DialogueLine(models.Model):
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name="lines")
     order = models.PositiveSmallIntegerField()
     speaker = models.CharField(max_length=32)
+    is_native = models.BooleanField(default=False)  # bản xứ vs học viên
     text_en = models.CharField(max_length=255)
+    ipa = models.CharField(max_length=255, blank=True)  # IPA cả câu (G3 sinh)
     text_vi = models.CharField(max_length=255)
     audio_path = models.CharField(max_length=255, blank=True)
 
@@ -209,6 +217,7 @@ class LessonStep(models.Model):
         DIALOGUE = "dialogue", "Hội thoại"
         SPELLING = "spelling", "Luyện viết"
         QUIZ = "quiz", "Luyện tập"
+        WRITING = "writing", "Viết câu (AI)"  # forward-compat; bundle bỏ khi AI tắt
 
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="steps")
     order = models.PositiveSmallIntegerField()
@@ -403,6 +412,7 @@ class IPASound(models.Model):
     symbol = models.CharField(max_length=8, unique=True)  # "iː"
     kind = models.CharField(max_length=10, choices=Kind.choices)
     description_vi = models.CharField(max_length=255)
+    articulation_vi = models.TextField(blank=True)  # khẩu hình chi tiết: môi/lưỡi/hơi
     mouth_image_path = models.CharField(max_length=255, blank=True)
     sample_words = models.JSONField(default=list)  # ["sheep","see","tea"]
     minimal_pair = models.JSONField(
@@ -414,3 +424,36 @@ class IPASound(models.Model):
 
     def __str__(self) -> str:
         return str(self.symbol)
+
+
+class ShadowingDeck(models.Model):
+    level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="shadowing_decks")
+    order = models.PositiveSmallIntegerField()
+    title_en = models.CharField(max_length=128)
+    title_vi = models.CharField(max_length=128, blank=True)
+    focus_vi = models.CharField(max_length=128, blank=True)  # "Âm /æ/ & ngữ điệu cảm thán"
+    est_seconds = models.PositiveIntegerField(default=0)
+    is_free = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["level", "order"], name="uniq_shadowing_order")
+        ]
+
+    def __str__(self) -> str:
+        return str(self.title_en)
+
+
+class ShadowingSentence(models.Model):
+    deck = models.ForeignKey(ShadowingDeck, on_delete=models.CASCADE, related_name="sentences")
+    order = models.PositiveSmallIntegerField()
+    text_en = models.CharField(max_length=512)
+    ipa = models.CharField(max_length=512, blank=True)
+    text_vi = models.CharField(max_length=512)
+    audio_path = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return str(self.text_en)

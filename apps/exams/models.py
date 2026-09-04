@@ -19,6 +19,7 @@ class Exam(models.Model):
     difficulty = models.CharField(max_length=8, choices=Difficulty.choices)
     code = models.SlugField(max_length=64, unique=True)
     title_vi = models.CharField(max_length=128)
+    predicted_band = models.CharField(max_length=8, blank=True)  # "5.5" — hiển thị ở list
     duration_min = models.PositiveSmallIntegerField(default=60)
     total_questions = models.PositiveSmallIntegerField(default=40)
     pass_score = models.PositiveSmallIntegerField(default=50)
@@ -70,6 +71,7 @@ class ExamQuestion(models.Model):
     options = models.JSONField(default=list, blank=True)
     answer = models.JSONField()  # index | text | mapping
     explanation_vi = models.CharField(max_length=512, blank=True)
+    skill_tag = models.CharField(max_length=48, blank=True)  # "Note-taking" | "Bẫy âm thanh"
     points = models.PositiveSmallIntegerField(default=1)
 
     class Meta:

@@ -3,6 +3,32 @@ from django.db import models
 from apps.accounts.models import User
 
 
+class Product(models.Model):
+    class Period(models.TextChoices):
+        MONTH = "month", "Tháng"
+        YEAR = "year", "Năm"
+        LIFETIME = "lifetime", "Trọn đời"
+
+    code = models.SlugField(max_length=48, unique=True)  # premium_year | premium_lifetime
+    name_vi = models.CharField(max_length=64)
+    period = models.CharField(max_length=10, choices=Period.choices)
+    price = models.PositiveIntegerField()
+    original_price = models.PositiveIntegerField(null=True, blank=True)
+    currency = models.CharField(max_length=3, default="VND")
+    trial_days = models.PositiveSmallIntegerField(default=0)
+    badge_vi = models.CharField(max_length=32, blank=True)  # "TIẾT KIỆM 50%"
+    features = models.JSONField(default=list)
+    store_ids = models.JSONField(default=dict)  # {"revenuecat": "...", "payos": "..."}
+    is_active = models.BooleanField(default=True)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return str(self.code)
+
+
 class Subscription(models.Model):
     class Provider(models.TextChoices):
         REVENUECAT = "revenuecat", "RevenueCat"

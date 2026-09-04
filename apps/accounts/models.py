@@ -8,6 +8,7 @@ Nguyên tắc:
 """
 
 import uuid
+from datetime import time
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
@@ -168,7 +169,14 @@ class UserProfile(models.Model):
     accent = models.CharField(max_length=2, choices=Accent.choices, default=Accent.US)
     show_ipa = models.BooleanField(default=True)
     daily_goal_xp = models.PositiveSmallIntegerField(default=50)
+    daily_goal_words = models.PositiveSmallIntegerField(default=10)
     timezone = models.CharField(max_length=40, default="Asia/Ho_Chi_Minh")
+    ui_language = models.CharField(max_length=5, default="vi")
+
+    reminder_enabled = models.BooleanField(default=True)
+    reminder_time = models.TimeField(default=time(20, 0))
+    streak_reminder = models.BooleanField(default=True)
+    event_notifications = models.BooleanField(default=True)
 
     is_premium = models.BooleanField(default=False)
     premium_until = models.DateTimeField(null=True, blank=True)
