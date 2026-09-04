@@ -4,9 +4,12 @@ huy hiệu mở khoá lười khi đọc.
 
 from datetime import timedelta
 
-from apps.learning.models import LessonProgress
+from django.db.models import Count
+from django.utils import timezone as djtz
 
-from .models import Badge, UserBadge
+from apps.learning.models import LessonProgress, WeeklyStat
+
+from .models import Badge, LeagueGroup, LeagueMembership, UserBadge
 
 _DAILY_FIELD = {
     "xp": "xp",
@@ -58,3 +61,38 @@ def check_badges(user, profile) -> None:
         value = int(cond.get("value", 0))
         if metric in stats and stats[metric] >= value:
             UserBadge.objects.get_or_create(user=user, badge=badge)
+
+
+LEAGUE_SIZE = 30
+
+
+def current_week():
+    iso = djtz.now().isocalendar()
+    return iso[0], iso[1]
+
+
+def ensure_league_membership(user):
+    y, w = current_week()
+    m = (
+        LeagueMembership.objects.filter(user=user, group__iso_year=y, group__iso_week=w)
+        .select_related("group")
+        .first()
+    )
+    if m:
+        return m
+    group = (
+        LeagueGroup.objects.filter(iso_year=y, iso_week=w, tier=LeagueGroup.Tier.BRONZE)
+        .annotate(n=Count("members"))
+        .filter(n__lt=LEAGUE_SIZE)
+        .order_by("id")
+        .first()
+    )
+    if group is None:
+        group = LeagueGroup.objects.create(tier=LeagueGroup.Tier.BRONZE, iso_year=y, iso_week=w)
+    xp0 = (
+        WeeklyStat.objects.filter(user=user, iso_year=y, iso_week=w)
+        .values_list("xp", flat=True)
+        .first()
+        or 0
+    )
+    return LeagueMembership.objects.create(group=group, user=user, xp_week=xp0)
