@@ -14,7 +14,7 @@ from fsrs import Rating, Scheduler
 from apps.accounts.models import UserProfile
 from apps.gamification.models import CoinTransaction
 
-from .models import DailyActivity, SRSCard, UserSkill
+from .models import DailyActivity, SRSCard, UserSkill, WeeklyStat
 
 _scheduler = Scheduler()
 
@@ -130,6 +130,15 @@ def record(
     daily.save()
 
     is_record = _bump_streak(profile, today) if first_today else False
+
+    iso = today.isocalendar()
+    ws, _ = WeeklyStat.objects.get_or_create(
+        user=profile.user, iso_year=iso[0], iso_week=iso[1]
+    )
+    ws.xp += xp
+    if first_today:
+        ws.days_active += 1
+    ws.save(update_fields=["xp", "days_active"])
 
     before_level = profile.level
     profile.xp_total += xp

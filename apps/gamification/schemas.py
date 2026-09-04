@@ -32,3 +32,63 @@ class BadgeOut(Schema):
     icon_url: str | None
     unlocked: bool
     unlocked_at: datetime | None
+
+
+# --------------------------------------------------------------- leaderboard (C16)
+class LeaderboardEntryOut(Schema):
+    rank: int
+    name: str
+    avatar_url: str | None
+    xp_week: int
+    streak_days: int
+    movement: int
+    is_me: bool
+
+
+class LeaderboardOut(Schema):
+    scope: str
+    tier: str
+    time_left_sec: int
+    promote_top: int
+    safe_top: int
+    my_rank: int
+    xp_to_promote: int
+    entries: list[LeaderboardEntryOut]
+
+
+class MyRankOut(Schema):
+    tier: str
+    rank: int
+    xp_week: int
+    xp_to_promote: int
+
+
+# --------------------------------------------------------------- shop / coins (C50)
+class ShopItemOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    description_vi: str
+    cost_coins: int
+    effect: dict
+    icon_url: str | None
+
+
+class PurchaseIn(Schema):
+    item_id: int
+
+
+class PurchaseResultOut(Schema):
+    item_code: str
+    coins_spent: int
+    balance: int
+    effect: dict
+
+
+class CoinTxOut(Schema):
+    amount: int
+    reason: str
+    ref_type: str
+    ref_id: str
+    balance_after: int
+    created_at: datetime
