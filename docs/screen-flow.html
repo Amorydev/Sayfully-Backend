@@ -1,0 +1,388 @@
+<title>Bản đồ điều hướng Sayfully</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --bg:#F7F8FC; --surface:#FFFFFF; --surface-2:#F1F3FA; --line:#E2E6F2; --line-soft:#EDF0F8;
+  --ink:#111827; --muted:#5B6480; --faint:#8B93AD;
+  --brand:#4F46E5; --brand-soft:#EEEDFD;
+  --out:#4F46E5; --in:#0E9F6E;
+  --s-start:#64748B; --s-home:#4F46E5; --s-learn:#7C3AED;
+  --s-practice:#0E7490; --s-chal:#B45309; --s-profile:#0E9F6E;
+  --shadow:0 1px 2px rgba(17,24,39,.05), 0 8px 24px rgba(17,24,39,.06);
+  --radius:12px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1020; --surface:#171A2E; --surface-2:#1E2238; --line:#2B3050; --line-soft:#242844;
+    --ink:#E8EAF4; --muted:#9AA3C0; --faint:#7B84A3;
+    --brand:#8B87F5; --brand-soft:#232447;
+    --out:#8B87F5; --in:#34D399;
+    --s-start:#94A3B8; --s-home:#8B87F5; --s-learn:#A78BFA;
+    --s-practice:#22B8CF; --s-chal:#E8A33D; --s-profile:#34D399;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1020; --surface:#171A2E; --surface-2:#1E2238; --line:#2B3050; --line-soft:#242844;
+  --ink:#E8EAF4; --muted:#9AA3C0; --faint:#7B84A3;
+  --brand:#8B87F5; --brand-soft:#232447;
+  --out:#8B87F5; --in:#34D399;
+  --s-start:#94A3B8; --s-home:#8B87F5; --s-learn:#A78BFA;
+  --s-practice:#22B8CF; --s-chal:#E8A33D; --s-profile:#34D399;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 22px 72px;display:flex;flex-direction:column;gap:34px}
+
+h1,h2,h3{font-family:Sora,ui-sans-serif,system-ui,sans-serif;margin:0;text-wrap:balance;letter-spacing:-.02em}
+h1{font-size:29px;font-weight:800}
+h2{font-size:19px;font-weight:700}
+h3{font-size:14px;font-weight:700}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ---------- header ---------- */
+header{display:flex;flex-direction:column;gap:12px;
+  border-bottom:1px solid var(--line);padding-bottom:22px}
+.sub{color:var(--muted);max-width:66ch;margin:0}
+.stats{display:flex;flex-wrap:wrap;gap:8px}
+.stat{display:flex;align-items:baseline;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--muted)}
+.stat b{font-family:Sora;font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ---------- linear chains ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px;display:flex;flex-direction:column;gap:14px}
+.chain{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:6px}
+.chain::-webkit-scrollbar{height:6px}
+.chain::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.step{flex:0 0 auto;min-width:112px;max-width:150px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:3px}
+.step .id{font-size:10.5px;font-weight:600;letter-spacing:.05em}
+.step .nm{font-size:12.5px;font-weight:600;line-height:1.3}
+.arrow{flex:0 0 auto;align-self:center;display:flex;flex-direction:column;align-items:center;
+  gap:2px;padding:0 8px;min-width:64px}
+.arrow .lbl{font-size:10px;color:var(--faint);text-align:center;line-height:1.25}
+.arrow .ln{width:100%;height:1px;background:var(--line);position:relative}
+.arrow .ln::after{content:"";position:absolute;right:-1px;top:-2.5px;
+  border-left:5px solid var(--line);border-top:3px solid transparent;border-bottom:3px solid transparent}
+
+/* ---------- tab hub ---------- */
+.hub{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.lane{display:flex;flex-direction:column;gap:8px}
+.lane-head{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:2px solid var(--lc)}
+.lane-head .dot{width:9px;height:9px;border-radius:50%;background:var(--lc);flex:0 0 auto}
+.lane-head h3{font-size:13.5px}
+.lane ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.lane li{font-size:12.5px;color:var(--muted);display:flex;gap:7px}
+.lane li .k{font-family:"IBM Plex Mono";font-size:11px;color:var(--faint);flex:0 0 30px}
+
+/* ---------- map ---------- */
+.maplayout{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
+@media (max-width:900px){.maplayout{grid-template-columns:1fr}}
+.groups{display:flex;flex-direction:column;gap:18px}
+.group{display:flex;flex-direction:column;gap:9px}
+.group-head{display:flex;align-items:center;gap:8px}
+.group-head .dot{width:9px;height:9px;border-radius:50%;background:var(--gc)}
+.group-head h3{font-size:13px;color:var(--muted);font-weight:600}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:7px}
+.card{text-align:left;font:inherit;cursor:pointer;background:var(--surface);color:var(--ink);
+  border:1px solid var(--line);border-left:3px solid var(--gc);border-radius:9px;
+  padding:8px 10px;display:flex;flex-direction:column;gap:2px;transition:.13s ease}
+.card:hover{border-color:var(--gc);transform:translateY(-1px)}
+.card:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.card .id{font-family:"IBM Plex Mono";font-size:10.5px;color:var(--faint);font-weight:500}
+.card .nm{font-size:12.5px;font-weight:600;line-height:1.3}
+.card .deg{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+body.picked .card{opacity:.26}
+.card.is-sel{opacity:1;border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft);transform:translateY(-1px)}
+.card.is-out{opacity:1;border-color:var(--out);box-shadow:0 0 0 1px var(--out) inset}
+.card.is-in{opacity:1;border-color:var(--in);box-shadow:0 0 0 1px var(--in) inset}
+
+/* ---------- detail ---------- */
+.detail{position:sticky;top:18px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:17px;display:flex;flex-direction:column;gap:15px;box-shadow:var(--shadow)}
+.d-top{display:flex;flex-direction:column;gap:5px;padding-bottom:13px;border-bottom:1px solid var(--line-soft)}
+.d-id{font-family:"IBM Plex Mono";font-size:11px;color:var(--faint)}
+.d-nm{font-family:Sora;font-size:17px;font-weight:700;line-height:1.25}
+.d-sec{font-size:11.5px;color:var(--dc);font-weight:600}
+.blk{display:flex;flex-direction:column;gap:7px}
+.blk .eyebrow{display:flex;align-items:center;gap:6px}
+.blk .eyebrow::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--bc)}
+.edge{display:grid;grid-template-columns:1fr auto;gap:9px;align-items:baseline;
+  padding:6px 9px;background:var(--surface-2);border-radius:7px;font-size:12.5px}
+.edge .trg{color:var(--muted);line-height:1.35}
+.edge .dst{font-family:"IBM Plex Mono";font-size:11px;font-weight:500;color:var(--bc);white-space:nowrap}
+.api{font-family:"IBM Plex Mono";font-size:11.5px;padding:5px 9px;background:var(--surface-2);
+  border-radius:6px;border-left:2px solid var(--brand);color:var(--muted);word-break:break-all}
+.none{font-size:12.5px;color:var(--faint);font-style:italic}
+.hint{font-size:12px;color:var(--faint);line-height:1.45}
+.reset{align-self:flex-start;font:inherit;font-size:12px;cursor:pointer;background:none;
+  border:1px solid var(--line);border-radius:7px;padding:5px 11px;color:var(--muted)}
+.reset:hover{border-color:var(--brand);color:var(--brand)}
+
+.note{font-size:12.5px;color:var(--muted);background:var(--surface-2);border-radius:9px;
+  padding:11px 13px;border-left:3px solid var(--brand)}
+footer{border-top:1px solid var(--line);padding-top:18px;font-size:12.5px;color:var(--faint)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;transform:none!important}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Sayfully · ứng dụng học tiếng Anh</p>
+  <h1>Bản đồ điều hướng — 50 màn</h1>
+  <p class="sub">Từ màn nào, chạm vào đâu, sẽ sang màn nào. Bấm một thẻ bất kỳ ở bản đồ bên dưới để thấy màn đó <b>đi tới</b> đâu và <b>đến từ</b> đâu.</p>
+  <div class="stats" id="stats"></div>
+</header>
+
+<section class="panel">
+  <div><p class="eyebrow">Luồng 1</p><h2>Vào ứng dụng lần đầu</h2></div>
+  <div class="chain" id="chain-start"></div>
+  <p class="note">Người đã đăng nhập bỏ qua toàn bộ chuỗi này: <b>C0 Splash → C1 Trang chủ</b>. Bài kiểm tra xếp lớp <b>C23</b> là tuỳ chọn — bỏ qua thì dùng cấp tự chọn ở C22.</p>
+</section>
+
+<section class="panel">
+  <div><p class="eyebrow">Luồng 2</p><h2>Học một bài — 18 bước, 2 lần gọi API</h2></div>
+  <div class="chain" id="chain-lesson"></div>
+  <p class="note">Toàn bộ nội dung 18 bước nằm trong <b>bundle CDN</b> đã tải sẵn, nên các bước ở giữa <b>không gọi API lần nào</b>. Chỉ <span class="mono">C26 start</span> và <span class="mono">C5 complete</span> chạm tới server.</p>
+</section>
+
+<section class="panel">
+  <div><p class="eyebrow">Luồng 3</p><h2>Năm tab và những gì mở ra từ đó</h2></div>
+  <div class="hub" id="hub"></div>
+  <p class="note">Năm tab chuyển qua lại tự do qua thanh dưới. <b>C15 Paywall</b> không nằm trong tab nào — nó bật lên từ bất cứ chỗ nào chạm phải nội dung khoá.</p>
+</section>
+
+<section>
+  <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px">
+    <p class="eyebrow">Bản đồ đầy đủ</p>
+    <h2>50 màn — bấm để xem đường đi</h2>
+  </div>
+  <div class="maplayout">
+    <div class="groups" id="groups"></div>
+    <aside class="detail" id="detail"></aside>
+  </div>
+</section>
+
+<footer>Nguồn: <span class="mono">engo-stitch-prompt-pack-v4.md</span> (51 màn) — đã loại <span class="mono">C45 Bạn bè</span> khỏi v1. Đối chiếu endpoint ở <span class="mono">SCREEN-API-MAP.md</span>.</footer>
+</div>
+
+<script>
+const SEC = {
+  start:{n:"Khởi động & tài khoản",c:"var(--s-start)"},
+  home:{n:"Trang chủ",c:"var(--s-home)"},
+  learn:{n:"Học",c:"var(--s-learn)"},
+  practice:{n:"Luyện tập",c:"var(--s-practice)"},
+  chal:{n:"Thử thách",c:"var(--s-chal)"},
+  profile:{n:"Hồ sơ & tiền",c:"var(--s-profile)"}
+};
+
+const S = {
+C0:{n:"Splash",s:"start",api:["POST /auth/refresh","GET /content/manifest"],
+ to:[["chưa đăng nhập","C18"],["đã có phiên hợp lệ","C1"]]},
+C18:{n:"Onboarding + Đăng nhập",s:"start",api:["POST /auth/token","POST /auth/google","POST /auth/apple"],
+ to:[["lướt hết 3 slide","C21"],["đăng nhập thành công","C1"],["“Đăng ký miễn phí”","C24"]]},
+C21:{n:"Chọn mục tiêu",s:"start",api:["PATCH /me/preferences"],to:[["“Tiếp tục”","C22"]]},
+C22:{n:"Chọn trình độ",s:"start",api:["PATCH /me/preferences"],
+ to:[["“Làm bài kiểm tra 3 phút”","C23"],["“Bắt đầu”","C18"]]},
+C23:{n:"Kiểm tra xếp lớp",s:"start",api:["GET /placement/questions","POST /placement/submit"],
+ to:[["xem cấp đề xuất → “Bắt đầu học”","C18"]]},
+C24:{n:"Đăng ký",s:"start",api:["POST /auth/register"],to:[["tạo tài khoản","C1"],["“Đăng nhập”","C18"]]},
+C25:{n:"Lộ trình 6 bước",s:"start",api:[],to:[["“Vào học” ở từng bước","C26"]]},
+
+C1:{n:"Trang chủ",s:"home",api:["GET /home"],tab:1,
+ to:[["avatar góc trái","C14"],["chuông thông báo","C46"],["pill xu","C50"],
+     ["thẻ “Ôn tập hôm nay”","C48"],["“Người mới bắt đầu?”","C25"],["“Tiếp tục học”","C26"],
+     ["tile Luyện nói","C8"],["tile Luyện nghe","C9"],["tile Đọc hiểu","C35"],["tile Flashcard","C7"],
+     ["thẻ “Thử thách hôm nay”","C13"]]},
+
+C2:{n:"Lộ trình học",s:"learn",api:["GET /learn/path"],tab:1,
+ to:[["chạm node của unit","C20"],["unit thuộc cấp khoá","C15"]]},
+C20:{n:"Bảng bài trong unit",s:"learn",api:[],to:[["chạm một bài","C26"]]},
+C26:{n:"Mở đầu bài học",s:"learn",api:["POST /learn/lessons/{code}/start"],to:[["“Bắt đầu”","C3"]]},
+C3:{n:"Thẻ từ mới",s:"learn",api:[],to:[["“TIẾP” sau từ cuối","C27"]]},
+C27:{n:"Ngữ pháp trong bài",s:"learn",api:[],to:[["“TIẾP”","C28"]]},
+C28:{n:"Hội thoại",s:"learn",api:[],to:[["“TIẾP”","C29"]]},
+C29:{n:"Luyện viết / spelling",s:"learn",api:[],to:[["“TIẾP”","C4"]]},
+C4:{n:"Quiz cuối bài",s:"learn",api:[],to:[["trả lời xong 10 câu","C5"]]},
+C5:{n:"Hoàn thành bài",s:"learn",api:["POST /learn/lessons/{code}/complete"],
+ to:[["“TIẾP TỤC”","C2"],["“Ôn lại bài”","C26"]]},
+
+C19:{n:"Trung tâm luyện tập",s:"practice",api:["GET /home"],tab:1,
+ to:[["thẻ gợi ý hôm nay","C8"],["Từ vựng","C6"],["Luyện nói","C8"],["Luyện nghe","C9"],
+     ["Đọc hiểu","C35"],["Luyện viết","C29"],["Flashcard","C7"],["Từ điển","C39"],
+     ["Ngữ pháp","C42"],["Phát âm","C43"],["Gốc từ","C40"],["Phrasal verbs","C41"],
+     ["Luyện thi","C11"],["Trò chơi","C12"],["Video","C37"],["Truyện","C36"],
+     ["Shadowing","C38"],["Chép chính tả","C9"],["Gia sư AI","C17"],["Hội thoại AI","C44"]]},
+C6:{n:"Từ vựng",s:"practice",api:["GET /learn/vocabulary/status"],
+ to:[["Flashcard","C7"],["“Ôn tập ngay”","C48"],["Sổ tay","C47"],["ô tìm kiếm","C39"]]},
+C7:{n:"Flashcard",s:"practice",api:["POST /learn/review"],to:[["hết bộ thẻ","C6"]]},
+C8:{n:"Luyện nói",s:"practice",api:["POST /learn/practice"],to:[["chạm micro","C30"]]},
+C30:{n:"Ghi âm & kết quả nói",s:"practice",api:[],to:[["“Câu tiếp”","C8"]]},
+C9:{n:"Luyện nghe / chép chính tả",s:"practice",api:["POST /learn/practice"],to:[]},
+C35:{n:"Danh sách bài đọc",s:"practice",api:["GET /content/readings"],
+ to:[["chọn một bài","C10"],["bài thuộc cấp khoá","C15"]]},
+C10:{n:"Trình đọc",s:"practice",api:["POST /learn/practice"],to:[["xong câu hỏi","C35"]]},
+C36:{n:"Truyện song ngữ",s:"practice",api:["GET /content/stories"],to:[["truyện khoá","C15"]]},
+C37:{n:"Học qua video",s:"practice",api:["GET /content/videos"],to:[["video Premium","C15"]]},
+C38:{n:"Shadowing",s:"practice",api:["POST /learn/practice"],to:[]},
+C39:{n:"Từ điển & chi tiết từ",s:"practice",api:["GET /content/vocabulary?q="],
+ to:[["ngôi sao lưu từ","C47"],["“Luyện phát âm”","C43"]]},
+C40:{n:"Gốc từ",s:"practice",api:["GET /content/roots"],to:[]},
+C41:{n:"Phrasal verbs",s:"practice",api:["GET /content/phrasal-verbs"],to:[]},
+C42:{n:"Ngữ pháp (tra cứu)",s:"practice",api:["GET /content/grammar"],to:[]},
+C43:{n:"Bảng IPA",s:"practice",api:["GET /content/ipa-sounds"],to:[]},
+C47:{n:"Sổ tay từ vựng",s:"practice",api:["GET /learn/notebook"],
+ to:[["“Ôn 20 từ này”","C48"],["hết 100 từ (Free)","C15"]]},
+C48:{n:"Buổi ôn tập SRS",s:"practice",api:["GET /learn/review/due","POST /learn/review"],
+ to:[["xong buổi ôn","C1"]]},
+C11:{n:"Luyện thi",s:"practice",api:["GET /exams","POST /exams/{id}/attempts"],
+ to:[["“Nộp bài”","C33"],["biểu tượng lịch sử","C34"],["đề Premium","C15"]]},
+C33:{n:"Kết quả bài thi",s:"practice",api:["GET /exams/attempts/{id}"],to:[["“Làm đề khác”","C11"]]},
+C34:{n:"Lịch sử thi",s:"practice",api:["GET /exams/attempts","GET /exams/stats"],
+ to:[["chọn một lần thi","C33"]]},
+C12:{n:"Sảnh game + Mưa từ vựng",s:"practice",api:["GET /games","POST /games/{code}/scores"],
+ to:[["chọn Bậc thầy trọng âm","C31"],["hết ván","C32"]]},
+C31:{n:"Game Bậc thầy trọng âm",s:"practice",api:["POST /games/{code}/scores"],to:[["hết ván","C32"]]},
+C32:{n:"Kết quả game",s:"practice",api:[],to:[["“Chơi lại” / “Về sảnh”","C12"]]},
+C17:{n:"Gia sư AI",s:"practice",api:["POST /ai/tutor/messages"],to:[["chưa có Premium","C15"]]},
+C44:{n:"Hội thoại AI đóng vai",s:"practice",api:["GET /ai/roleplay/scenarios"],to:[["chưa có Premium","C15"]]},
+
+C13:{n:"Thử thách",s:"chal",api:["GET /challenges/today","POST /learn/checkin"],tab:1,
+ to:[["“Xem tất cả” bảng xếp hạng","C16"],["xu vừa nhận","C50"]]},
+C16:{n:"Bảng xếp hạng & liên đoàn",s:"chal",api:["GET /leaderboard"],to:[]},
+
+C14:{n:"Hồ sơ",s:"profile",api:["GET /auth/me","POST /me/avatar"],tab:1,
+ to:[["Cài đặt","C49"],["Cửa hàng","C50"],["Bảng xếp hạng","C16"],["Từ điển","C39"],
+     ["Gốc từ","C40"],["Phrasal verbs","C41"],["Lịch sử thi","C34"],["thẻ Premium","C15"]]},
+C49:{n:"Cài đặt",s:"profile",api:["PATCH /me/preferences","POST /auth/change-password"],
+ to:[["“Premium & thanh toán”","C15"]]},
+C50:{n:"Cửa hàng",s:"profile",api:["GET /shop/items","POST /shop/purchase"],
+ to:[["“Xem gói” Premium","C15"]]},
+C15:{n:"Paywall Premium",s:"profile",api:["GET /billing/products"],to:[]},
+C46:{n:"Thông báo",s:"profile",api:["GET /notifications","POST /notifications/read"],to:[]}
+};
+
+// ---- incoming edges ----
+const IN = {};
+for (const id in S) IN[id] = [];
+for (const id in S) for (const [t,d] of S[id].to) if (IN[d]) IN[d].push([t,id]);
+
+// ---- stats ----
+const edgeCount = Object.values(S).reduce((a,x)=>a+x.to.length,0);
+document.getElementById("stats").innerHTML = [
+  ["Màn hình", Object.keys(S).length],
+  ["Đường đi", edgeCount],
+  ["Tab gốc", Object.values(S).filter(x=>x.tab).length],
+  ["Ngả tới Paywall", IN.C15.length]
+].map(([k,v])=>`<span class="stat"><b>${v}</b>${k}</span>`).join("");
+
+// ---- linear chains ----
+function chain(el, steps){
+  el.innerHTML = steps.map((s,i)=>{
+    const box = `<div class="step"><span class="id mono" style="color:${SEC[S[s.id].s].c}">${s.id}</span>
+      <span class="nm">${S[s.id].n}</span></div>`;
+    const arr = i < steps.length-1
+      ? `<div class="arrow"><span class="lbl">${steps[i+1].via}</span><span class="ln"></span></div>` : "";
+    return box + arr;
+  }).join("");
+}
+chain(document.getElementById("chain-start"), [
+  {id:"C0"},{id:"C18",via:"chưa đăng nhập"},{id:"C21",via:"hết slide"},
+  {id:"C22",via:"“Tiếp tục”"},{id:"C23",via:"làm test (tuỳ chọn)"},
+  {id:"C24",via:"“Bắt đầu”"},{id:"C1",via:"tạo tài khoản"}
+]);
+chain(document.getElementById("chain-lesson"), [
+  {id:"C2"},{id:"C20",via:"chạm unit"},{id:"C26",via:"chạm bài"},{id:"C3",via:"“Bắt đầu”"},
+  {id:"C27",via:"TIẾP ×10"},{id:"C28",via:"TIẾP"},{id:"C29",via:"TIẾP"},
+  {id:"C4",via:"TIẾP"},{id:"C5",via:"xong quiz"}
+]);
+
+// ---- tab hub ----
+const HUB = [
+  ["home","Trang chủ","C1",["C48 Ôn tập hôm nay","C26 Tiếp tục học","C25 Lộ trình 6 bước","C14 Hồ sơ (avatar)","C46 Thông báo","C50 Cửa hàng (xu)"]],
+  ["learn","Học","C2",["C20 Bảng bài trong unit","C26 → C5 chuỗi 18 bước","C15 Paywall khi cấp khoá"]],
+  ["practice","Luyện tập","C19",["C6 C7 C8 C9 Kỹ năng & từ vựng","C35 C36 C37 C38 Đọc · truyện · video","C39–C43 Tra cứu","C11 Luyện thi · C12 Trò chơi","C17 C44 AI (Premium)"]],
+  ["chal","Thử thách","C13",["C16 Bảng xếp hạng","điểm danh & nhận thưởng tại chỗ"]],
+  ["profile","Hồ sơ","C14",["C49 Cài đặt","C50 Cửa hàng","C16 Bảng xếp hạng","C34 Lịch sử thi","C15 Paywall"]]
+];
+document.getElementById("hub").innerHTML = HUB.map(([k,nm,root,kids])=>`
+  <div class="lane" style="--lc:${SEC[k].c}">
+    <div class="lane-head"><span class="dot"></span><h3>${nm}</h3>
+      <span class="mono" style="font-size:11px;color:var(--faint);margin-left:auto">${root}</span></div>
+    <ul>${kids.map(x=>{const m=x.match(/^(C[\d–\-C ]*\S*)\s+(.*)$/);
+      return `<li><span class="k">${m?m[1]:""}</span><span>${m?m[2]:x}</span></li>`}).join("")}</ul>
+  </div>`).join("");
+
+// ---- map ----
+const order = ["start","home","learn","practice","chal","profile"];
+document.getElementById("groups").innerHTML = order.map(sec=>{
+  const ids = Object.keys(S).filter(i=>S[i].s===sec);
+  return `<div class="group" style="--gc:${SEC[sec].c}">
+    <div class="group-head"><span class="dot"></span><h3>${SEC[sec].n}</h3>
+      <span style="font-size:11.5px;color:var(--faint)">${ids.length} màn</span></div>
+    <div class="cards">${ids.map(i=>`
+      <button class="card" data-id="${i}">
+        <span class="id">${i}</span><span class="nm">${S[i].n}</span>
+        <span class="deg">→ ${S[i].to.length} · ← ${IN[i].length}</span>
+      </button>`).join("")}</div></div>`;
+}).join("");
+
+const detail = document.getElementById("detail");
+function edges(list, cls){
+  if(!list.length) return `<p class="none">Không có</p>`;
+  return list.map(([t,d])=>`<div class="edge"><span class="trg">${t}</span>
+    <span class="dst mono">${d} ${S[d].n}</span></div>`).join("");
+}
+function show(id){
+  const s = S[id], c = SEC[s.s].c;
+  detail.innerHTML = `
+    <div class="d-top" style="--dc:${c}">
+      <span class="d-id">${id}</span><span class="d-nm">${s.n}</span>
+      <span class="d-sec">${SEC[s.s].n}${s.tab?" · tab gốc":""}</span>
+    </div>
+    <div class="blk" style="--bc:var(--out)">
+      <p class="eyebrow">Đi tới — ${s.to.length}</p>${edges(s.to)}
+    </div>
+    <div class="blk" style="--bc:var(--in)">
+      <p class="eyebrow">Đến từ — ${IN[id].length}</p>${edges(IN[id])}
+    </div>
+    <div class="blk" style="--bc:var(--brand)">
+      <p class="eyebrow">Endpoint gọi ở màn này</p>
+      ${s.api.length ? s.api.map(a=>`<code class="api">${a}</code>`).join("")
+        : `<p class="none">Không gọi API — nội dung lấy từ bundle CDN</p>`}
+    </div>
+    ${s.tab?`<p class="hint">Là một trong 5 tab gốc — chuyển sang 4 tab còn lại bất cứ lúc nào qua thanh dưới.</p>`:""}
+    <button class="reset" id="reset">Bỏ chọn</button>`;
+  document.querySelectorAll(".card").forEach(el=>{
+    const i = el.dataset.id;
+    el.classList.toggle("is-sel", i===id);
+    el.classList.toggle("is-out", s.to.some(([,d])=>d===i));
+    el.classList.toggle("is-in", IN[id].some(([,o])=>o===i));
+  });
+  document.body.classList.add("picked");
+  document.getElementById("reset").onclick = clear;
+}
+function clear(){
+  document.body.classList.remove("picked");
+  document.querySelectorAll(".card").forEach(el=>el.classList.remove("is-sel","is-out","is-in"));
+  detail.innerHTML = `<div class="d-top"><span class="d-nm">Chọn một màn</span></div>
+    <p class="hint">Bấm bất kỳ thẻ nào bên trái để xem màn đó <b style="color:var(--out)">đi tới</b> đâu,
+    <b style="color:var(--in)">đến từ</b> đâu, và gọi endpoint nào.</p>
+    <div class="blk" style="--bc:var(--brand)"><p class="eyebrow">Đọc bản đồ</p>
+      <p class="hint">Số <span class="mono">→ 5 · ← 2</span> trên mỗi thẻ là số đường đi ra và đường đi vào.
+      Màn nhiều đường vào nhất là <b>C15 Paywall</b> (${IN.C15.length} ngả) — mọi chỗ chạm nội dung khoá đều dẫn tới đó.</p></div>`;
+}
+document.getElementById("groups").addEventListener("click", e=>{
+  const b = e.target.closest(".card"); if(b) show(b.dataset.id);
+});
+show("C1");
+</script>

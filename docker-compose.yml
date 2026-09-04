@@ -1,0 +1,23 @@
+# Đặt tên riêng để volume không đụng dự án khác cùng nằm trong thư mục tên 'Backend'
+name: sayfully
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sayfully
+      POSTGRES_PASSWORD: sayfully
+      POSTGRES_DB: sayfully
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sayfully"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:

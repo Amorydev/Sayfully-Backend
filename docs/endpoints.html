@@ -1,0 +1,392 @@
+<title>Danh mục API Sayfully</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F3F5F9; --surface:#FFFFFF; --surface-2:#E9EDF4; --ink:#161B2E; --muted:#5B6478; --line:#D9DEE8; --line-strong:#B9C2D3;
+  --accent:#D99A12; --accent-ink:#161B2E; --accent-soft:#FBF1D6;
+  --get:#0E7C86; --get-soft:#DDF3F4; --post:#B45309; --post-soft:#FBEAD8; --patch:#6D28D9; --patch-soft:#ECE4FB; --delete:#B91C1C; --delete-soft:#FBE1E1;
+  --done:#15803D; --done-soft:#DCF3E4; --plan:#5B6478; --plan-soft:#E9EDF4; --lock:#9A3412;
+  --focus:#2563EB; --shadow:0 1px 2px rgba(22,27,46,.06),0 8px 24px -12px rgba(22,27,46,.18);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F1320; --surface:#171C2C; --surface-2:#1F2536; --ink:#E8ECF5; --muted:#8B95AD; --line:#2A3146; --line-strong:#3A4360;
+  --accent:#F5B82E; --accent-ink:#161B2E; --accent-soft:#2E2914;
+  --get:#4FC3CC; --get-soft:#12333A; --post:#F0A35B; --post-soft:#3A2614; --patch:#B79CF3; --patch-soft:#2A2145; --delete:#F08A8A; --delete-soft:#3E1B1B;
+  --done:#4ADE80; --done-soft:#16321F; --plan:#8B95AD; --plan-soft:#1F2536; --lock:#F5A76E;
+  --focus:#7FA6FF; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F1320; --surface:#171C2C; --surface-2:#1F2536; --ink:#E8ECF5; --muted:#8B95AD; --line:#2A3146; --line-strong:#3A4360;
+  --accent:#F5B82E; --accent-ink:#161B2E; --accent-soft:#2E2914;
+  --get:#4FC3CC; --get-soft:#12333A; --post:#F0A35B; --post-soft:#3A2614; --patch:#B79CF3; --patch-soft:#2A2145; --delete:#F08A8A; --delete-soft:#3E1B1B;
+  --done:#4ADE80; --done-soft:#16321F; --plan:#8B95AD; --plan-soft:#1F2536; --lock:#F5A76E;
+  --focus:#7FA6FF; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+/* rail */
+.rail{border-right:1px solid var(--line);background:var(--surface);padding:22px 14px;position:sticky;top:0;height:100vh;overflow:auto;display:flex;flex-direction:column;gap:18px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px}
+.brand .mark{width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;font-size:15px;letter-spacing:-.02em}
+.brand h1{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.brand small{display:block;color:var(--muted);font-size:11.5px;font-weight:400}
+.rail-label{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:0 6px;font-weight:600}
+.phases{display:flex;flex-direction:column;gap:2px}
+.phase{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:8px 8px;border-radius:8px;text-align:left;width:100%}
+.phase:hover{background:var(--surface-2)}
+.phase[aria-pressed="true"]{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.phase .g{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--muted);width:30px}
+.phase .nm{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phase .ct{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);min-width:20px;text-align:right}
+.phase.done .ct{color:var(--done);font-weight:600}
+.phase.noapi{opacity:.55}
+.phase.noapi .ct{font-size:11px}
+.rail-foot{margin-top:auto;font-size:11.5px;color:var(--muted);padding:0 6px;line-height:1.55}
+.rail-foot code{font-size:11px}
+/* main */
+.main{padding:22px 28px 60px;min-width:0}
+.top{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.top h2{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em;text-wrap:balance}
+.top .sub{color:var(--muted);margin:2px 0 0;font-size:13px}
+.summary{display:flex;gap:8px;flex-wrap:wrap}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:92px}
+.stat b{display:block;font-size:20px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat.done b{color:var(--done)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.search{flex:1 1 260px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:0 10px;height:36px}
+.search input{border:0;background:transparent;flex:1;height:34px;font:inherit;color:inherit;min-width:0}
+.search input::placeholder{color:var(--muted)}
+.search svg{width:15px;height:15px;color:var(--muted);flex:none}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg button{padding:5px 10px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg button.m-get[aria-pressed="true"]{background:var(--get);color:#fff}
+.seg button.m-post[aria-pressed="true"]{background:var(--post);color:#fff}
+.seg button.m-patch[aria-pressed="true"]{background:var(--patch);color:#fff}
+.seg button.m-delete[aria-pressed="true"]{background:var(--delete);color:#fff}
+.chip-active{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:999px;padding:4px 8px 4px 10px;font-size:12.5px}
+.chip-active button{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:var(--muted);font-size:14px;line-height:1}
+.count{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto}
+/* groups & table */
+.group{margin-top:18px}
+.ghead{display:flex;align-items:baseline;gap:12px;padding:6px 0 8px;position:sticky;top:59px;background:var(--bg);z-index:4}
+.ghead h3{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.ghead .g{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted)}
+.ghead .rule{flex:1;height:1px;background:var(--line)}
+.ghead .meta{font-size:12px;color:var(--muted)}
+.tag{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 8px;font-size:11.5px;font-weight:600;line-height:1.5;white-space:nowrap}
+.tag.done{background:var(--done-soft);color:var(--done)}
+.tag.plan{background:var(--plan-soft);color:var(--plan)}
+.tag.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;min-width:900px}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:color-mix(in srgb,var(--surface-2) 55%,transparent)}
+td.n{color:var(--muted);font-variant-numeric:tabular-nums;font-family:"JetBrains Mono",monospace;font-size:12px;width:36px}
+.method{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:500;padding:2px 7px;border-radius:6px;letter-spacing:.02em;min-width:56px;text-align:center}
+.method.GET{background:var(--get-soft);color:var(--get)} .method.POST{background:var(--post-soft);color:var(--post)}
+.method.PATCH{background:var(--patch-soft);color:var(--patch)} .method.DELETE{background:var(--delete-soft);color:var(--delete)}
+.method.CLI{background:var(--surface-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-strong)}
+td.path .flag{color:var(--muted)}
+td.path{font-family:"JetBrains Mono",monospace;font-size:12.5px;white-space:nowrap}
+td.path .pre{color:var(--muted)} td.path .prm{color:var(--patch);font-style:italic}
+td.auth{white-space:nowrap;font-size:12.5px}
+td.auth.none{color:var(--lock);font-weight:600}
+td.rule,td.ret{font-size:12.5px;color:var(--muted);max-width:280px}
+td.rule b{color:var(--ink);font-weight:600}
+td.ret code{font-size:11.5px;color:var(--ink);background:var(--surface-2);padding:1px 5px;border-radius:4px}
+.screens{display:flex;flex-wrap:wrap;gap:4px;max-width:200px}
+.sc{font-family:"JetBrains Mono",monospace;font-size:11px;padding:1px 6px;border-radius:5px;border:1px solid var(--line-strong);color:var(--ink);background:var(--surface)}
+.sc:hover{background:var(--accent-soft);border-color:var(--accent)}
+.sc[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+/* screens view */
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:14px}
+.scard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px}
+.scard header{display:flex;align-items:baseline;gap:8px}
+.scard .code{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted);width:34px}
+.scard h4{margin:0;font-size:14px;font-weight:600}
+.scard .flow{font-size:11.5px;color:var(--muted)}
+.eps{display:flex;flex-direction:column;gap:4px}
+.ep{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;font-size:12.5px}
+.ep .method{min-width:50px;font-size:10.5px}
+.ep code{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep.done code::after{content:" ✓";color:var(--done)}
+.scard .noapi{font-size:12.5px;color:var(--muted);background:var(--surface-2);border-radius:8px;padding:8px 10px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted);margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
+.legend span b{color:var(--ink);font-weight:600}
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:14px}
+  .phases{flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px}
+  .phase{grid-template-columns:auto auto;padding:6px 10px;border:1px solid var(--line);white-space:nowrap}
+  .phase .ct{display:none}
+  .rail-foot{display:none}
+  .main{padding:16px 14px 50px}
+  .ghead{top:0;position:static}
+}
+@media (prefers-reduced-motion:no-preference){.phase,.sc,.seg button{transition:background .15s,color .15s}}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><div class="mark">S</div><h1>Danh mục API<small>Sayfully · <code>/api/v1</code></small></h1></div>
+    <div>
+      <div class="rail-label">Giai đoạn</div>
+      <div class="phases" id="phases"></div>
+    </div>
+    <div class="rail-foot">Nguồn: <code>ENDPOINTS.md</code> · <code>PLAN-DETAIL.md</code> · <code>SCREEN-API-MAP.md</code>.<br>Cập nhật 04/09/2026.</div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <div><h2>91 endpoint · 10 giai đoạn · 50 màn hình</h2><p class="sub">Bấm mã màn (C…) để lọc theo màn. Chuyển "Theo màn hình" để xem mỗi màn gọi gì khi mở và khi tương tác.</p></div>
+      <div class="summary" id="summary"></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Chế độ xem">
+        <button id="v-ep" aria-pressed="true">Theo endpoint</button>
+        <button id="v-sc" aria-pressed="false">Theo màn hình</button>
+      </div>
+      <label class="search"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg><input id="q" type="search" placeholder="Tìm path, schema, màn, ghi chú… (vd: notebook, C49, premium)" autocomplete="off"></label>
+      <div class="seg" id="methods" role="group" aria-label="Method">
+        <button data-m="" aria-pressed="true">Tất cả</button>
+        <button data-m="GET" class="m-get" aria-pressed="false">GET</button>
+        <button data-m="POST" class="m-post" aria-pressed="false">POST</button>
+        <button data-m="PATCH" class="m-patch" aria-pressed="false">PATCH</button>
+        <button data-m="DELETE" class="m-delete" aria-pressed="false">DELETE</button>
+        <button data-m="CLI" aria-pressed="false">CLI</button>
+      </div>
+      <div class="seg" id="status" role="group" aria-label="Trạng thái">
+        <button data-s="" aria-pressed="true">Mọi trạng thái</button>
+        <button data-s="done" aria-pressed="false">Đã cài</button>
+        <button data-s="plan" aria-pressed="false">Kế hoạch</button>
+      </div>
+      <span id="screenChip" hidden class="chip-active">Màn <b id="screenName"></b><button id="clearScreen" aria-label="Bỏ lọc màn">×</button></span>
+      <span class="count" id="count"></span>
+    </div>
+
+    <div id="epView"></div>
+    <div id="scView" hidden></div>
+
+    <div class="legend">
+      <span><b>Bearer</b> cần access token</span><span><b>None</b> công khai</span><span><b>Cookie/Body</b> refresh token theo <code>X-Client-Type</code></span>
+      <span>🔒 A2–C2 cần Premium (403 <code>premium_required</code>)</span><span>♻️ idempotent</span><span>🔑 header <code>Idempotency-Key</code></span><span>⏱ 5 req/phút/IP</span><span><b>CLI</b> lệnh <code>manage.py</code> chạy tay hoặc qua django-q, không qua HTTP</span>
+    </div>
+  </main>
+</div>
+
+<script>
+const PHASES = [
+  {g:1, name:'Auth', status:'done'},
+  {g:2, name:'Nội dung học'},
+  {g:3, name:'Pipeline nội dung', cli:true},
+  {g:4, name:'Lõi học tập'},
+  {g:5, name:'Bundle CDN'},
+  {g:6, name:'Game hoá'},
+  {g:7, name:'Thanh toán'},
+  {g:8, name:'Luyện thi'},
+  {g:9, name:'Web & SEO'},
+  {g:10, name:'Khung AI'},
+  {g:11, name:'Gia cố', noapi:'0'},
+];
+// [n, g, method, path, auth, rule, returns, screens, status]
+const R = [
+[1,1,'POST','/auth/register','None','⏱','AuthResultOut (tokens + created)','C24','done'],
+[2,1,'POST','/auth/token','None','⏱ · web: refresh vào cookie sayfully_rt','TokenOut','C18','done'],
+[3,1,'POST','/auth/refresh','Cookie/Body','xoay vòng + phát hiện tái sử dụng → thu hồi family','TokenOut','C0','done'],
+[4,1,'POST','/auth/google','None','kiểm aud ∈ 3 client ID','AuthResultOut','C18','done'],
+[5,1,'POST','/auth/apple','None','JWKS Apple · lưu tên/email lần đầu','AuthResultOut','C18','done'],
+[6,1,'GET','/auth/me','Bearer','—','MeOut (user + profile: XP, xu, tim, streak, premium)','C14 C49 C50','done'],
+[7,1,'POST','/auth/logout','Cookie/Body','thu hồi refresh hiện tại','MessageOut','C49','done'],
+[8,1,'POST','/auth/logout-all','Bearer','thu hồi mọi thiết bị','MessageOut','C49','done'],
+[9,1,'POST','/auth/password/forgot','None','⏱ · không lộ email tồn tại','MessageOut','C18','done'],
+[10,1,'POST','/auth/password/reset','None','token 1 lần · hạn 30 phút','MessageOut','','done'],
+[11,1,'POST','/auth/change-password','Bearer','đổi xong thu hồi toàn bộ refresh','MessageOut','C49','done'],
+[12,1,'DELETE','/auth/delete-account','Bearer','ẩn danh PII ngay','MessageOut','C49','done'],
+[13,2,'GET','/content/levels','Bearer','—','list[LevelOut]','C2 C22'],
+[14,2,'GET','/content/levels/{code}/units','Bearer','—','list[UnitOut]','C2'],
+[15,2,'GET','/content/units/{id}','Bearer','—','UnitDetailOut (kèm bài)','C20'],
+[16,2,'GET','/content/lessons/{code}','Bearer','🔒','LessonDetailOut (lồng đủ 18 bước)','C26 C3 C27 C28 C29 C4'],
+[17,2,'GET','/content/vocabulary','Bearer','q trigram: từ + IPA + nghĩa · level topic pos','Page[VocabListOut]','C6 C39'],
+[18,2,'GET','/content/vocabulary/{id}','Bearer','—','VocabDetailOut (ví dụ, collocation, âm tiết)','C39 C3'],
+[19,2,'GET','/content/topics','Bearer','—','list[TopicOut]','C6'],
+[20,2,'GET','/content/grammar','Bearer','level category q','Page[GrammarListOut]','C42'],
+[21,2,'GET','/content/grammar/{id}','Bearer','🔒','GrammarDetailOut','C42 C27'],
+[22,2,'GET','/content/readings','Bearer','level','Page[ReadingListOut]','C10'],
+[23,2,'GET','/content/readings/{id}','Bearer','🔒','ReadingDetailOut (câu + từ khoá + câu hỏi)','C35'],
+[24,2,'GET','/content/stories','Bearer','level genre','Page[StoryListOut]','C36'],
+[25,2,'GET','/content/stories/{id}','Bearer','🔒','StoryDetailOut (cảnh + câu + câu hỏi)','C36'],
+[26,2,'GET','/content/videos','Bearer','level category','Page[VideoListOut]','C37'],
+[27,2,'GET','/content/videos/{id}','Bearer','🔒','VideoDetailOut (phụ đề có timestamp)','C37'],
+[28,2,'GET','/content/shadowing','Bearer','level','Page[ShadowingDeckOut]','C38'],
+[29,2,'GET','/content/shadowing/{id}','Bearer','🔒','ShadowingDetailOut (câu + audio)','C38'],
+[30,2,'GET','/content/roots','Bearer','kind q · nhóm sẵn','list[WordRootOut]','C40'],
+[31,2,'GET','/content/roots/{id}','Bearer','—','WordRootDetailOut (kèm từ ví dụ)','C40'],
+[32,2,'GET','/content/phrasal-verbs','Bearer','verb_group level','Page[PhrasalVerbOut]','C41'],
+[33,2,'GET','/content/ipa-sounds','Bearer','kind','list[IPASoundOut]','C43'],
+['L1',3,'CLI','manage.py import_vocab <file.csv>','Vận hành','♻️ upsert theo headword + pos · nguồn: Google Sheets xuất CSV','Vocabulary + VocabularyExample + Collocation','',''],
+['L2',3,'CLI','manage.py gen_ipa --level A1','Vận hành','♻️ bỏ qua từ đã có IPA · CMUdict / g2p-en · không dùng LLM (bịa)','IPA US/UK · âm tiết · trọng âm','',''],
+['L3',3,'CLI','manage.py gen_audio --level A1 --accent US,UK','Vận hành','♻️ bỏ qua từ đã có audio · TTS Azure → R2 · nghe thử 50 mẫu trước khi chạy ~70.000 file','audio US/UK trên R2 + đường dẫn trong DB','',''],
+['L4',3,'CLI','manage.py content_audit','Vận hành','chỉ đọc · chạy sau mỗi đợt nhập','Báo cáo bản ghi thiếu audio / IPA / ví dụ','',''],
+[34,4,'GET','/home','Bearer','1 lần gọi cho cả màn','HomeOut (profile, bài tiếp, từ đến hạn, thử thách, gợi ý)','C1 C19'],
+[35,4,'GET','/learn/path','Bearer','?level · unit + tiến độ trộn sẵn','PathOut','C2 C20'],
+[36,4,'POST','/learn/lessons/{code}/start','Bearer','🔒','LessonProgressOut','C26'],
+[37,4,'POST','/learn/lessons/{code}/complete','Bearer','🔒 ♻️ transaction: progress → XP → DailyActivity → streak → SRS → xu','LessonResultOut (xp, sao, streak, xu, thẻ SRS tạo)','C5'],
+[38,4,'GET','/learn/lessons/{code}/progress','Bearer','—','LessonProgressOut','C20 C26'],
+[39,4,'GET','/learn/review/due','Bearer','?limit=20 · index srs_due_idx','list[ReviewCardOut]','C48'],
+[40,4,'POST','/learn/review','Bearer','lô [{vocab_id, rating 1-4, duration_ms}] · FSRS','ReviewResultOut','C7 C48'],
+[41,4,'GET','/learn/review/stats','Bearer','—','ReviewStatsOut','C48 C6'],
+[42,4,'GET','/learn/vocabulary/status','Bearer','?level · kèm "hôm nay đến hạn" + 7 ô ngày','VocabStatusOut','C6'],
+[43,4,'GET','/learn/notebook','Bearer','tag limit offset','Page[NotebookEntryOut]','C47'],
+[44,4,'POST','/learn/notebook','Bearer','Free ≤100 · Premium ≤4.000 → 403','NotebookEntryOut','C47 C39'],
+[45,4,'DELETE','/learn/notebook/{id}','Bearer','—','204','C47'],
+[46,4,'POST','/learn/checkin','Bearer','♻️ 1 lần/ngày: +5 XP, +10 xu, giữ streak','CheckinOut','C13'],
+[47,4,'GET','/learn/activity','Bearer','?from&to · lịch streak','list[DailyActivityOut]','C14 C6'],
+[48,4,'POST','/learn/practice','Bearer','kind speaking|listening|dictation|shadowing|reading|story|video · server chỉ nhận kết quả','PracticeResultOut (XP)','C8 C9 C10 C35 C36 C37 C38'],
+[49,4,'PATCH','/me/preferences','Bearer','goal_level cefr_level accent show_ipa daily_goal_xp timezone full_name','ProfileOut','C21 C22 C49'],
+[50,4,'POST','/me/avatar','Bearer','multipart → R2','{avatar_url}','C14'],
+[51,4,'GET','/placement/questions','Bearer','12 câu · không lộ đáp án','list[PlacementQuestionOut]','C23'],
+[52,4,'POST','/placement/submit','Bearer','chấm server','PlacementResultOut (cấp đề xuất + unit bắt đầu)','C23'],
+[53,5,'GET','/content/manifest','Bearer','so version → tải bundle từ CDN → offline','{version, levels:[{code,url,checksum,size}]}','C0'],
+[54,6,'GET','/challenges/today','Bearer','—','list[ChallengeOut]','C13 C1'],
+[55,6,'GET','/challenges/weekly','Bearer','—','list[ChallengeOut]','C13'],
+[56,6,'POST','/challenges/{id}/claim','Bearer','409 already_claimed','ClaimResultOut','C13'],
+[57,6,'GET','/badges','Bearer','đã mở / chưa','list[BadgeOut]','C14'],
+[58,6,'GET','/leaderboard','Bearer','?scope=league|global&period=week · WeeklyStat','LeaderboardOut','C16'],
+[59,6,'GET','/leaderboard/me','Bearer','—','MyRankOut','C16 C1'],
+[60,6,'GET','/shop/items','Bearer','—','list[ShopItemOut]','C50'],
+[61,6,'POST','/shop/purchase','Bearer','🔑 Idempotency-Key · 409 insufficient_coins · trừ xu + CoinTransaction cùng transaction','PurchaseResultOut','C50'],
+[62,6,'GET','/coins/transactions','Bearer','limit offset','Page[CoinTxOut]','C50 C14'],
+[63,6,'GET','/games','Bearer','game + kỷ lục cá nhân + game hôm nay + mốc thưởng','list[GameOut]','C12'],
+[64,6,'POST','/games/{code}/scores','Bearer','trả xu nhận, kỷ lục mới, mốc vừa mở','GameScoreResultOut','C12 C31 C32'],
+[65,6,'GET','/games/leaderboard','Bearer','?code&period','LeaderboardOut','C12'],
+[66,6,'GET','/notifications','Bearer','limit offset · index chưa đọc','Page[NotificationOut]','C46'],
+[67,6,'GET','/notifications/unread-count','Bearer','chấm đỏ trên chuông','{count}','C1 C46'],
+[68,6,'POST','/notifications/read','Bearer','♻️ ids[] hoặc all','MessageOut','C46'],
+[69,6,'POST','/devices','Bearer','FCM token · bắt buộc cho nhắc streak · upsert','DeviceOut','C0 C49'],
+[70,7,'GET','/billing/products','Bearer','gói + giá','list[ProductOut]','C15'],
+[71,7,'GET','/billing/subscription','Bearer','trạng thái Premium','SubscriptionOut','C15 C49'],
+[72,7,'POST','/billing/redeem','Bearer','mã quà tặng · 1 lần/mã/user','RedeemResultOut','C15'],
+[73,7,'POST','/billing/payos/checkout','Bearer','tạo link thanh toán web','{checkout_url}','C15'],
+[74,7,'POST','/webhooks/revenuecat','None','xác thực chữ ký · ♻️ theo event_id · chỉ webhook đổi is_premium','200',''],
+[75,7,'POST','/webhooks/payos','None','xác thực chữ ký · ♻️ theo event_id','200',''],
+[76,8,'GET','/exams','Bearer','?type&band&difficulty','Page[ExamListOut]','C11'],
+[77,8,'GET','/exams/{id}','Bearer','không kèm đáp án','ExamDetailOut','C11'],
+[78,8,'POST','/exams/{id}/attempts','Bearer','ghi started_at phía server','AttemptOut','C11'],
+[79,8,'POST','/exams/attempts/{id}/submit','Bearer','♻️ · chấm tự động · 409 nếu đã nộp · quá giờ tự nộp','AttemptResultOut','C11'],
+[80,8,'GET','/exams/attempts/{id}','Bearer','kết quả + giải thích từng câu','AttemptResultOut','C33'],
+[81,8,'GET','/exams/attempts','Bearer','lịch sử · limit offset','Page[AttemptListOut]','C34'],
+[82,8,'GET','/exams/stats','Bearer','Nghe/Đọc theo thời gian','ExamStatsOut','C34'],
+[83,9,'GET','/public/posts','None','⏱ · ?category · ISR 3600','Page[PostListOut]',''],
+[84,9,'GET','/public/posts/{slug}','None','⏱ · kèm SEO meta/OG','PostDetailOut',''],
+[85,9,'GET','/public/pricing','None','⏱ · landing','list[ProductOut]',''],
+[86,9,'GET','/public/sitemap-data','None','⏱ · cho sitemap.xml','{posts:[{slug, updated_at}], pages:[…]}',''],
+[87,10,'POST','/ai/tutor/messages','Bearer','🔒 · streaming · AI tắt → 503 feature_disabled','AIReply (stream)','C17'],
+[88,10,'GET','/ai/conversations','Bearer','🔒 · AI tắt → 503','Page[ConversationOut]','C17'],
+[89,10,'GET','/ai/roleplay/scenarios','Bearer','dữ liệu tĩnh · vẫn 200 khi AI tắt','list[ScenarioOut]','C44'],
+[90,10,'POST','/ai/roleplay/sessions','Bearer','🔒 · AI tắt → 503','SessionOut','C44'],
+[91,10,'POST','/ai/roleplay/sessions/{id}/messages','Bearer','🔒 · AI tắt → 503','AIReply','C44'],
+];
+const SCREENS = {
+ C0:'Splash',C1:'Home',C2:'Learn path',C3:'Thẻ từ',C4:'Quiz',C5:'Hoàn thành bài',C6:'Tab Từ vựng',C7:'Flashcard',C8:'Luyện nói',C9:'Luyện nghe · Chép chính tả',C10:'Đọc hiểu (danh sách)',
+ C11:'Luyện thi · Chọn đề & Làm bài',C12:'Sảnh game · Word Rain',C13:'Thử thách',C14:'Hồ sơ',C15:'Paywall',C16:'Bảng xếp hạng',C17:'Gia sư AI',C18:'Onboarding · Login',C19:'Practice Hub',C20:'Unit sheet',
+ C21:'Chọn mục tiêu',C22:'Chọn trình độ',C23:'Placement test',C24:'Sign up',C25:'Lộ trình 6 bước',C26:'Lesson intro',C27:'Ngữ pháp (bước học)',C28:'Hội thoại',C29:'Spelling',C30:'Đang ghi âm · Thiếu engine',
+ C31:'Stress Master',C32:'Kết quả game',C33:'Kết quả thi',C34:'Lịch sử thi',C35:'Đọc hiểu (bài)',C36:'Truyện',C37:'Video',C38:'Shadowing',C39:'Từ điển',C40:'Gốc từ',C41:'Phrasal verbs',C42:'Ngữ pháp (tra cứu)',C43:'Bảng IPA',
+ C44:'Đóng vai AI',C46:'Thông báo',C47:'Sổ tay',C48:'Ôn tập SRS',C49:'Cài đặt',C50:'Cửa hàng'
+};
+const NOAPI = {
+ C3:'Bundle + audio CDN · chấm tại máy. Nội dung lấy từ #16 khi tải bundle.',C4:'Bundle · chấm tại máy · kết quả gộp vào #37.',C27:'Bundle + audio CDN.',C28:'Bundle + audio CDN.',C29:'Bundle · chấm tại máy.',
+ C25:'Màn trang trí — không gọi API.',C30:'Xử lý trên máy (STT thiết bị) — không gọi API.',C19:'Dùng lại dữ liệu của GET /home (#34).',C20:'Dùng lại dữ liệu của GET /learn/path (#35).',C32:'Hiển thị response của #64, không gọi thêm.'
+};
+const MODE_KEY='sayfully-ep-view';
+let view='ep', method='', status='', screen='', q='';
+try{ view = localStorage.getItem(MODE_KEY) || 'ep'; }catch(e){}
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function pathHtml(p, cli){
+  if(cli) return esc(p).replace(/&lt;([\w.]+)&gt;/g,'<span class="prm">&lt;$1&gt;</span>').replace(/(--[\w-]+)/g,'<span class="flag">$1</span>');
+  return '<span class="pre">/api/v1</span>'+esc(p).replace(/\{(\w+)\}/g,'<span class="prm">{$1}</span>');
+}
+const isEp = r => r[2] !== 'CLI';
+let phase=0;
+function renderPhases(){
+  $('#phases').innerHTML = PHASES.map(p=>{
+    const n = R.filter(r=>r[1]===p.g).length;
+    const cls = ['phase', p.status==='done'?'done':'', p.noapi?'noapi':''].join(' ');
+    const ct = p.noapi ? '—' : (p.cli ? n+' lệnh' : n);
+    return `<button class="${cls}" data-g="${p.g}" aria-pressed="${phase===p.g}" ${p.noapi?'disabled':''}><span class="g">G${p.g}</span><span class="nm">${p.name}</span><span class="ct">${ct}</span></button>`;
+  }).join('');
+  $('#phases').querySelectorAll('.phase:not([disabled])').forEach(b=>b.onclick=()=>{ const g=+b.dataset.g; phase = phase===g?0:g; renderPhases(); render(); });
+}
+function filtered(){
+  const qq=q.trim().toLowerCase();
+  return R.filter(r=>{
+    const st = r[8]==='done'?'done':'plan';
+    if(phase && r[1]!==phase) return false;
+    if(method && r[2]!==method) return false;
+    if(status && st!==status) return false;
+    if(screen && !r[7].split(' ').includes(screen)) return false;
+    if(qq){ const hay=[r[3],r[4],r[5],r[6],r[7],'g'+r[1],st==='done'?'đã cài done':'kế hoạch plan',isEp(r)?'':'cli lệnh command'].join(' ').toLowerCase(); if(!hay.includes(qq)) return false; }
+    return true;
+  });
+}
+function screenChip(c){ return `<button class="sc" data-sc="${c}" aria-pressed="${screen===c}" title="${esc(SCREENS[c]||'')}">${c}</button>`; }
+function renderEp(rows){
+  const byG={}; rows.forEach(r=>(byG[r[1]]=byG[r[1]]||[]).push(r));
+  const gs=Object.keys(byG).map(Number).sort((a,b)=>a-b);
+  if(!gs.length){ $('#epView').innerHTML='<div class="empty">Không có endpoint nào khớp bộ lọc.</div>'; return; }
+  $('#epView').innerHTML = gs.map(g=>{
+    const p=PHASES.find(x=>x.g===g); const total=R.filter(r=>r[1]===g).length;
+    const tag = p.status==='done'?'<span class="tag done dot">đã cài</span>':'<span class="tag plan dot">kế hoạch</span>';
+    return `<section class="group"><div class="ghead"><span class="g">G${g}</span><h3>${p.name}</h3>${tag}${p.cli?'<span class="meta">lệnh manage.py · không qua HTTP</span>':''}<span class="rule"></span><span class="meta">${byG[g].length}/${total}${p.cli?' lệnh':''}</span></div>
+    <div class="tw"><table><thead><tr><th>#</th><th>Method</th><th>Path</th><th>Auth</th><th>Quy tắc</th><th>Trả về</th><th>Màn dùng</th></tr></thead><tbody>
+    ${byG[g].map(r=>`<tr><td class="n">${r[0]}</td><td><span class="method ${r[2]}">${r[2]}</span></td><td class="path">${pathHtml(r[3], r[2]==='CLI')}</td><td class="auth ${r[4]==='None'?'none':''}">${esc(r[4])}</td><td class="rule">${esc(r[5])}</td><td class="ret"><code>${esc(r[6])}</code></td><td><div class="screens">${r[7]?r[7].split(' ').map(screenChip).join(''):'<span style="color:var(--muted)">—</span>'}</div></td></tr>`).join('')}
+    </tbody></table></div></section>`;
+  }).join('');
+}
+function renderSc(rows){
+  const codes=Object.keys(SCREENS).sort((a,b)=>+a.slice(1)-+b.slice(1));
+  const idx={}; rows.forEach(r=>r[7].split(' ').filter(Boolean).forEach(c=>(idx[c]=idx[c]||[]).push(r)));
+  const list = screen? codes.filter(c=>c===screen) : codes;
+  $('#scView').innerHTML = '<div class="sgrid">'+list.map(c=>{
+    const eps=idx[c]||[];
+    const body = eps.length ? `<div class="eps">${eps.map(r=>`<div class="ep ${r[8]==='done'?'done':''}"><span class="method ${r[2]}">${r[2]}</span><code title="#${r[0]} · G${r[1]} · ${esc(r[6])}">${esc(r[3])}</code></div>`).join('')}</div>` : '';
+    const note = NOAPI[c] ? `<div class="noapi">${esc(NOAPI[c])}</div>` : (eps.length?'' : '<div class="noapi">Không khớp bộ lọc hiện tại.</div>');
+    return `<article class="scard"><header><span class="code">${c}</span><h4>${esc(SCREENS[c])}</h4></header>${body}${note}</article>`;
+  }).join('')+'</div>';
+}
+function render(){
+  const rows=filtered();
+  const eps=rows.filter(isEp).length, cl=rows.length-eps; $('#count').textContent = `${eps} / ${R.filter(isEp).length} endpoint` + (cl?` · ${cl} lệnh`:'');
+  $('#epView').hidden = view!=='ep'; $('#scView').hidden = view!=='sc';
+  $('#v-ep').setAttribute('aria-pressed', view==='ep'); $('#v-sc').setAttribute('aria-pressed', view==='sc');
+  if(view==='ep') renderEp(rows); else renderSc(rows);
+  $('#screenChip').hidden = !screen; if(screen) $('#screenName').textContent = `${screen} · ${SCREENS[screen]||''}`;
+  document.querySelectorAll('.sc').forEach(b=>b.onclick=()=>{ screen = screen===b.dataset.sc?'':b.dataset.sc; render(); });
+}
+$('#q').oninput=e=>{q=e.target.value;render();};
+$('#methods').querySelectorAll('button').forEach(b=>b.onclick=()=>{method=b.dataset.m;$('#methods').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
+$('#status').querySelectorAll('button').forEach(b=>b.onclick=()=>{status=b.dataset.s;$('#status').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();});
+$('#v-ep').onclick=()=>{view='ep';try{localStorage.setItem(MODE_KEY,view)}catch(e){}render();};
+$('#v-sc').onclick=()=>{view='sc';try{localStorage.setItem(MODE_KEY,view)}catch(e){}render();};
+$('#clearScreen').onclick=()=>{screen='';render();};
+(function(){
+  const E=R.filter(isEp); const done=E.filter(r=>r[8]==='done').length, pub=E.filter(r=>r[4]==='None').length, prem=E.filter(r=>r[5].includes('🔒')).length, idem=E.filter(r=>/♻️|🔑/.test(r[5])).length;
+  $('#summary').innerHTML = `<div class="stat done"><b>${done}</b><span>đã cài</span></div><div class="stat"><b>${E.length-done}</b><span>kế hoạch</span></div><div class="stat"><b>${pub}</b><span>công khai</span></div><div class="stat"><b>${prem}</b><span>🔒 premium</span></div><div class="stat"><b>${idem}</b><span>♻️ idempotent</span></div>`;
+  $('h2').textContent = `${E.length} endpoint · ${R.length-E.length} lệnh CLI · ${PHASES.filter(p=>!p.noapi).length} giai đoạn · ${Object.keys(SCREENS).length} màn hình`;
+})();
+renderPhases(); render();
+</script>

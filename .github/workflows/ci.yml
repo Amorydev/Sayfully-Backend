@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sayfully
+          POSTGRES_PASSWORD: sayfully
+          POSTGRES_DB: sayfully
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      SECRET_KEY: khoa-chi-dung-cho-ci-khong-dung-that-32bytes-min
+      JWT_SIGNING_KEY: khoa-jwt-chi-dung-cho-ci-khong-dung-that-32bytes
+      DEBUG: "True"
+      DATABASE_URL: postgres://sayfully:sayfully@localhost:5432/sayfully
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài phụ thuộc
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Kiểm tra migration còn thiếu
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Test
+        run: uv run pytest --cov=apps --cov-report=term --cov-fail-under=85
