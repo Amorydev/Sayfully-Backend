@@ -38,6 +38,7 @@ class SentenceOut(Schema):
 class LevelOut(Schema):
     code: str
     name_vi: str
+    tier_label: str
     description_vi: str
     order: int
     word_target: int
