@@ -214,6 +214,7 @@ def list_levels(request):
         s.LevelOut(
             code=lv.code,
             name_vi=lv.name_vi,
+            tier_label=lv.tier_label,
             description_vi=lv.description_vi,
             order=lv.order,
             word_target=lv.word_target,

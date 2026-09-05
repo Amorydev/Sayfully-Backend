@@ -80,25 +80,27 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         a1, _ = Level.objects.update_or_create(
             code="A1",
-            defaults={"name_vi": "Sơ cấp", "description_vi": "Cơ bản", "order": 1,
+            defaults={"name_vi": "Sơ cấp", "tier_label": "Bắt đầu nền tảng",
+                      "description_vi": "Cơ bản", "order": 1,
                       "word_target": 600, "is_free": True},
         )
         a2, _ = Level.objects.update_or_create(
             code="A2",
-            defaults={"name_vi": "Sơ trung cấp", "description_vi": "Câu ngắn", "order": 2,
+            defaults={"name_vi": "Sơ trung cấp", "tier_label": "Xây nền vững chắc",
+                      "description_vi": "Câu ngắn", "order": 2,
                       "word_target": 800, "is_free": False},
         )
         higher_levels = [
-            ("B1", "Trung cấp", "Giao tiếp tự tin về các chủ đề quen thuộc", 3, 1200),
-            ("B2", "Trung cao cấp", "Thảo luận trôi chảy, trình bày ý kiến rõ ràng", 4, 2000),
-            ("C1", "Cao cấp", "Dùng ngôn ngữ linh hoạt trong công việc, học thuật", 5, 3200),
-            ("C2", "Thành thạo", "Sử dụng gần như người bản xứ", 6, 5000),
+            ("B1", "Trung cấp", "Giao tiếp tự tin", "Giao tiếp tự tin về các chủ đề quen thuộc", 3, 1200),
+            ("B2", "Trung cao cấp", "Trôi chảy nâng cao", "Thảo luận trôi chảy, trình bày ý kiến rõ ràng", 4, 2000),
+            ("C1", "Cao cấp", "Thành thạo học thuật", "Dùng ngôn ngữ linh hoạt trong công việc, học thuật", 5, 3200),
+            ("C2", "Thành thạo", "Gần như bản xứ", "Sử dụng gần như người bản xứ", 6, 5000),
         ]
-        for code, name_vi, desc_vi, order, word_target in higher_levels:
+        for code, name_vi, tier_label, desc_vi, order, word_target in higher_levels:
             Level.objects.update_or_create(
                 code=code,
-                defaults={"name_vi": name_vi, "description_vi": desc_vi, "order": order,
-                          "word_target": word_target, "is_free": False},
+                defaults={"name_vi": name_vi, "tier_label": tier_label, "description_vi": desc_vi,
+                          "order": order, "word_target": word_target, "is_free": False},
             )
 
         travel, _ = Topic.objects.update_or_create(

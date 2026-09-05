@@ -120,6 +120,8 @@ class PathProgressOut(Schema):
 
 class PathOut(Schema):
     level: str
+    level_name: str
+    tier_label: str
     progress: PathProgressOut
     units: list[PathUnitOut]
     milestones: list[PathMilestoneOut]

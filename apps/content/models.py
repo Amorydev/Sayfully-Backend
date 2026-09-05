@@ -8,6 +8,7 @@ from apps.common.models import CEFR, TimeStampedModel
 class Level(models.Model):
     code = models.CharField(max_length=2, primary_key=True, choices=CEFR.choices)
     name_vi = models.CharField(max_length=64)
+    tier_label = models.CharField(max_length=64, blank=True)  # nhãn tier: "Bắt đầu nền tảng"
     description_vi = models.CharField(max_length=255, blank=True)
     order = models.PositiveSmallIntegerField()
     word_target = models.PositiveIntegerField(default=600)

@@ -288,6 +288,8 @@ def learn_path(request, level: str):
     if not units:
         raise NotFound("Không tìm thấy cấp học")
 
+    level_obj = Level.objects.filter(code=level.upper()).first()
+
     progress = {
         p.lesson_id: p
         for p in LessonProgress.objects.filter(user=user, lesson__unit__level_id=level.upper())
@@ -371,7 +373,12 @@ def learn_path(request, level: str):
         for ms in LevelMilestone.objects.filter(level_id=level.upper()).order_by("order")
     ]
     return s.PathOut(
-        level=level.upper(), progress=path_progress, units=out_units, milestones=milestones
+        level=level.upper(),
+        level_name=level_obj.name_vi if level_obj else "",
+        tier_label=level_obj.tier_label if level_obj else "",
+        progress=path_progress,
+        units=out_units,
+        milestones=milestones,
     )
 
 
