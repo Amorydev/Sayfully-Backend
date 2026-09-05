@@ -34,6 +34,7 @@ class Unit(models.Model):
     code = models.SlugField(max_length=64)
     title_vi = models.CharField(max_length=128)
     title_en = models.CharField(max_length=128)
+    subtitle = models.CharField(max_length=128, blank=True)  # tagline EN cho node lộ trình
     description_vi = models.CharField(max_length=255, blank=True)
     reward = models.JSONField(
         default=dict, blank=True
@@ -45,6 +46,28 @@ class Unit(models.Model):
 
     def __str__(self) -> str:
         return f"{self.level_id} · {self.order}. {self.title_vi}"
+
+
+class LevelMilestone(models.Model):
+    """Chứng chỉ/cột mốc theo cấp — hoàn thành N bài để mở thưởng (rương)."""
+
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="milestones")
+    order = models.PositiveSmallIntegerField()
+    code = models.SlugField(max_length=32)  # "a1-1"
+    name = models.CharField(max_length=32)  # "A1.1"
+    title_vi = models.CharField(max_length=128)  # "Chứng chỉ Milestone A1.1"
+    requirement_lessons = models.PositiveSmallIntegerField()  # số bài cần hoàn thành
+    reward_xp = models.PositiveSmallIntegerField(default=0)
+    reward_coins = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["level", "order"], name="uniq_milestone_order")
+        ]
+        ordering = ["level__order", "order"]
+
+    def __str__(self) -> str:
+        return f"{self.level_id} · {self.name}"
 
 
 class Lesson(models.Model):

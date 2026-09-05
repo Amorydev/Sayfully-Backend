@@ -34,3 +34,12 @@ class CEFR(models.TextChoices):
 class Accent(models.TextChoices):
     UK = "UK", "Anh-Anh"
     US = "US", "Anh-Mỹ"
+
+
+class LearningGoal(models.TextChoices):
+    DAILY = "daily", "Giao tiếp hàng ngày"
+    IELTS = "ielts", "Du học / IELTS"
+    TOEIC = "toeic", "Công việc / TOEIC"
+    TRAVEL = "travel", "Du lịch khám phá"
+    MEDIA = "media", "Phim ảnh & Nhạc"
+    KIDS = "kids", "Cho con / Học sinh"

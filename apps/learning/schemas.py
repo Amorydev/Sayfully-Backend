@@ -91,15 +91,38 @@ class PathUnitOut(Schema):
     code: str
     title_vi: str
     title_en: str
+    subtitle: str
+    description_vi: str
+    status: str  # not_started | in_progress | completed | locked
+    is_locked: bool
     reward: dict
     lesson_count: int
     done_count: int
     lessons: list[PathLessonOut]
 
 
+class PathMilestoneOut(Schema):
+    name: str
+    title_vi: str
+    requirement_lessons: int
+    current_lessons: int
+    reward_xp: int
+    reward_coins: int
+    is_reached: bool
+
+
+class PathProgressOut(Schema):
+    lessons_done: int
+    lessons_total: int
+    xp_earned: int
+    xp_target: int
+
+
 class PathOut(Schema):
     level: str
+    progress: PathProgressOut
     units: list[PathUnitOut]
+    milestones: list[PathMilestoneOut]
 
 
 # --------------------------------------------------------------- lesson flow
@@ -317,6 +340,7 @@ _CEFR = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 class MePreferencesIn(Schema):
     goal_level: _CEFR | None = None
     cefr_level: _CEFR | None = None
+    learning_goal: Literal["daily", "ielts", "toeic", "travel", "media", "kids"] | None = None
     accent: Literal["US", "UK"] | None = None
     show_ipa: bool | None = None
     daily_goal_xp: int | None = None
@@ -328,12 +352,14 @@ class MePreferencesIn(Schema):
     reminder_time: str | None = None  # "HH:MM"
     streak_reminder: bool | None = None
     event_notifications: bool | None = None
+    onboarding_completed: bool | None = None
 
 
 class PreferencesOut(Schema):
     full_name: str
     goal_level: str
     cefr_level: str
+    learning_goal: str
     accent: str
     show_ipa: bool
     daily_goal_xp: int
@@ -345,6 +371,8 @@ class PreferencesOut(Schema):
     streak_reminder: bool
     event_notifications: bool
     is_premium: bool
+    onboarding_completed: bool
+    onboarding_completed_at: datetime | None = None
 
 
 class AvatarOut(Schema):

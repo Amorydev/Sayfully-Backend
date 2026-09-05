@@ -15,7 +15,9 @@ def test_dang_ky_tra_token_va_tao_profile(api):
     assert r.status_code == 200, r.content
     body = r.json()
     assert body["access"] and body["refresh"] and body["token_type"] == "Bearer"
-    assert User.objects.get(email=NEW["email"]).profile.cefr_level == "A1"
+    profile = User.objects.get(email=NEW["email"]).profile
+    assert profile.cefr_level == "A1"
+    assert profile.onboarding_completed is False
 
 
 def test_dang_ky_trung_email_bi_409(api, user):
@@ -65,6 +67,23 @@ def test_me_tra_ho_so_va_profile(api, user, password):
     body = api.get("/auth/me", token=access).json()
     assert body["email"] == user.email
     assert body["profile"]["hearts"] == 5 and body["profile"]["is_premium"] is False
+    assert body["profile"]["onboarding_completed"] is False
+
+
+def test_hoan_tat_onboarding_cap_nhat_trinh_do_hien_tai(api, user, password):
+    access = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+
+    response = api.patch(
+        "/me/preferences",
+        {"cefr_level": "A2", "onboarding_completed": True},
+        token=access,
+    )
+
+    assert response.status_code == 200, response.content
+    assert response.json()["cefr_level"] == "A2"
+    assert response.json()["onboarding_completed"] is True
+    user.profile.refresh_from_db()
+    assert user.profile.onboarding_completed_at is not None
 
 
 # ------------------------------------------------------------------ refresh

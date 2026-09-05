@@ -18,9 +18,9 @@ from ninja.files import UploadedFile
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.schemas import ErrorOut
-from apps.content.models import Lesson, Level, Topic, Unit, Vocabulary
+from apps.content.models import Lesson, Level, LevelMilestone, Topic, Unit, Vocabulary
 from apps.content.schemas import Page
-from apps.gamification.models import Badge, CoinTransaction, UserBadge
+from apps.gamification.models import Badge, Challenge, CoinTransaction, UserBadge, UserChallenge
 from apps.notifications.models import Notification
 
 from . import schemas as s
@@ -219,6 +219,32 @@ def home(request):
     due_count = SRSCard.objects.filter(user=user, due_at__lte=djtz.now()).exclude(state=4).count()
     unread = Notification.objects.filter(user=user, read_at__isnull=True).count()
 
+    daily_challenges = list(
+        Challenge.objects.filter(scope=Challenge.Scope.DAILY, is_active=True).order_by("tier", "id")
+    )
+    progress_by_id = dict(
+        UserChallenge.objects.filter(
+            user=user, period_key=today.isoformat(), challenge__in=daily_challenges
+        ).values_list("challenge_id", "progress")
+    )
+    challenge_items = []
+    challenges_done = 0
+    challenges_reward = 0
+    for ch in daily_challenges:
+        cur = progress_by_id.get(ch.id, 0)
+        if cur >= ch.target:
+            challenges_done += 1
+        challenges_reward += ch.reward_coins
+        challenge_items.append(
+            s.HomeChallengeOut(
+                id=ch.id,
+                title=ch.title_vi,
+                current=min(cur, ch.target),
+                target=ch.target,
+                reward_coins=ch.reward_coins,
+            )
+        )
+
     return s.HomeOut(
         profile=s.HomeProfileOut(
             name=user.full_name,
@@ -236,7 +262,12 @@ def home(request):
         due_review_count=due_count,
         daily_goal=goal,
         current_lesson=current,
-        challenges=s.HomeChallengesOut(done=0, total=0, reward_coins=0, items=[]),
+        challenges=s.HomeChallengesOut(
+            done=challenges_done,
+            total=len(daily_challenges),
+            reward_coins=challenges_reward,
+            items=challenge_items,
+        ),
         rank=None,
     )
 
@@ -262,13 +293,21 @@ def learn_path(request, level: str):
         for p in LessonProgress.objects.filter(user=user, lesson__unit__level_id=level.upper())
     }
     out_units = []
+    prev_completed = True  # unit đầu luôn mở; unit sau mở khi unit trước xong hết bài
+    xp_earned = 0
+    xp_target = 0
+    lessons_total = 0
     for unit in units:
         lessons = list(unit.lessons.order_by("order"))
+        lessons_total += len(lessons)
+        unit_locked = not prev_completed
         done = 0
         lesson_outs = []
         for ls in lessons:
             p = progress.get(ls.id)
             status = p.status if p else "not_started"
+            xp_target += ls.xp_reward
+            xp_earned += p.xp_earned if p else 0
             if status == LessonProgress.Status.COMPLETED:
                 done += 1
             lesson_outs.append(
@@ -281,9 +320,19 @@ def learn_path(request, level: str):
                     xp_reward=ls.xp_reward,
                     status=status,
                     stars=p.stars if p else 0,
-                    is_locked=not _is_unlocked(user, ls),
+                    is_locked=unit_locked or not _is_unlocked(user, ls),
                 )
             )
+        unit_completed = bool(lessons) and done == len(lessons)
+        if unit_locked:
+            unit_status = "locked"
+        elif unit_completed:
+            unit_status = "completed"
+        elif done > 0 or any(lo.status == LessonProgress.Status.IN_PROGRESS for lo in lesson_outs):
+            unit_status = "in_progress"
+        else:
+            unit_status = "not_started"
+        prev_completed = unit_completed
         out_units.append(
             s.PathUnitOut(
                 id=unit.id,
@@ -291,13 +340,39 @@ def learn_path(request, level: str):
                 code=unit.code,
                 title_vi=unit.title_vi,
                 title_en=unit.title_en,
+                subtitle=unit.subtitle,
+                description_vi=unit.description_vi,
+                status=unit_status,
+                is_locked=unit_locked,
                 reward=unit.reward or {},
                 lesson_count=len(lessons),
                 done_count=done,
                 lessons=lesson_outs,
             )
         )
-    return s.PathOut(level=level.upper(), units=out_units)
+
+    total_done = sum(u.done_count for u in out_units)
+    path_progress = s.PathProgressOut(
+        lessons_done=total_done,
+        lessons_total=lessons_total,
+        xp_earned=xp_earned,
+        xp_target=xp_target,
+    )
+    milestones = [
+        s.PathMilestoneOut(
+            name=ms.name,
+            title_vi=ms.title_vi,
+            requirement_lessons=ms.requirement_lessons,
+            current_lessons=total_done,
+            reward_xp=ms.reward_xp,
+            reward_coins=ms.reward_coins,
+            is_reached=total_done >= ms.requirement_lessons,
+        )
+        for ms in LevelMilestone.objects.filter(level_id=level.upper()).order_by("order")
+    ]
+    return s.PathOut(
+        level=level.upper(), progress=path_progress, units=out_units, milestones=milestones
+    )
 
 
 # =============================================================== lesson flow
@@ -877,6 +952,7 @@ def _preferences_out(user, profile) -> s.PreferencesOut:
         full_name=user.full_name,
         goal_level=profile.goal_level,
         cefr_level=profile.cefr_level,
+        learning_goal=profile.learning_goal,
         accent=profile.accent,
         show_ipa=profile.show_ipa,
         daily_goal_xp=profile.daily_goal_xp,
@@ -888,6 +964,8 @@ def _preferences_out(user, profile) -> s.PreferencesOut:
         streak_reminder=profile.streak_reminder,
         event_notifications=profile.event_notifications,
         is_premium=profile.is_premium,
+        onboarding_completed=profile.onboarding_completed,
+        onboarding_completed_at=profile.onboarding_completed_at,
     )
 
 
@@ -895,7 +973,10 @@ def _preferences_out(user, profile) -> s.PreferencesOut:
     "/me/preferences",
     response={200: s.PreferencesOut, 401: ErrorOut, 422: ErrorOut},
     summary="Cập nhật tuỳ chọn (partial)",
-    description="Chỉ gửi trường cần đổi. `reminder_time` dạng 'HH:MM'.",
+    description=(
+        "Chỉ gửi trường cần đổi. `reminder_time` dạng 'HH:MM'. "
+        "Gửi `onboarding_completed=true` sau khi người dùng hoàn tất chọn trình độ."
+    ),
 )
 def update_preferences(request, payload: s.MePreferencesIn):
     user = request.auth
@@ -917,6 +998,9 @@ def update_preferences(request, payload: s.MePreferencesIn):
                 status_code=422,
                 details={"reminder_time": ["Định dạng HH:MM"]},
             ) from e
+
+    if "onboarding_completed" in data:
+        data["onboarding_completed_at"] = djtz.now() if data["onboarding_completed"] else None
 
     for field, value in data.items():
         setattr(profile, field, value)

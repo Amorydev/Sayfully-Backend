@@ -14,7 +14,7 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.db import models
 from django.utils import timezone
 
-from apps.common.models import CEFR, Accent, TimeStampedModel
+from apps.common.models import CEFR, Accent, LearningGoal, TimeStampedModel
 
 
 class UserManager(BaseUserManager):
@@ -153,6 +153,11 @@ class UserProfile(models.Model):
 
     cefr_level = models.CharField(max_length=2, choices=CEFR.choices, default=CEFR.A1)
     goal_level = models.CharField(max_length=2, choices=CEFR.choices, default=CEFR.B1)
+    learning_goal = models.CharField(
+        max_length=12, choices=LearningGoal.choices, default=LearningGoal.DAILY
+    )
+    onboarding_completed = models.BooleanField(default=False)
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
 
     xp_total = models.PositiveIntegerField(default=0)
     level = models.PositiveSmallIntegerField(default=1)
