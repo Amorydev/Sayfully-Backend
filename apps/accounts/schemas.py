@@ -60,6 +60,9 @@ class TokenOut(Schema):
 class ProfileOut(Schema):
     cefr_level: str
     goal_level: str
+    learning_goal: str
+    onboarding_completed: bool
+    onboarding_completed_at: datetime | None = None
     xp_total: int
     level: int
     coins: int

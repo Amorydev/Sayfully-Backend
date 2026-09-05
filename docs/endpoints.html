@@ -204,7 +204,7 @@ const PHASES = [
 ];
 // [n, g, method, path, auth, rule, returns, screens, status]
 const R = [
-[1,1,'POST','/auth/register','None','⏱','AuthResultOut (tokens + created)','C24','done'],
+[1,1,'POST','/auth/register','None','⏱','TokenOut','C24','done'],
 [2,1,'POST','/auth/token','None','⏱ · web: refresh vào cookie sayfully_rt','TokenOut','C18','done'],
 [3,1,'POST','/auth/refresh','Cookie/Body','xoay vòng + phát hiện tái sử dụng → thu hồi family','TokenOut','C0','done'],
 [4,1,'POST','/auth/google','None','kiểm aud ∈ 3 client ID','AuthResultOut','C18','done'],
@@ -257,7 +257,7 @@ const R = [
 [47,4,'GET','/learn/activity','Bearer','?from&to · lịch streak','list[DailyActivityOut]','C14 C6','done'],
 [48,4,'POST','/learn/practice','Bearer','kind speaking|listening|dictation|shadowing|reading|story|video · server chỉ nhận kết quả · cộng UserSkill','PracticeResultOut (XP)','C8 C9 C10 C35 C36 C37 C38','done'],
 ['48b',4,'GET','/learn/skills','Bearer','động cơ Practice Hub C4: tiến độ 4 kỹ năng + gợi ý · đọc UserSkill','SkillsOverviewOut','C4 C19','done'],
-[49,4,'PATCH','/me/preferences','Bearer','goal_level cefr_level accent show_ipa daily_goal_xp daily_goal_words timezone full_name ui_language reminder_* event_notifications','ProfileOut','C21 C22 C49','done'],
+[49,4,'PATCH','/me/preferences','Bearer','goal_level cefr_level learning_goal onboarding_completed accent show_ipa daily_goal_xp daily_goal_words timezone full_name ui_language reminder_* event_notifications','PreferencesOut','C21 C22 C49','done'],
 [50,4,'POST','/me/avatar','Bearer','multipart → R2','{avatar_url}','C14','done'],
 [51,4,'GET','/placement/questions','Bearer','12 câu · không lộ đáp án','list[PlacementQuestionOut]','C23','done'],
 [52,4,'POST','/placement/submit','Bearer','chấm server','PlacementResultOut (cấp đề xuất + unit bắt đầu)','C23','done'],
