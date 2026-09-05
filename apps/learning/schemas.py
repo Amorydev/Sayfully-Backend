@@ -335,6 +335,51 @@ class SkillsOverviewOut(Schema):
     suggestion: PracticeSuggestionOut | None
 
 
+# --------------------------------------------------------------- practice hub (C19)
+class PracticeFeaturedOut(Schema):
+    title_vi: str
+    topic: str
+    description_vi: str
+    is_premium: bool
+    thumbnail_url: str | None
+
+
+class PracticeGameOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    description_vi: str
+    kind: str
+    icon_url: str | None
+    is_featured: bool
+
+
+class PracticeSkillCountsOut(Schema):
+    speaking: int   # số bài luyện nói sẵn sàng ("12 bài sẵn sàng")
+    listening: int  # số bài luyện nghe
+    reading: int    # số bài đọc ("5 bài mới")
+    writing: int    # số bài luyện viết/ngữ pháp
+
+
+class PracticeCountsOut(Schema):
+    vocab_due: int        # "24 từ cần ôn"
+    notebook_total: int   # "348 từ đã lưu"
+    ipa_sounds: int       # "44 âm IPA"
+    videos: int
+    skills: PracticeSkillCountsOut
+
+
+class PracticeHubOut(Schema):
+    streak_days: int
+    coins: int
+    hearts: int
+    is_premium: bool
+    featured: PracticeFeaturedOut | None
+    skills: list[SkillProgressOut]
+    counts: PracticeCountsOut
+    games: list[PracticeGameOut]
+
+
 # --------------------------------------------------------------- me preferences (C49, C21, C22)
 _CEFR = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 

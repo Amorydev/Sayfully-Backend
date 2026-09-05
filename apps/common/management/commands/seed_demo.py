@@ -9,9 +9,11 @@ thử thách/huy hiệu/cửa hàng, gói Premium, câu xếp lớp, mã quà t�
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone as djtz
 
 from apps.accounts.models import User
 from apps.accounts.services import ensure_profile
+from apps.ai.models import RoleplayScenario
 from apps.billing.models import GiftCode, Product
 from apps.common.models import LearningGoal
 from apps.content.models import (
@@ -446,6 +448,25 @@ class Command(BaseCommand):
                                        "options": opts, "answer_index": ans},
             )
 
+        # Hội thoại AI (hero Trung tâm luyện tập C19)
+        RoleplayScenario.objects.update_or_create(
+            title_vi="Phỏng vấn xin việc",
+            defaults={"level": "B1", "topic": "Công việc",
+                      "description_vi": "Phỏng vấn xin việc & thuyết trình chuyên nghiệp",
+                      "goals": ["Giới thiệu bản thân", "Nói điểm mạnh", "Đặt câu hỏi cho nhà tuyển dụng"],
+                      "system_prompt": "You are a friendly job interviewer. Ask common interview "
+                                       "questions and give short, encouraging feedback.",
+                      "is_premium": True},
+        )
+        RoleplayScenario.objects.update_or_create(
+            title_vi="Gọi món tại quán cà phê",
+            defaults={"level": "A1", "topic": "Du lịch",
+                      "description_vi": "Tập gọi đồ uống và trả tiền tự nhiên",
+                      "goals": ["Chào hỏi", "Gọi món", "Hỏi giá"],
+                      "system_prompt": "You are a barista. Help the user order politely in English.",
+                      "is_premium": False},
+        )
+
         # Tài khoản demo có sẵn tiến độ để preview Home (demo@sayfully.app / demo1234)
         demo, created = User.objects.get_or_create(
             email="demo@sayfully.app", defaults={"full_name": "Quyền Vũ"}
@@ -457,6 +478,8 @@ class Command(BaseCommand):
         p.cefr_level = "A1"
         p.goal_level = "B1"
         p.learning_goal = LearningGoal.DAILY
+        p.onboarding_completed = True
+        p.onboarding_completed_at = djtz.now()
         p.level = 4
         p.xp_total = 1240
         p.coins = 520

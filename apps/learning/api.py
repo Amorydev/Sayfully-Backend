@@ -16,11 +16,33 @@ from ninja import File, Query, Router
 from ninja.files import UploadedFile
 
 from apps.accounts.services import ensure_profile
+from apps.ai.models import RoleplayScenario
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.schemas import ErrorOut
-from apps.content.models import Lesson, Level, LevelMilestone, Topic, Unit, Vocabulary
+from apps.content.models import (
+    Dialogue,
+    GrammarPoint,
+    IPASound,
+    Lesson,
+    Level,
+    LevelMilestone,
+    Reading,
+    ShadowingDeck,
+    Story,
+    Topic,
+    Unit,
+    Video,
+    Vocabulary,
+)
 from apps.content.schemas import Page
-from apps.gamification.models import Badge, Challenge, CoinTransaction, UserBadge, UserChallenge
+from apps.gamification.models import (
+    Badge,
+    Challenge,
+    CoinTransaction,
+    Game,
+    UserBadge,
+    UserChallenge,
+)
 from apps.notifications.models import Notification
 
 from . import schemas as s
@@ -282,13 +304,13 @@ def home(request):
 def learn_path(request, level: str):
     user = request.auth
     ensure_profile(user)
+    level_obj = Level.objects.filter(code=level.upper()).first()
+    if level_obj is None:
+        raise NotFound("Không tìm thấy cấp học")
+
     units = (
         Unit.objects.filter(level_id=level.upper()).prefetch_related("lessons").order_by("order")
     )
-    if not units:
-        raise NotFound("Không tìm thấy cấp học")
-
-    level_obj = Level.objects.filter(code=level.upper()).first()
 
     progress = {
         p.lesson_id: p
@@ -951,6 +973,81 @@ def skills(request):
         kind=weakest.kind, title=_SKILL_LABELS[weakest.kind], est_minutes=4, xp=10
     )
     return s.SkillsOverviewOut(skills=out, suggestion=suggestion)
+
+
+@router.get(
+    "/learn/practice-hub",
+    response={200: s.PracticeHubOut, 401: ErrorOut},
+    summary="Trung tâm luyện tập (C19) — gộp 1 lần gọi",
+    description="Hồ sơ tóm tắt, hội thoại AI nổi bật, tiến độ kỹ năng, số liệu (từ ôn/sổ tay) "
+    "và danh sách trò chơi cho tab Luyện tập.",
+)
+def practice_hub(request):
+    user = request.auth
+    profile = ensure_profile(user)
+
+    existing = {sk.kind: sk for sk in UserSkill.objects.filter(user=user)}
+    skills_out = [
+        s.SkillProgressOut(
+            kind=kind,
+            percent=services.skill_percent(existing[kind].xp if kind in existing else 0),
+            level=existing[kind].level if kind in existing else 1,
+        )
+        for kind in ["speaking", "listening", "reading", "writing"]
+    ]
+
+    scenario = RoleplayScenario.objects.order_by("-is_premium", "id").first()
+    featured = (
+        s.PracticeFeaturedOut(
+            title_vi=scenario.title_vi,
+            topic=scenario.topic,
+            description_vi=scenario.description_vi,
+            is_premium=scenario.is_premium,
+            thumbnail_url=_media(scenario.thumbnail_path),
+        )
+        if scenario
+        else None
+    )
+
+    dialogues = Dialogue.objects.count()
+    videos = Video.objects.count()
+    readings = Reading.objects.count()
+    counts = s.PracticeCountsOut(
+        vocab_due=SRSCard.objects.filter(user=user, due_at__lte=djtz.now()).exclude(state=4).count(),
+        notebook_total=NotebookEntry.objects.filter(user=user).count(),
+        ipa_sounds=IPASound.objects.count(),
+        videos=videos,
+        skills=s.PracticeSkillCountsOut(
+            speaking=ShadowingDeck.objects.count() + dialogues,
+            listening=dialogues + videos,
+            reading=readings + Story.objects.count(),
+            writing=GrammarPoint.objects.count(),
+        ),
+    )
+
+    games = [
+        s.PracticeGameOut(
+            id=g.id,
+            code=g.code,
+            title_vi=g.title_vi,
+            description_vi=g.description_vi,
+            kind=g.kind,
+            icon_url=_media(g.icon_path),
+            is_featured=g.is_featured,
+        )
+        for g in Game.objects.filter(is_active=True).order_by("order", "id")
+    ]
+
+    return s.PracticeHubOut(
+        streak_days=profile.streak_current,
+        coins=profile.coins,
+        hearts=profile.hearts,
+        is_premium=profile.is_premium,
+        featured=featured,
+        skills=skills_out,
+        counts=counts,
+        games=games,
+    )
 
 
 # =============================================================== me preferences + avatar
