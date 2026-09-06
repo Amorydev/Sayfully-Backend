@@ -352,6 +352,7 @@ class PracticeIn(Schema):
     duration_sec: int = 0
     ref_id: str = ""
     deck_id: int | None = None  # chủ đề luyện nói (ShadowingDeck) để cộng tiến độ C8a
+    listening_topic_id: int | None = None  # chủ đề luyện nghe (ListeningTopic) để cộng tiến độ C9a
 
 
 class PracticeResultOut(Schema):
@@ -378,6 +379,41 @@ class SpeakingTopicsOut(Schema):
     suggested: list[SpeakingTopicOut]  # tab "Gợi ý": chủ đề chưa xong, không khoá
     basic: list[SpeakingTopicOut]  # tab "Cơ bản": toàn bộ chủ đề
     by_lesson: list[SpeakingTopicOut] = []  # tab "Theo bài học": để trống ở v1
+
+
+class ListeningTopicOut(Schema):
+    id: int
+    title_vi: str
+    icon: str
+    item_count: int  # tổng số câu của chủ đề
+    est_minutes: int
+    is_premium: bool
+    done_choose: int  # số câu đã xong ở mode "Chọn từ"
+    done_dictation: int  # số câu đã xong ở mode "Chép chính tả"
+
+
+class ListeningTopicsOut(Schema):
+    week_practiced: int  # số câu đã luyện nghe 7 ngày gần nhất (hero C9a)
+    suggested: list[ListeningTopicOut]  # tab "Gợi ý"
+    basic: list[ListeningTopicOut]  # tab "Cơ bản"
+    by_lesson: list[ListeningTopicOut] = []  # tab "Theo bài học": để trống ở v1
+
+
+class ListeningItemOut(Schema):
+    order: int
+    text_en: str  # câu đầy đủ (client tự che từ ở blank_index cho mode choose)
+    text_vi: str
+    audio_url: str | None
+    blank_index: int | None = None  # chỉ có ở mode "choose"
+    options: list[str] = []  # chỉ có ở mode "choose"
+    answer_index: int | None = None  # chỉ có ở mode "choose" (chấm tại máy)
+
+
+class ListeningItemsOut(Schema):
+    topic_id: int
+    mode: str  # "choose" | "dictation"
+    total: int
+    items: list[ListeningItemOut]
 
 
 class SkillProgressOut(Schema):

@@ -3,7 +3,7 @@ from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import CEFR
-from apps.content.models import Lesson, ShadowingDeck, Unit, Vocabulary
+from apps.content.models import Lesson, ListeningTopic, ShadowingDeck, Unit, Vocabulary
 
 
 class LessonProgress(models.Model):
@@ -121,6 +121,7 @@ class DailyActivity(models.Model):
     lessons_completed = models.PositiveSmallIntegerField(default=0)
     words_reviewed = models.PositiveIntegerField(default=0)
     speaking_count = models.PositiveSmallIntegerField(default=0)
+    listening_count = models.PositiveSmallIntegerField(default=0)
     minutes = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
@@ -233,3 +234,31 @@ class SpeakingTopicProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · deck{self.deck_id} · {self.done_count}"
+
+
+class ListeningTopicProgress(models.Model):
+    """Tiến độ luyện nghe theo chủ đề & mode (C9a) — 'x/y câu' cho mode đang chọn."""
+
+    class Mode(models.TextChoices):
+        CHOOSE = "choose", "Chọn từ"
+        DICTATION = "dictation", "Chép chính tả"
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="listening_topic_progress"
+    )
+    topic = models.ForeignKey(
+        ListeningTopic, on_delete=models.CASCADE, related_name="topic_progress"
+    )
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    done_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "topic", "mode"], name="uniq_listening_topic_progress"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · topic{self.topic_id} · {self.mode} · {self.done_count}"

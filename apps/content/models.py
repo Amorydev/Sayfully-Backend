@@ -485,6 +485,53 @@ class ShadowingSentence(models.Model):
     ipa = models.CharField(max_length=512, blank=True)
     text_vi = models.CharField(max_length=512)
     audio_path = models.CharField(max_length=255, blank=True)
+    speaking_goal_vi = models.CharField(max_length=255, blank=True)
+    highlights = models.JSONField(
+        default=list,
+        blank=True,
+    )  # [{"text": "meet", "kind": "primary_stress"}]
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return str(self.text_en)
+
+
+class ListeningTopic(models.Model):
+    """Chủ đề luyện nghe (C9a) — mỗi chủ đề gồm nhiều câu nghe, dùng cho cả 2 mode."""
+
+    level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="listening_topics")
+    order = models.PositiveSmallIntegerField()
+    title_vi = models.CharField(max_length=128)
+    icon = models.CharField(max_length=48, blank=True)
+    est_seconds = models.PositiveIntegerField(default=0)
+    is_free = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["level", "order"], name="uniq_listening_topic_order")
+        ]
+        ordering = ["level__order", "order"]
+
+    def __str__(self) -> str:
+        return str(self.title_vi)
+
+
+class ListeningItem(models.Model):
+    """1 câu nghe. Mode 'choose' dùng blank_index + options + answer_index (điền chỗ trống);
+    mode 'dictation' chỉ cần text_en + audio."""
+
+    topic = models.ForeignKey(ListeningTopic, on_delete=models.CASCADE, related_name="items")
+    order = models.PositiveSmallIntegerField()
+    text_en = models.CharField(max_length=512)  # câu đầy đủ (đáp án của chỗ trống nằm trong câu)
+    text_vi = models.CharField(max_length=512, blank=True)
+    audio_path = models.CharField(max_length=255, blank=True)
+    blank_index = models.PositiveSmallIntegerField(
+        null=True, blank=True
+    )  # vị trí từ bị khuyết trong text_en.split() cho mode 'choose'
+    options = models.JSONField(default=list, blank=True)  # ["meet", "meat", "mit", "meal"]
+    answer_index = models.PositiveSmallIntegerField(null=True, blank=True)  # index đáp án đúng
 
     class Meta:
         ordering = ["order"]

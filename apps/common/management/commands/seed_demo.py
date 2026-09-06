@@ -29,6 +29,8 @@ from apps.content.models import (
     LessonStep,
     Level,
     LevelMilestone,
+    ListeningItem,
+    ListeningTopic,
     PhrasalVerb,
     Reading,
     ReadingQuestion,
@@ -57,6 +59,7 @@ from apps.gamification.models import (
 from apps.learning.models import (
     DailyActivity,
     LessonProgress,
+    ListeningTopicProgress,
     PlacementQuestion,
     SpeakingTopicProgress,
     SRSCard,
@@ -470,13 +473,21 @@ class Command(BaseCommand):
                       "focus_vi": "Ngữ điệu câu chào", "est_seconds": 180, "icon": "greeting"},
         )
         sd.sentences.all().delete()
-        for j, (en, ipa, vi) in enumerate([
-            ("Hello, nice to meet you.", "/həˈloʊ naɪs tə miːt juː/", "Xin chào, rất vui được gặp bạn."),
-            ("My name is Long. What's yours?", "/maɪ neɪm ɪz lɒŋ wɒts jɔːz/", "Tôi tên Long. Còn bạn?"),
-            ("Where are you from?", "/wɛər ɑːr juː frɒm/", "Bạn đến từ đâu?"),
-            ("I'm from Vietnam.", "/aɪm frəm ˌvjɛtˈnɑːm/", "Tôi đến từ Việt Nam."),
+        for j, (en, ipa, vi, goal, highlights) in enumerate([
+            ("Hello, nice to meet you.", "/həˈloʊ naɪs tə miːt juː/", "Xin chào, rất vui được gặp bạn.", "Nhấn rõ trọng âm từ \"meet\"", [{"text": "meet", "kind": "primary_stress"}]),
+            ("My name is Long. What's yours?", "/maɪ neɪm ɪz lɒŋ wɒts jɔːz/", "Tôi tên Long. Còn bạn?", "Giữ nhịp tự nhiên ở cụm \"What's yours\"", [{"text": "yours", "kind": "intonation"}]),
+            ("Where are you from?", "/wɛər ɑːr juː frɒm/", "Bạn đến từ đâu?", "Lên giọng nhẹ ở cuối câu hỏi", [{"text": "from", "kind": "rising_intonation"}]),
+            ("I'm from Vietnam.", "/aɪm frəm ˌvjɛtˈnɑːm/", "Tôi đến từ Việt Nam.", "Nhấn trọng âm chính của \"Vietnam\"", [{"text": "Vietnam", "kind": "primary_stress"}]),
         ]):
-            ShadowingSentence.objects.create(deck=sd, order=j, text_en=en, ipa=ipa, text_vi=vi)
+            ShadowingSentence.objects.create(
+                deck=sd,
+                order=j,
+                text_en=en,
+                ipa=ipa,
+                text_vi=vi,
+                speaking_goal_vi=goal,
+                highlights=highlights,
+            )
 
         root, _ = WordRoot.objects.update_or_create(
             kind="prefix", text="un-",
@@ -593,6 +604,48 @@ class Command(BaseCommand):
             deck.sentences.all().delete()
             for j, (en, ipa, vi) in enumerate(sents):
                 ShadowingSentence.objects.create(deck=deck, order=j, text_en=en, ipa=ipa, text_vi=vi)
+
+        # Luyện nghe (C9a/C9): chủ đề + câu; mode "choose" dùng blank_index/options/answer_index
+        _listen_sets = [
+            ("Chào hỏi & giới thiệu", "greeting", 240, True, [
+                ("Hello, nice to meet you.", "Xin chào, rất vui được gặp bạn.", 3, ["meet", "meat", "mit", "meal"], 0),
+                ("What is your name?", "Bạn tên là gì?", 3, ["name", "game", "same", "aim"], 0),
+                ("I am from Vietnam.", "Tôi đến từ Việt Nam.", 2, ["from", "form", "farm", "free"], 0),
+                ("How are you today?", "Hôm nay bạn thế nào?", 1, ["are", "our", "hour", "air"], 0),
+            ]),
+            ("Mua sắm & Giá cả", "shopping", 220, True, [
+                ("How much is this shirt?", "Cái áo này bao nhiêu tiền?", 1, ["much", "match", "mush", "march"], 0),
+                ("Do you have a smaller size?", "Bạn có cỡ nhỏ hơn không?", 4, ["smaller", "similar", "summer", "smell"], 0),
+                ("I would like to pay by card.", "Tôi muốn trả bằng thẻ.", 4, ["pay", "play", "pray", "pie"], 0),
+            ]),
+            ("Du lịch & Khách sạn", "travel", 260, True, [
+                ("Where is the train station?", "Nhà ga tàu ở đâu?", 3, ["train", "rain", "trane", "brain"], 0),
+                ("I booked a room for two nights.", "Tôi đã đặt phòng cho hai đêm.", 5, ["two", "too", "to", "tow"], 0),
+                ("Can I check in early?", "Tôi nhận phòng sớm được không?", 4, ["early", "eary", "ear", "oily"], 0),
+            ]),
+            ("Ở nhà hàng & Gọi món", "restaurant", 200, True, [
+                ("A table for two, please.", "Cho bàn hai người.", 2, ["for", "four", "far", "fore"], 0),
+                ("Can I see the menu?", "Cho tôi xem thực đơn?", 4, ["menu", "many", "money", "meno"], 0),
+                ("The soup is very hot.", "Món súp rất nóng.", 4, ["hot", "hat", "heart", "hut"], 0),
+            ]),
+            ("Phỏng vấn xin việc", "interview", 320, False, [
+                ("Tell me about yourself.", "Hãy giới thiệu về bản thân.", 3, ["yourself", "myself", "itself", "herself"], 0),
+                ("Why do you want this job?", "Tại sao bạn muốn công việc này?", 5, ["job", "jog", "joy", "jab"], 0),
+            ]),
+        ]
+        for i, (title_vi, icon, secs, is_free, items) in enumerate(_listen_sets, start=1):
+            lt, _ = ListeningTopic.objects.update_or_create(
+                level=a1, order=i,
+                defaults={"title_vi": title_vi, "icon": icon, "est_seconds": secs, "is_free": is_free},
+            )
+            lt.items.all().delete()
+            for j, (en, vi, bi, opts, ans) in enumerate(items):
+                ListeningItem.objects.create(
+                    topic=lt, order=j, text_en=en, text_vi=vi,
+                    audio_path=f"audio/listen/{icon}_{j}.mp3",
+                    blank_index=bi, options=opts, answer_index=ans,
+                )
+
         for i in range(2, 7):  # +5 dialogue → 6  (speaking = 6 + 6 = 12)
             Dialogue.objects.update_or_create(
                 title_en=f"Everyday dialogue {i}",
@@ -681,6 +734,15 @@ class Command(BaseCommand):
             SpeakingTopicProgress.objects.update_or_create(
                 user=demo, deck=_greet_deck, defaults={"done_count": 2},
             )
+        # Tiến độ luyện nghe (C9a) mode "choose": Chào hỏi 2 câu, Mua sắm đủ (đạt điểm tối đa),
+        # Du lịch mới 1 câu
+        for order, done in [(1, 2), (2, 3), (3, 1)]:
+            lt = ListeningTopic.objects.filter(level=a1, order=order).first()
+            if lt:
+                ListeningTopicProgress.objects.update_or_create(
+                    user=demo, topic=lt, mode=ListeningTopicProgress.Mode.CHOOSE,
+                    defaults={"done_count": done},
+                )
         LessonProgress.objects.filter(
             user=demo,
             lesson__unit=unit,

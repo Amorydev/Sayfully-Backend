@@ -115,6 +115,7 @@ def record(
     lessons: int = 0,
     words: int = 0,
     speaking: int = 0,
+    listening: int = 0,
     minutes: int = 0,
 ) -> RewardResult:
     """Ghi 1 lần hoạt động: DailyActivity + streak + XP/level + xu (kèm sổ cái)."""
@@ -126,6 +127,7 @@ def record(
     daily.lessons_completed += lessons
     daily.words_reviewed += words
     daily.speaking_count += speaking
+    daily.listening_count += listening
     daily.minutes += minutes
     daily.save()
 

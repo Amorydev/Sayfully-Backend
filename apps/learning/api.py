@@ -30,6 +30,7 @@ from apps.content.models import (
     LessonStep,
     Level,
     LevelMilestone,
+    ListeningTopic,
     Reading,
     ShadowingDeck,
     Story,
@@ -57,6 +58,7 @@ from . import services
 from .models import (
     DailyActivity,
     LessonProgress,
+    ListeningTopicProgress,
     NotebookEntry,
     PlacementAttempt,
     PlacementQuestion,
@@ -1108,11 +1110,14 @@ def practice(request, payload: s.PracticeIn):
             profile,
             xp=xp,
             speaking=1 if payload.kind in ("speaking", "shadowing") else 0,
+            listening=1 if payload.kind in ("listening", "dictation") else 0,
             minutes=round(payload.duration_sec / 60),
         )
         skill = services.bump_skill(user, payload.kind, xp)
         if payload.deck_id and payload.kind in ("speaking", "shadowing"):
             _bump_speaking_topic(user, payload.deck_id)
+        if payload.listening_topic_id and payload.kind in ("listening", "dictation"):
+            _bump_listening_topic(user, payload.listening_topic_id, payload.kind)
     return s.PracticeResultOut(
         xp_earned=xp,
         skill=skill.kind if skill else None,
@@ -1128,6 +1133,18 @@ def _bump_speaking_topic(user, deck_id: int) -> None:
         return
     prog, _ = SpeakingTopicProgress.objects.get_or_create(user=user, deck_id=deck_id)
     if prog.done_count < deck.n:
+        prog.done_count += 1
+        prog.save(update_fields=["done_count", "updated_at"])
+
+
+def _bump_listening_topic(user, topic_id: int, kind: str) -> None:
+    """Cộng 1 câu đã nghe cho chủ đề theo mode ('listening'→choose, 'dictation'→dictation)."""
+    topic = ListeningTopic.objects.filter(id=topic_id).annotate(n=Count("items")).first()
+    if not topic:
+        return
+    mode = ListeningTopicProgress.Mode.CHOOSE if kind == "listening" else ListeningTopicProgress.Mode.DICTATION
+    prog, _ = ListeningTopicProgress.objects.get_or_create(user=user, topic_id=topic_id, mode=mode)
+    if prog.done_count < topic.n:
         prog.done_count += 1
         prog.save(update_fields=["done_count", "updated_at"])
 
@@ -1202,6 +1219,84 @@ def speaking_topics(request):
         or 0
     )
     return s.SpeakingTopicsOut(week_practiced=week_practiced, suggested=suggested, basic=basic)
+
+
+@router.get(
+    "/learn/listening/topics",
+    response={200: s.ListeningTopicsOut, 401: ErrorOut},
+    summary="Chủ đề luyện nghe (C9a)",
+    description="Chủ đề nghe + tiến độ theo 2 mode (Chọn từ / Chép chính tả). "
+    "Chia tab Gợi ý/Cơ bản; 'Theo bài học' trống ở v1. Hero đếm câu đã nghe 7 ngày gần nhất.",
+)
+def listening_topics(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    topics_qs = ListeningTopic.objects.annotate(n=Count("items")).order_by("level__order", "order")
+    prog = {(p.topic_id, p.mode): p.done_count for p in ListeningTopicProgress.objects.filter(user=user)}
+    basic = []
+    for t in topics_qs:
+        total = t.n
+        basic.append(
+            s.ListeningTopicOut(
+                id=t.id,
+                title_vi=t.title_vi,
+                icon=t.icon,
+                item_count=total,
+                est_minutes=max(1, round(t.est_seconds / 60)) if t.est_seconds else max(1, total),
+                is_premium=not t.is_free,
+                done_choose=min(prog.get((t.id, "choose"), 0), total),
+                done_dictation=min(prog.get((t.id, "dictation"), 0), total),
+            )
+        )
+    suggested = [
+        t
+        for t in basic
+        if not t.is_premium and (t.done_choose < t.item_count or t.done_dictation < t.item_count)
+    ][:3]
+    today = services.local_today(profile)
+    week_practiced = (
+        DailyActivity.objects.filter(
+            user=user, date__gte=today - timedelta(days=6), date__lte=today
+        ).aggregate(n=Sum("listening_count"))["n"]
+        or 0
+    )
+    return s.ListeningTopicsOut(week_practiced=week_practiced, suggested=suggested, basic=basic)
+
+
+@router.get(
+    "/learn/listening/topics/{topic_id}",
+    response={200: s.ListeningItemsOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Câu luyện nghe theo mode (C9)",
+    description="mode=choose trả kèm blank_index + options + answer_index (điền chỗ trống, chấm ở máy); "
+    "mode=dictation chỉ câu + audio để gõ lại.",
+)
+def listening_items(request, topic_id: int, mode: str = Query("choose")):
+    profile = ensure_profile(request.auth)
+    topic = ListeningTopic.objects.filter(id=topic_id).first()
+    if not topic:
+        raise NotFound("Không tìm thấy chủ đề luyện nghe")
+    if not topic.is_free and not profile.is_premium:
+        raise Forbidden("Nội dung này dành cho Premium", code="premium_required")
+    is_choose = mode != "dictation"
+    items = []
+    for it in topic.items.all():
+        base = {
+            "order": it.order,
+            "text_en": it.text_en,
+            "text_vi": it.text_vi,
+            "audio_url": _media(it.audio_path),
+        }
+        if is_choose:
+            base.update(
+                blank_index=it.blank_index, options=it.options, answer_index=it.answer_index
+            )
+        items.append(s.ListeningItemOut(**base))
+    return s.ListeningItemsOut(
+        topic_id=topic.id,
+        mode="choose" if is_choose else "dictation",
+        total=len(items),
+        items=items,
+    )
 
 
 @router.get(
