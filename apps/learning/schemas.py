@@ -205,6 +205,10 @@ class KeyVocabOut(Schema):
 
 class LessonResultOut(Schema):
     code: str
+    lesson_order: int
+    title_vi: str
+    unit_order: int
+    unit_title_vi: str
     percent: int
     correct_count: int
     total: int

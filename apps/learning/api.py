@@ -658,6 +658,10 @@ def complete_lesson(request, code: str, payload: s.LessonCompleteIn):
     if p and p.status == LessonProgress.Status.COMPLETED:
         return s.LessonResultOut(
             code=lesson.code,
+            lesson_order=lesson.order,
+            title_vi=lesson.title_vi,
+            unit_order=lesson.unit.order,
+            unit_title_vi=lesson.unit.title_vi,
             percent=100,
             correct_count=p.correct_count,
             total=p.total_questions,
@@ -704,6 +708,10 @@ def complete_lesson(request, code: str, payload: s.LessonCompleteIn):
 
     return s.LessonResultOut(
         code=lesson.code,
+        lesson_order=lesson.order,
+        title_vi=lesson.title_vi,
+        unit_order=lesson.unit.order,
+        unit_title_vi=lesson.unit.title_vi,
         percent=100,
         correct_count=correct,
         total=total,
