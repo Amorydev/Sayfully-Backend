@@ -7,6 +7,8 @@ thử thách/huy hiệu/cửa hàng, gói Premium, câu xếp lớp, mã quà t�
     uv run python manage.py seed_demo
 """
 
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone as djtz
@@ -43,8 +45,16 @@ from apps.content.models import (
     VocabularyExample,
     WordRoot,
 )
-from apps.gamification.models import Badge, Challenge, Game, ShopItem, UserChallenge
-from apps.learning.models import DailyActivity, LessonProgress, PlacementQuestion
+from apps.gamification.models import (
+    Badge,
+    Challenge,
+    Game,
+    LeagueGroup,
+    LeagueMembership,
+    ShopItem,
+    UserChallenge,
+)
+from apps.learning.models import DailyActivity, LessonProgress, PlacementQuestion, WeeklyStat
 from apps.learning.services import local_today
 from apps.notifications.models import Notification
 
@@ -133,15 +143,19 @@ class Command(BaseCommand):
             level=a1, order=1,
             defaults={"category": "Thì", "title_vi": "Động từ to be với 'I'",
                       "title_en": "To be with I", "formula": "I + am + [tên / tính từ]",
-                      "explanation_vi": "Từ am chỉ đi với chủ ngữ I.",
-                      "common_mistake_vi": "Không dùng 'I is'.",
-                      "conjugation": [{"subject": "I", "form": "am"},
-                                      {"subject": "He / She / It", "form": "is"},
-                                      {"subject": "You / We / They", "form": "are"}]},
+                      "note_vi": "Trong giao tiếp hằng ngày, \"I am\" luôn đi liền để xưng hô bản thân!",
+                      "explanation_vi": "Đại từ I (tôi) luôn đi với động từ to be am ở thì hiện "
+                                        "tại đơn để giới thiệu danh tính, cảm xúc hoặc trạng thái.",
+                      "common_mistake_vi": "Trong văn nói tự nhiên, người bản xứ hầu như luôn dùng "
+                                           "dạng rút gọn I'm thay vì I am.",
+                      "conjugation": [{"subject": "Khẳng định", "form": "I am… / I'm…"},
+                                      {"subject": "Phủ định", "form": "I am not… / I'm not…"}]},
         )
         gp.examples.all().delete()
         GrammarExample.objects.create(grammar_point=gp, order=0, text_en="I am a student.",
                                       ipa="/aɪ æm ə ˈstjuːdnt/", text_vi="Tôi là học sinh.")
+        GrammarExample.objects.create(grammar_point=gp, order=1, text_en="I'm from Vietnam.",
+                                      ipa="/aɪm frɒm ˌvjetˈnɑːm/", text_vi="Tôi đến từ Việt Nam.")
 
         dlg, _ = Dialogue.objects.update_or_create(
             title_en="At the coffee shop",
@@ -166,8 +180,10 @@ class Command(BaseCommand):
         )
         lesson, _ = Lesson.objects.update_or_create(
             unit=unit, order=1,
-            defaults={"code": "a1-u1-l1", "title_vi": "Bài 3: Hỏi thăm", "title_en": "Asking",
-                      "description_vi": "Học cách hỏi thăm.", "est_minutes": 12, "xp_reward": 50},
+            defaults={"code": "a1-u1-l1", "title_vi": "Hello & goodbye", "title_en": "Hello & goodbye",
+                      "description_vi": "Khởi động phát âm tự nhiên.",
+                      "path_subtitle_vi": "Khởi động phát âm tự nhiên",
+                      "est_minutes": 8, "xp_reward": 20},
         )
         lesson.steps.all().delete()
         LessonStep.objects.create(lesson=lesson, order=1, kind="intro",
@@ -177,7 +193,21 @@ class Command(BaseCommand):
         LessonStep.objects.create(lesson=lesson, order=2, kind="vocab", vocabulary=beautiful)
         LessonStep.objects.create(lesson=lesson, order=3, kind="grammar", grammar_point=gp)
         LessonStep.objects.create(lesson=lesson, order=4, kind="dialogue", dialogue=dlg)
-        LessonStep.objects.create(lesson=lesson, order=5, kind="quiz",
+        LessonStep.objects.create(lesson=lesson, order=5, kind="spelling",
+                                  payload={"word": "hello", "meaning_vi": "xin chào",
+                                           "ipa": "/həˈləʊ/",
+                                           "hint_vi": "Kéo hoặc nhấn vào các ô chữ cái theo đúng "
+                                                      "thứ tự để tạo thành từ hoàn chỉnh trong tiếng Anh."})
+        LessonStep.objects.create(lesson=lesson, order=6, kind="writing",
+                                  payload={"prompt_vi": "Viết câu giới thiệu tên bạn",
+                                           "hint_vi": "Thử dùng mẫu câu đơn giản trước nhé!",
+                                           "suggestions": ["My name is...", "I'm...", "Nice to meet you"],
+                                           "xp": 20, "min_len": 8,
+                                           "keywords": ["name", "i'm", "i am"],
+                                           "natural_tip_vi": "Người bản xứ thường dùng dạng rút gọn "
+                                                             "\"I'm Minh\" để câu văn thêm thân mật và "
+                                                             "gần gũi trong giao tiếp hàng ngày."})
+        LessonStep.objects.create(lesson=lesson, order=7, kind="quiz",
                                   payload={"prompt_vi": "CHỌN NGHĨA ĐÚNG", "question_word": "understand",
                                            "question_ipa": "/ˌʌn.dɚˈstænd/",
                                            "options": ["hiểu", "quên", "nói", "nghe"],
@@ -194,9 +224,10 @@ class Command(BaseCommand):
                              [("dual nationality", "hai quốc tịch")])
         lesson2, _ = Lesson.objects.update_or_create(
             unit=unit, order=2,
-            defaults={"code": "a1-u1-l2", "title_vi": "Bài 4: Quốc tịch", "title_en": "Nationality",
-                      "description_vi": "Nói về quốc tịch và đất nước.",
-                      "est_minutes": 10, "xp_reward": 50},
+            defaults={"code": "a1-u1-l2", "title_vi": "Giới thiệu bản thân", "title_en": "Introducing yourself",
+                      "description_vi": "Đại từ và câu chào hỏi cơ bản.",
+                      "path_subtitle_vi": "Đại từ & câu chào hỏi cơ bản",
+                      "est_minutes": 10, "xp_reward": 20},
         )
         lesson2.steps.all().delete()
         LessonStep.objects.create(
@@ -220,6 +251,73 @@ class Command(BaseCommand):
                      "correct_index": 0, "explanation_vi": "nationality = quốc tịch", "xp": 10},
         )
 
+        lesson3, _ = Lesson.objects.update_or_create(
+            unit=unit, order=3,
+            defaults={"code": "a1-u1-l3", "title_vi": "Hỏi thăm", "title_en": "Asking how someone is",
+                      "description_vi": "Hỏi thăm và phản hồi tự nhiên.",
+                      "path_subtitle_vi": "Hỏi thăm và phản hồi tự nhiên",
+                      "est_minutes": 12, "xp_reward": 20},
+        )
+        lesson3.steps.all().delete()
+        LessonStep.objects.create(
+            lesson=lesson3, order=1, kind="intro",
+            payload={"highlight_vi": "Hỏi thăm và trả lời một cách tự nhiên.",
+                     "preview": [{"text_en": "How are you?", "ipa": "/haʊ ɑːr juː/",
+                                  "text_vi": "Bạn có khỏe không?"}]},
+        )
+        LessonStep.objects.create(lesson=lesson3, order=2, kind="vocab", vocabulary=understand)
+        LessonStep.objects.create(
+            lesson=lesson3, order=3, kind="quiz",
+            payload={"prompt_vi": "CHỌN NGHĨA ĐÚNG", "question_word": "How are you?",
+                     "question_ipa": "/haʊ ɑːr juː/",
+                     "options": ["Bạn có khỏe không?", "Bạn tên là gì?", "Bạn ở đâu?", "Bạn làm nghề gì?"],
+                     "correct_index": 0, "explanation_vi": "How are you? dùng để hỏi thăm.", "xp": 10},
+        )
+
+        lesson4, _ = Lesson.objects.update_or_create(
+            unit=unit, order=4,
+            defaults={"code": "a1-u1-l4", "title_vi": "Quốc gia & quốc tịch", "title_en": "Countries & nationalities",
+                      "description_vi": "Giới thiệu quê hương và quốc tịch.",
+                      "path_subtitle_vi": "Giới thiệu quê hương và quốc tịch",
+                      "est_minutes": 10, "xp_reward": 20},
+        )
+        lesson4.steps.all().delete()
+        LessonStep.objects.create(lesson=lesson4, order=1, kind="intro",
+                                  payload={"highlight_vi": "Giới thiệu đất nước và quốc tịch của bạn.",
+                                           "preview": [{"text_en": "I'm from Vietnam.", "ipa": "/aɪm frəm ˌvjetˈnɑːm/",
+                                                        "text_vi": "Tôi đến từ Việt Nam."}]})
+        LessonStep.objects.create(lesson=lesson4, order=2, kind="vocab", vocabulary=country)
+        LessonStep.objects.create(lesson=lesson4, order=3, kind="spelling", vocabulary=nationality,
+                                  payload={"hint_vi": "Ghép các chữ cái thành từ 'quốc tịch'."})
+
+        lesson5, _ = Lesson.objects.update_or_create(
+            unit=unit, order=5,
+            defaults={"code": "a1-u1-l5", "title_vi": "Nghề nghiệp", "title_en": "Occupations",
+                      "description_vi": "Nói về công việc của bạn.",
+                      "path_subtitle_vi": "Nói về công việc của bạn",
+                      "est_minutes": 10, "xp_reward": 20},
+        )
+        lesson5.steps.all().delete()
+        LessonStep.objects.create(lesson=lesson5, order=1, kind="intro",
+                                  payload={"highlight_vi": "Tập hỏi và trả lời về nghề nghiệp.",
+                                           "preview": [{"text_en": "What do you do?", "ipa": "/wɒt duː juː duː/",
+                                                        "text_vi": "Bạn làm nghề gì?"}]})
+        LessonStep.objects.create(lesson=lesson5, order=2, kind="vocab", vocabulary=family)
+
+        lesson6, _ = Lesson.objects.update_or_create(
+            unit=unit, order=6,
+            defaults={"code": "a1-u1-l6", "title_vi": "Ôn tập Unit 1", "title_en": "Unit 1 review",
+                      "description_vi": "Ôn tập và mở khóa rương phần thưởng.",
+                      "path_subtitle_vi": "Ôn tập và mở khóa rương phần thưởng",
+                      "est_minutes": 12, "xp_reward": 20},
+        )
+        lesson6.steps.all().delete()
+        LessonStep.objects.create(lesson=lesson6, order=1, kind="quiz",
+                                  payload={"prompt_vi": "ÔN TẬP UNIT 1", "question_word": "Hello",
+                                           "question_ipa": "/həˈləʊ/",
+                                           "options": ["Xin chào", "Tạm biệt", "Cảm ơn", "Xin lỗi"],
+                                           "correct_index": 0, "explanation_vi": "Hello = Xin chào.", "xp": 10})
+
         unit2, _ = Unit.objects.update_or_create(
             level=a1, order=2,
             defaults={"code": "a1-u2", "title_vi": "Gia đình & bạn bè",
@@ -231,6 +329,7 @@ class Command(BaseCommand):
             unit=unit2, order=1,
             defaults={"code": "a1-u2-l1", "title_vi": "Bài 1: Thành viên gia đình",
                       "title_en": "Family members", "description_vi": "Từ vựng về gia đình.",
+                      "path_subtitle_vi": "Từ vựng về các thành viên trong gia đình",
                       "est_minutes": 11, "xp_reward": 50},
         )
         u2l1.steps.all().delete()
@@ -253,6 +352,7 @@ class Command(BaseCommand):
             unit=unit2, order=2,
             defaults={"code": "a1-u2-l2", "title_vi": "Bài 2: Miêu tả người",
                       "title_en": "Describing people", "description_vi": "Dùng tính từ miêu tả.",
+                      "path_subtitle_vi": "Dùng tính từ để miêu tả người",
                       "est_minutes": 12, "xp_reward": 60},
         )
         u2l2.steps.all().delete()
@@ -299,7 +399,9 @@ class Command(BaseCommand):
                 les, _ = Lesson.objects.update_or_create(
                     unit=u, order=i,
                     defaults={"code": lcode, "title_vi": lvi, "title_en": l_en,
-                              "description_vi": lvi, "est_minutes": 10, "xp_reward": 50},
+                              "description_vi": lvi,
+                              "path_subtitle_vi": f"Luyện tập {lvi.lower()}",
+                              "est_minutes": 10, "xp_reward": 50},
                 )
                 les.steps.all().delete()
                 LessonStep.objects.create(
@@ -388,9 +490,9 @@ class Command(BaseCommand):
 
         # Game hoá
         for code, scope, metric, title, target, rx, rc in [
-            ("daily_xp", "daily", "xp", "Kiếm 30 XP", 30, 0, 15),
-            ("daily_words", "daily", "words", "Ôn 20 từ", 20, 0, 15),
-            ("daily_speak", "daily", "speaking", "Nói 5 câu", 5, 20, 0),
+            ("daily_xp", "daily", "xp", "Kiếm 100 XP hôm nay", 100, 0, 20),
+            ("daily_words", "daily", "words", "Ôn 20 từ vựng", 20, 0, 15),
+            ("daily_speak", "daily", "speaking", "Phát âm chuẩn 15 câu", 15, 0, 25),
             ("weekly_lessons", "weekly", "lessons", "Học 10 bài trong tuần", 10, 100, 50),
         ]:
             Challenge.objects.update_or_create(
@@ -416,11 +518,16 @@ class Command(BaseCommand):
                 code=code, defaults={"title_vi": title, "description_vi": desc,
                                      "cost_coins": cost, "effect": effect},
             )
-        for code, title, kind in [("word_rain", "Mưa từ vựng", "reflex"),
-                                  ("match_pairs", "Ghép cặp", "memory"),
-                                  ("stress_master", "Bậc thầy trọng âm", "reflex")]:
+        for code, title, desc, kind, featured, order in [
+            ("word_rain", "Mưa từ vựng", "Hứng bóng chữ rơi đúng nghĩa", "reflex", True, 1),
+            ("match_pairs", "Ghép cặp", "Nối từ tiếng Anh và nghĩa Việt", "memory", False, 2),
+            ("stress_master", "Bậc thầy trọng âm", "Bắt đúng âm tiết được nhấn", "reflex", False, 3),
+            ("speed_type", "Gõ nhanh 60s", "Thử thách tốc độ gõ phím", "reflex", False, 4),
+        ]:
             Game.objects.update_or_create(
-                code=code, defaults={"title_vi": title, "description_vi": title, "kind": kind},
+                code=code,
+                defaults={"title_vi": title, "description_vi": desc, "kind": kind,
+                          "is_featured": featured, "order": order},
             )
 
         # Thanh toán
@@ -448,6 +555,24 @@ class Command(BaseCommand):
                                        "options": opts, "answer_index": ans},
             )
 
+        # Thêm nội dung để counts Trung tâm luyện tập (C19) khớp design
+        for i in range(2, 7):  # +5 shadowing → 6
+            ShadowingDeck.objects.update_or_create(
+                level=a1, order=i,
+                defaults={"title_en": f"Shadowing set {i}", "title_vi": f"Nhại giọng {i}"},
+            )
+        for i in range(2, 7):  # +5 dialogue → 6  (speaking = 6 + 6 = 12)
+            Dialogue.objects.update_or_create(
+                title_en=f"Everyday dialogue {i}",
+                defaults={"title_vi": f"Hội thoại đời thường {i}", "context_vi": "Luyện phản xạ nói."},
+            )
+        for i in range(2, 5):  # +3 reading → 4  (reading = 4 + 1 story = 5 "bài mới")
+            Reading.objects.update_or_create(
+                level=a1, order=i,
+                defaults={"title_en": f"Short article {i}", "title_vi": f"Bài đọc ngắn {i}",
+                          "topic": travel, "est_minutes": 3},
+            )
+
         # Hội thoại AI (hero Trung tâm luyện tập C19)
         RoleplayScenario.objects.update_or_create(
             title_vi="Phỏng vấn xin việc",
@@ -469,11 +594,12 @@ class Command(BaseCommand):
 
         # Tài khoản demo có sẵn tiến độ để preview Home (demo@sayfully.app / demo1234)
         demo, created = User.objects.get_or_create(
-            email="demo@sayfully.app", defaults={"full_name": "Quyền Vũ"}
+            email="demo@sayfully.app", defaults={"full_name": "Quyền Ngọc"}
         )
         if created:
             demo.set_password("demo1234")
-            demo.save(update_fields=["password"])
+        demo.full_name = "Quyền Ngọc"
+        demo.save()
         p = ensure_profile(demo)
         p.cefr_level = "A1"
         p.goal_level = "B1"
@@ -484,33 +610,141 @@ class Command(BaseCommand):
         p.xp_total = 1240
         p.coins = 520
         p.hearts = 5
-        p.streak_current = 3
+        p.streak_current = 4
         p.streak_best = 7
-        p.daily_goal_words = 10
-        p.daily_goal_xp = 50
+        p.daily_goal_words = 20
+        p.daily_goal_xp = 150
         p.save()
 
         today = local_today(p)
-        DailyActivity.objects.update_or_create(
-            user=demo, date=today,
-            defaults={"words_reviewed": 4, "minutes": 12, "xp": 30,
-                      "lessons_completed": 0, "speaking_count": 2},
-        )
+        # chuỗi 4 ngày + hoạt động hôm nay khớp "Mục tiêu hôm nay" (120/18/12)
+        for i, (xp_v, w_v, m_v, sp_v) in enumerate(
+            [(120, 18, 15, 12), (90, 12, 10, 6), (70, 10, 8, 4), (60, 8, 7, 3)]
+        ):
+            DailyActivity.objects.update_or_create(
+                user=demo, date=today - timedelta(days=i),
+                defaults={"words_reviewed": w_v, "minutes": m_v, "xp": xp_v,
+                          "lessons_completed": 1 if i == 0 else 0, "speaking_count": sp_v},
+            )
+        for completed_lesson in (lesson, lesson2):
+            LessonProgress.objects.update_or_create(
+                user=demo,
+                lesson=completed_lesson,
+                defaults={
+                    "status": LessonProgress.Status.COMPLETED,
+                    "step_index": 0,
+                    "stars": 3,
+                    "xp_earned": completed_lesson.xp_reward,
+                    "completed_at": djtz.now(),
+                },
+            )
         LessonProgress.objects.update_or_create(
-            user=demo, lesson=lesson,
+            user=demo,
+            lesson=lesson3,
             defaults={"status": LessonProgress.Status.IN_PROGRESS, "step_index": 2},
         )
-        for code, progress in (("daily_xp", 30), ("daily_words", 14), ("daily_speak", 2)):
+        LessonProgress.objects.filter(
+            user=demo,
+            lesson__unit=unit,
+            lesson__order__gt=3,
+        ).delete()
+        for code, progress, claimed in (
+            ("daily_xp", 120, True), ("daily_words", 18, False), ("daily_speak", 12, False)
+        ):
             UserChallenge.objects.update_or_create(
                 user=demo, challenge=Challenge.objects.get(code=code),
-                period_key=today.isoformat(), defaults={"progress": progress},
+                period_key=today.isoformat(),
+                defaults={"progress": progress,
+                          "completed_at": djtz.now() if claimed else None,
+                          "claimed_at": djtz.now() if claimed else None},
             )
         if not Notification.objects.filter(user=demo).exists():
             for title in ("Chào mừng đến EnGo!", "Bạn có 14 từ đến hạn ôn",
-                          "Chuỗi 3 ngày — giữ vững nhé!"):
+                          "Chuỗi 4 ngày — giữ vững nhé!"):
                 Notification.objects.create(
                     user=demo, kind=Notification.Kind.SYSTEM, title_vi=title
                 )
+
+        # Lộ trình B1 (mục tiêu) + tiến độ demo 13/20 = 65% cho màn Hồ sơ
+        b1 = Level.objects.get(code="B1")
+        b1_lessons = []
+        for ui in range(1, 5):
+            b1u, _ = Unit.objects.update_or_create(
+                level=b1, order=ui,
+                defaults={"code": f"b1-u{ui}", "title_vi": f"Chủ đề B1 · {ui}",
+                          "title_en": f"B1 Topic {ui}", "subtitle": "Giao tiếp tự tin",
+                          "description_vi": "Nội dung trình độ B1.", "reward": {"coins": 200}},
+            )
+            for li in range(1, 6):
+                bl, _ = Lesson.objects.update_or_create(
+                    unit=b1u, order=li,
+                    defaults={"code": f"b1-u{ui}-l{li}", "title_vi": f"Bài {li}",
+                              "title_en": f"Lesson {li}", "description_vi": "Bài học B1.",
+                              "path_subtitle_vi": "Luyện tập giao tiếp trình độ B1",
+                              "est_minutes": 12, "xp_reward": 60},
+                )
+                b1_lessons.append(bl)
+        for bl in b1_lessons[:13]:
+            LessonProgress.objects.update_or_create(
+                user=demo, lesson=bl,
+                defaults={"status": LessonProgress.Status.COMPLETED, "step_index": 0,
+                          "stars": 3, "xp_earned": bl.xp_reward,
+                          "completed_at": djtz.now()},
+            )
+        for bl in b1_lessons[13:]:
+            LessonProgress.objects.filter(user=demo, lesson=bl).delete()
+
+        # Liên đoàn Kim cương — demo đứng hạng #4
+        iso = djtz.now().isocalendar()
+        iso_year, iso_week = iso[0], iso[1]
+        LeagueMembership.objects.filter(
+            user=demo, group__iso_year=iso_year, group__iso_week=iso_week
+        ).delete()
+        dgroup, _ = LeagueGroup.objects.get_or_create(
+            tier=LeagueGroup.Tier.DIAMOND, iso_year=iso_year, iso_week=iso_week
+        )
+        rivals = [
+            ("linh.tran@demo.engo", "Linh Trần", 2450),
+            ("minh.pham@demo.engo", "Minh Phạm", 1980),
+            ("an.nguyen@demo.engo", "An Nguyễn", 1600),
+            ("hoa.le@demo.engo", "Hoa Lê", 900),
+            ("nam.vo@demo.engo", "Nam Võ", 700),
+        ]
+        demo_week_xp = 1420  # dưới 3 người đầu → hạng 4; 1420/1800 = 78.8%
+        for email, name, xp in rivals:
+            r, rc = User.objects.get_or_create(email=email, defaults={"full_name": name})
+            if rc:
+                r.set_unusable_password()
+                r.save()
+            ensure_profile(r)
+            LeagueMembership.objects.update_or_create(
+                group=dgroup, user=r, defaults={"xp_week": xp}
+            )
+            WeeklyStat.objects.update_or_create(
+                user=r, iso_year=iso_year, iso_week=iso_week, defaults={"xp": xp}
+            )
+        # đệm nhóm ~82 người (đều dưới demo) để hạng 4 ≈ Top 5%
+        for i in range(76):
+            fr, frc = User.objects.get_or_create(
+                email=f"member{i:02d}@demo.engo", defaults={"full_name": f"Học viên {i + 1}"}
+            )
+            if frc:
+                fr.set_unusable_password()
+                fr.save()
+            ensure_profile(fr)
+            fxp = 100 + (i * 17) % 1300  # 100..1399, luôn dưới demo
+            LeagueMembership.objects.update_or_create(
+                group=dgroup, user=fr, defaults={"xp_week": fxp}
+            )
+            WeeklyStat.objects.update_or_create(
+                user=fr, iso_year=iso_year, iso_week=iso_week, defaults={"xp": fxp}
+            )
+        LeagueMembership.objects.update_or_create(
+            group=dgroup, user=demo, defaults={"xp_week": demo_week_xp}
+        )
+        WeeklyStat.objects.update_or_create(
+            user=demo, iso_year=iso_year, iso_week=iso_week, defaults={"xp": demo_week_xp}
+        )
 
         self.stdout.write(self.style.SUCCESS(
             f"Xong. Levels={Level.objects.count()} Vocab={Vocabulary.objects.count()} "

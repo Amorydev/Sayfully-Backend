@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from typing import Literal
+from uuid import UUID
 
 from ninja import Schema
 from pydantic import Field
@@ -73,16 +74,41 @@ class HomeOut(Schema):
 
 
 # --------------------------------------------------------------- learn path (C2)
+class PathLessonCompletionRewardOut(Schema):
+    label_vi: str
+    reward_coins: int
+    badge_code: str | None
+    is_reached: bool
+
+
+class PathUnitSheetCtaOut(Schema):
+    lesson_code: str | None
+    label_vi: str
+    enabled: bool
+
+
+class PathUnitSheetOut(Schema):
+    progress_percent: int
+    xp_total: int
+    cta: PathUnitSheetCtaOut
+
+
 class PathLessonOut(Schema):
     id: int
     code: str
     order: int
     title_vi: str
+    display_title_vi: str
+    subtitle_vi: str
     est_minutes: int
     xp_reward: int
     status: str  # not_started | in_progress | completed
     stars: int
     is_locked: bool
+    state_label_vi: str
+    unlock_hint_vi: str | None
+    is_primary: bool
+    completion_reward: PathLessonCompletionRewardOut | None
 
 
 class PathUnitOut(Schema):
@@ -98,6 +124,7 @@ class PathUnitOut(Schema):
     reward: dict
     lesson_count: int
     done_count: int
+    sheet: PathUnitSheetOut
     lessons: list[PathLessonOut]
 
 
@@ -132,6 +159,18 @@ class LessonCompleteIn(Schema):
     correct_count: int = 0
     total: int = 0
     duration_sec: int = 0
+
+
+class WritingCheckIn(Schema):
+    draft: str
+    step_order: int | None = None
+
+
+class WritingFeedbackOut(Schema):
+    correct: bool
+    xp: int
+    message_vi: str
+    natural_tip_vi: str
 
 
 class LessonProgressOut(Schema):
@@ -378,6 +417,107 @@ class PracticeHubOut(Schema):
     skills: list[SkillProgressOut]
     counts: PracticeCountsOut
     games: list[PracticeGameOut]
+
+
+# --------------------------------------------------------------- profile overview (C48)
+class ProfileStatsOut(Schema):
+    level: int
+    cefr_level: str
+    cefr_label: str
+    xp_total: int
+    streak_current: int
+    streak_best: int
+    coins: int
+    hearts: int
+
+
+class ProfileLeagueOut(Schema):
+    tier: int
+    tier_label: str
+    rank: int
+    xp_week: int
+
+
+class ProfileOverviewOut(Schema):
+    id: UUID
+    full_name: str
+    handle: str
+    member_id: str
+    avatar_url: str | None
+    date_joined: datetime
+    is_active: bool
+    is_premium: bool
+    goal_level: str
+    goal_progress_percent: int
+    stats: ProfileStatsOut
+    league: ProfileLeagueOut | None
+    friend_invites: int
+    unread_notifications: int
+    shop_new: bool
+
+
+# --------------------------------------------------------------- challenges overview (C6)
+class ChallengeLeagueOut(Schema):
+    tier: int
+    tier_label: str
+    division: str
+    rank: int
+    percentile: int
+    time_left_sec: int
+    xp_week: int
+    xp_week_target: int
+    xp_to_next: int
+    next_tier_label: str | None
+    percent: int
+
+
+class ChallengeGoalsOut(Schema):
+    xp: int
+    xp_target: int
+    words: int
+    words_target: int
+    speaking: int
+    speaking_target: int
+    percent: int
+
+
+class ChallengeStreakOut(Schema):
+    days: int
+    week: list[DayProgressOut]
+
+
+class ChallengeCheckinOut(Schema):
+    done_today: bool
+    reward_xp: int
+    reward_coins: int
+
+
+class ChallengeTaskOut(Schema):
+    id: int
+    code: str
+    metric: str
+    title_vi: str
+    description_vi: str
+    current: int
+    target: int
+    reward_xp: int
+    reward_coins: int
+    completed: bool
+    claimed: bool
+
+
+class ChallengesOverviewOut(Schema):
+    level: int
+    streak_days: int
+    coins: int
+    hearts: int
+    league: ChallengeLeagueOut
+    goals: ChallengeGoalsOut
+    streak: ChallengeStreakOut
+    checkin: ChallengeCheckinOut
+    tasks_done: int
+    tasks_total: int
+    tasks: list[ChallengeTaskOut]
 
 
 # --------------------------------------------------------------- me preferences (C49, C21, C22)

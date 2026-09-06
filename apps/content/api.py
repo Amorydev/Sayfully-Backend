@@ -151,6 +151,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             title_vi=gp.title_vi,
             title_en=gp.title_en,
             formula=gp.formula,
+            note_vi=gp.note_vi,
             explanation_vi=gp.explanation_vi,
             common_mistake_vi=gp.common_mistake_vi,
             conjugation=_conjugation(gp),
@@ -179,12 +180,24 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
     elif step.kind == m.LessonStep.Kind.SPELLING:
         p = step.payload or {}
         v = step.vocabulary
+        audio_path = (
+            (v.audio_us_path if accent == "US" else v.audio_uk_path) if v else p.get("audio_path", "")
+        )
         out.spelling = s.SpellingStepOut(
             vocab_id=step.vocabulary_id,
             word=v.headword if v else p.get("word", ""),
             meaning_vi=v.meaning_vi if v else p.get("meaning_vi", ""),
             ipa=_ipa(v, accent) if v else p.get("ipa"),
+            audio_url=_media(audio_path),
             hint_vi=p.get("hint_vi", ""),
+        )
+    elif step.kind == m.LessonStep.Kind.WRITING:
+        p = step.payload or {}
+        out.writing = s.WritingStepOut(
+            prompt_vi=p.get("prompt_vi", ""),
+            hint_vi=p.get("hint_vi", ""),
+            suggestions=p.get("suggestions", []),
+            xp=p.get("xp", 20),
         )
     elif step.kind == m.LessonStep.Kind.QUIZ:
         p = step.payload or {}
@@ -303,12 +316,9 @@ def get_lesson(request, code: str):
         raise NotFound(_NOTFOUND)
     _gate(profile, lesson.unit.level)
 
-    ai_on = getattr(settings, "AI_ENABLED", False)
     steps = lesson.steps.select_related("vocabulary", "grammar_point", "dialogue").order_by("order")
     step_outs, n_vocab, n_grammar, n_dialogue = [], 0, 0, 0
     for step in steps:
-        if step.kind == m.LessonStep.Kind.WRITING and not ai_on:
-            continue
         if step.kind == m.LessonStep.Kind.VOCAB:
             n_vocab += 1
         elif step.kind == m.LessonStep.Kind.GRAMMAR:
