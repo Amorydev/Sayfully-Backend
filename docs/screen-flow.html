@@ -205,7 +205,7 @@ C25:{n:"Lộ trình 6 bước",s:"start",api:[],to:[["“Vào học” ở từn
 C1:{n:"Trang chủ",s:"home",api:["GET /home"],tab:1,
  to:[["avatar góc trái","C14"],["chuông thông báo","C46"],["pill xu","C50"],
      ["thẻ “Ôn tập hôm nay”","C48"],["“Người mới bắt đầu?”","C25"],["“Tiếp tục học”","C26"],
-     ["tile Luyện nói","C8a"],["tile Luyện nghe","C9"],["tile Đọc hiểu","C35"],["tile Flashcard","C7"],
+     ["tile Luyện nói","C8a"],["tile Luyện nghe","C9a"],["tile Đọc hiểu","C35"],["tile Flashcard","C7"],
      ["thẻ “Thử thách hôm nay”","C13"]]},
 
 C2:{n:"Lộ trình học",s:"learn",api:["GET /learn/path"],tab:1,
@@ -223,7 +223,7 @@ C5:{n:"Hoàn thành bài",s:"learn",api:["POST /learn/lessons/{code}/complete"],
  to:[["“Tiếp tục” · còn bài kế","C26"],["“Tiếp tục” · hết bài","C2"],["“Ôn lại bài”","C26"]]},
 
 C19:{n:"Trung tâm luyện tập",s:"practice",api:["GET /home"],tab:1,
- to:[["thẻ gợi ý hôm nay","C8"],["Từ vựng","C6"],["Luyện nói","C8a"],["Luyện nghe","C9"],
+ to:[["thẻ gợi ý hôm nay","C8"],["Từ vựng","C6"],["Luyện nói","C8a"],["Luyện nghe","C9a"],
      ["Đọc hiểu","C35"],["Luyện viết","C29"],["Flashcard","C7"],["Từ điển","C39"],
      ["Ngữ pháp","C42"],["Phát âm","C43"],["Gốc từ","C40"],["Phrasal verbs","C41"],
      ["Luyện thi","C11"],["Trò chơi","C12"],["Video","C37"],["Truyện","C36"],
@@ -234,7 +234,8 @@ C7:{n:"Flashcard",s:"practice",api:["POST /learn/review"],to:[["hết bộ thẻ
 C8a:{n:"Chọn chủ đề luyện nói",s:"practice",api:["GET /learn/speaking/topics"],to:[["chạm một chủ đề","C8"]]},
 C8:{n:"Luyện nói",s:"practice",api:["POST /learn/practice"],to:[["chạm micro","C30"]]},
 C30:{n:"Ghi âm & kết quả nói",s:"practice",api:[],to:[["“Câu tiếp”","C8"]]},
-C9:{n:"Luyện nghe / chép chính tả",s:"practice",api:["POST /learn/practice"],to:[]},
+C9a:{n:"Chọn kiểu & chủ đề nghe",s:"practice",api:["GET /learn/listening/topics"],to:[["chạm chủ đề (kiểu đã chọn)","C9"]]},
+C9:{n:"Luyện nghe / chép chính tả",s:"practice",api:["GET /learn/listening/topics/{id}?mode=","POST /learn/practice"],to:[]},
 C35:{n:"Danh sách bài đọc",s:"practice",api:["GET /content/readings"],
  to:[["chọn một bài","C10"],["bài thuộc cấp khoá","C15"]]},
 C10:{n:"Trình đọc",s:"practice",api:["POST /learn/practice"],to:[["xong câu hỏi","C35"]]},
@@ -344,6 +345,10 @@ const FLOWS = [
  {sec:"practice", t:"Luyện nói + chấm phát âm",
   s:[{id:"C8a"},{id:"C8",via:"chạm chủ đề"},{id:"C30",via:"chạm micro"},{id:"C8",via:"“Câu tiếp”"}],
   note:"Vào từ Trang chủ (tile Luyện nói) hoặc Trung tâm luyện tập C19 → <b>C8a Chọn chủ đề</b> → luyện lần lượt các câu của chủ đề đó. Thẻ gợi ý ở C19 thì vào thẳng C8 (một câu cụ thể)."},
+
+ {sec:"practice", t:"Luyện nghe (2 kiểu)",
+  s:[{id:"C9a"},{id:"C9",via:"chọn kiểu + chủ đề"}],
+  note:"<b>C9a</b> chọn <b>kiểu nghe</b> (Chọn từ / Chép chính tả) rồi <b>chủ đề</b> → vào <b>C9</b> đúng kiểu. Vào từ Trang chủ (tile Luyện nghe) hoặc Trung tâm luyện tập C19. Tab 'Chép chính tả' ở C19 vẫn có thể vào thẳng C9."},
 
  {sec:"practice", t:"Đọc hiểu",
   s:[{id:"C35"},{id:"C10",via:"chọn một bài"},{id:"C35",via:"xong câu hỏi"}],
