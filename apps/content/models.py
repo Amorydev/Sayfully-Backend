@@ -78,6 +78,12 @@ class Lesson(models.Model):
     title_vi = models.CharField(max_length=128)
     title_en = models.CharField(max_length=128)
     description_vi = models.TextField(blank=True)
+    path_subtitle_vi = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        help_text="Dòng mô tả ngắn hiển thị trong Unit sheet của lộ trình.",
+    )
     est_minutes = models.PositiveSmallIntegerField(default=12)
     xp_reward = models.PositiveSmallIntegerField(default=50)
 
@@ -175,6 +181,7 @@ class GrammarPoint(models.Model):
     title_vi = models.CharField(max_length=160)
     title_en = models.CharField(max_length=160, blank=True)
     formula = models.CharField(max_length=160, blank=True)  # "I + am + [tên]"
+    note_vi = models.TextField(blank=True)  # ghi nhớ nhanh cạnh công thức
     explanation_vi = models.TextField()
     common_mistake_vi = models.TextField(blank=True)  # card amber trong UI
     conjugation = models.JSONField(

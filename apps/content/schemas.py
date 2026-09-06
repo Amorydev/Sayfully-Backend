@@ -113,6 +113,7 @@ class GrammarStepOut(Schema):
     title_vi: str
     title_en: str
     formula: str
+    note_vi: str
     explanation_vi: str
     common_mistake_vi: str
     conjugation: list[ConjugationRowOut]
@@ -142,6 +143,7 @@ class SpellingStepOut(Schema):
     word: str
     meaning_vi: str
     ipa: str | None
+    audio_url: str | None
     hint_vi: str
 
 
@@ -160,6 +162,13 @@ class QuizStepOut(Schema):
     xp: int
 
 
+class WritingStepOut(Schema):
+    prompt_vi: str
+    hint_vi: str
+    suggestions: list[str]
+    xp: int
+
+
 class LessonStepOut(Schema):
     order: int
     kind: str
@@ -168,6 +177,7 @@ class LessonStepOut(Schema):
     grammar: GrammarStepOut | None = None
     dialogue: DialogueStepOut | None = None
     spelling: SpellingStepOut | None = None
+    writing: WritingStepOut | None = None
     quiz: QuizStepOut | None = None
 
 

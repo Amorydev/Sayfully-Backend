@@ -3,7 +3,7 @@
 from django.core.management.base import BaseCommand
 from django.db.models import Count, Q
 
-from apps.content.models import DialogueLine, Vocabulary
+from apps.content.models import DialogueLine, Lesson, Vocabulary
 
 
 class Command(BaseCommand):
@@ -25,6 +25,10 @@ class Command(BaseCommand):
         )
         no_example = vq.annotate(n=Count("examples")).filter(n=0).count()
         dl_no_audio = DialogueLine.objects.filter(audio_path="").count()
+        lq = Lesson.objects.all()
+        if opts["level"]:
+            lq = lq.filter(unit__level_id=opts["level"].upper())
+        lesson_no_path_subtitle = lq.filter(path_subtitle_vi="").count()
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"Kiểm nội dung — {total} từ vựng"))
         rows = [
@@ -33,6 +37,7 @@ class Command(BaseCommand):
             ("Thiếu audio UK", stats["no_audio_uk"]),
             ("Thiếu ví dụ", no_example),
             ("Câu hội thoại thiếu audio", dl_no_audio),
+            ("Lesson thiếu subtitle Unit sheet", lesson_no_path_subtitle),
         ]
         for label, n in rows:
             style = self.style.SUCCESS if n == 0 else self.style.WARNING

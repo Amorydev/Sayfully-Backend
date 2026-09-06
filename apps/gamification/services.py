@@ -96,3 +96,23 @@ def ensure_league_membership(user):
         or 0
     )
     return LeagueMembership.objects.create(group=group, user=user, xp_week=xp0)
+
+
+def league_rank(user):
+    """Bậc liên đoàn + hạng hiện tại của user trong tuần này.
+
+    Hạng tính trực tiếp từ XP tuần (WeeklyStat) trong nhóm, không đợi chốt cuối tuần.
+    """
+    m = ensure_league_membership(user)
+    group = m.group
+    member_ids = list(
+        LeagueMembership.objects.filter(group=group).values_list("user_id", flat=True)
+    )
+    xp_map = dict(
+        WeeklyStat.objects.filter(
+            iso_year=group.iso_year, iso_week=group.iso_week, user_id__in=member_ids
+        ).values_list("user_id", "xp")
+    )
+    ranked = sorted(member_ids, key=lambda uid: -xp_map.get(uid, 0))
+    rank = next((i + 1 for i, uid in enumerate(ranked) if uid == user.id), 0)
+    return group, rank, xp_map.get(user.id, 0)

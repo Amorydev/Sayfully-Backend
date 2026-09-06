@@ -242,7 +242,7 @@ const R = [
 ['L3',3,'CLI','manage.py gen_audio --level A1 --accent US,UK','Vận hành','♻️ bỏ qua từ đã có audio · TTS Azure → R2 · nghe thử 50 mẫu trước khi chạy ~70.000 file','audio US/UK trên R2 + đường dẫn trong DB','','','done'],
 ['L4',3,'CLI','manage.py content_audit','Vận hành','chỉ đọc · chạy sau mỗi đợt nhập','Báo cáo bản ghi thiếu audio / IPA / ví dụ','','','done'],
 [34,4,'GET','/home','Bearer','1 lần gọi cho cả C1 (gộp #54/#59/#67)','HomeOut (profile, daily_goal, bài đang học, due, challenges, rank)','C1','done'],
-[35,4,'GET','/learn/path','Bearer','?level · unit + tiến độ trộn sẵn','PathOut','C2 C20','done'],
+[35,4,'GET','/learn/path','Bearer','?level · unit + tiến độ + Unit sheet server-driven','PathOut (sheet, CTA, copy row, mốc thưởng)','C2 C20','done'],
 [36,4,'POST','/learn/lessons/{code}/start','Bearer','🔒','LessonProgressOut','C26','done'],
 [37,4,'POST','/learn/lessons/{code}/complete','Bearer','🔒 ♻️ transaction: progress → XP → DailyActivity → streak → SRS → xu','LessonResultOut (xp, sao, streak, xu, thẻ SRS tạo)','C5','done'],
 [38,4,'GET','/learn/lessons/{code}/progress','Bearer','—','LessonProgressOut','C20 C26','done'],

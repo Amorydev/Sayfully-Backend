@@ -62,6 +62,108 @@ def test_path_liet_ke_va_khoa(api, token, unit):
     assert u["lessons"][1]["is_locked"] is True  # bài 2 khoá tới khi xong bài 1
 
 
+def test_path_tra_unit_sheet_server_driven(api, token, user, unit):
+    unit.reward = {"coins": 150, "badge_code": "unit1_master"}
+    unit.save(update_fields=["reward"])
+    first = Lesson.objects.create(
+        unit=unit,
+        order=1,
+        code="a1-u1-l1",
+        title_vi="Hello & goodbye",
+        title_en="Hello & goodbye",
+        path_subtitle_vi="Khởi động phát âm tự nhiên",
+        est_minutes=8,
+        xp_reward=20,
+    )
+    current = Lesson.objects.create(
+        unit=unit,
+        order=2,
+        code="a1-u1-l2",
+        title_vi="Giới thiệu bản thân",
+        title_en="Introducing yourself",
+        path_subtitle_vi="Đại từ & câu chào hỏi cơ bản",
+        est_minutes=10,
+        xp_reward=20,
+    )
+    Lesson.objects.create(
+        unit=unit,
+        order=3,
+        code="a1-u1-l3",
+        title_vi="Hỏi thăm",
+        title_en="Asking how someone is",
+        path_subtitle_vi="Hỏi thăm và phản hồi tự nhiên",
+        est_minutes=12,
+        xp_reward=20,
+    )
+    LessonProgress.objects.create(
+        user=user,
+        lesson=first,
+        status=LessonProgress.Status.COMPLETED,
+        xp_earned=20,
+        stars=3,
+    )
+    LessonProgress.objects.create(
+        user=user,
+        lesson=current,
+        status=LessonProgress.Status.IN_PROGRESS,
+        xp_earned=0,
+    )
+
+    body = api.get("/learn/path?level=A1", token=token).json()
+    path_unit = body["units"][0]
+    rows = path_unit["lessons"]
+
+    assert path_unit["sheet"] == {
+        "progress_percent": 33,
+        "xp_total": 60,
+        "cta": {"lesson_code": current.code, "label_vi": "Tiếp tục Bài 2", "enabled": True},
+    }
+    assert rows[0]["display_title_vi"] == "Bài 1 · Hello & goodbye"
+    assert rows[0]["subtitle_vi"] == "Khởi động phát âm tự nhiên"
+    assert rows[0]["state_label_vi"] == "Hoàn thành"
+    assert rows[1]["state_label_vi"] == "Đang học" and rows[1]["is_primary"] is True
+    assert rows[2]["is_locked"] is True
+    assert rows[2]["unlock_hint_vi"] == "Mở khóa sau Bài 2"
+    assert rows[2]["completion_reward"] == {
+        "label_vi": "Cột mốc nhận thưởng",
+        "reward_coins": 150,
+        "badge_code": "unit1_master",
+        "is_reached": False,
+    }
+    assert sum(row["is_primary"] for row in rows) == 1
+
+
+def test_path_sheet_unit_khoa_tra_cta_disabled(api, token, unit, levels):
+    _lesson_with_vocab(unit, 1, "a1-u1-l1")
+    a1, _ = levels
+    locked_unit = Unit.objects.create(
+        level=a1,
+        order=2,
+        code="a1-u2",
+        title_vi="Gia đình",
+        title_en="Family",
+    )
+    Lesson.objects.create(
+        unit=locked_unit,
+        order=1,
+        code="a1-u2-l1",
+        title_vi="Thành viên gia đình",
+        title_en="Family members",
+        path_subtitle_vi="Từ vựng về gia đình",
+    )
+
+    body = api.get("/learn/path?level=A1", token=token).json()
+    path_unit = body["units"][1]
+
+    assert path_unit["is_locked"] is True
+    assert path_unit["sheet"]["cta"] == {
+        "lesson_code": None,
+        "label_vi": "Hoàn thành chặng 1 để mở",
+        "enabled": False,
+    }
+    assert path_unit["lessons"][0]["unlock_hint_vi"] == "Hoàn thành chặng 1 để mở"
+
+
 def test_path_level_khong_ton_tai_404(api, token, levels):
     assert api.get("/learn/path?level=Z9", token=token).status_code == 404
 

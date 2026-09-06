@@ -4,12 +4,14 @@ Mọi thay đổi XP/xu/tim/streak đi qua `services.record`. `complete` idempot
 không cộng đôi). Chi tiết A2–C2 cần Premium; bài khoá theo lộ trình → `lesson_locked`.
 """
 
+import re
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import HttpResponse
 from django.utils import timezone as djtz
 from ninja import File, Query, Router
@@ -18,12 +20,14 @@ from ninja.files import UploadedFile
 from apps.accounts.services import ensure_profile
 from apps.ai.models import RoleplayScenario
 from apps.common.exceptions import AppError, Forbidden, NotFound
+from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
 from apps.content.models import (
     Dialogue,
     GrammarPoint,
     IPASound,
     Lesson,
+    LessonStep,
     Level,
     LevelMilestone,
     Reading,
@@ -35,11 +39,14 @@ from apps.content.models import (
     Vocabulary,
 )
 from apps.content.schemas import Page
+from apps.gamification import services as gami_services
 from apps.gamification.models import (
     Badge,
     Challenge,
     CoinTransaction,
     Game,
+    LeagueMembership,
+    ShopItem,
     UserBadge,
     UserChallenge,
 )
@@ -101,6 +108,76 @@ def _is_unlocked(user, lesson: Lesson) -> bool:
     return LessonProgress.objects.filter(
         user=user, lesson=prev, status=LessonProgress.Status.COMPLETED
     ).exists()
+
+
+_PATH_TITLE_PREFIX = re.compile(r"^\s*Bài\s+\d+\s*[:·.\-]?\s*", re.IGNORECASE)
+
+
+def _path_display_title(lesson: Lesson) -> str:
+    """Trả copy đã chuẩn hoá để client không phải tự ghép hoặc cắt title."""
+    title = _PATH_TITLE_PREFIX.sub("", lesson.title_vi).strip() or lesson.title_vi
+    return f"Bài {lesson.order} · {title}"
+
+
+def _path_completion_reward(unit: Unit, is_reached: bool) -> s.PathLessonCompletionRewardOut | None:
+    reward = unit.reward or {}
+    coins = reward.get("coins", 0)
+    badge_code = reward.get("badge_code")
+    if not isinstance(coins, int):
+        coins = 0
+    if not coins and not isinstance(badge_code, str):
+        return None
+    return s.PathLessonCompletionRewardOut(
+        label_vi="Cột mốc nhận thưởng",
+        reward_coins=coins,
+        badge_code=badge_code if isinstance(badge_code, str) else None,
+        is_reached=is_reached,
+    )
+
+
+def _path_lesson_presentation(
+    *,
+    lesson: Lesson,
+    status: str,
+    is_locked: bool,
+    unit_locked: bool,
+    unit_order: int,
+) -> tuple[str, str | None]:
+    if is_locked:
+        hint = (
+            f"Hoàn thành chặng {unit_order - 1} để mở"
+            if unit_locked
+            else f"Mở khóa sau Bài {lesson.order - 1}"
+        )
+        return "Bị khóa", hint
+    if status == LessonProgress.Status.COMPLETED:
+        return "Hoàn thành", None
+    if status == LessonProgress.Status.IN_PROGRESS:
+        return "Đang học", None
+    return "Sẵn sàng bắt đầu", None
+
+
+def _path_sheet_cta(
+    *,
+    unit_order: int,
+    unit_locked: bool,
+    primary: tuple[Lesson, str] | None,
+) -> s.PathUnitSheetCtaOut:
+    if unit_locked:
+        return s.PathUnitSheetCtaOut(
+            lesson_code=None,
+            label_vi=f"Hoàn thành chặng {unit_order - 1} để mở",
+            enabled=False,
+        )
+    if primary is None:
+        return s.PathUnitSheetCtaOut(lesson_code=None, label_vi="Chưa có bài học", enabled=False)
+    lesson, status = primary
+    action = "Ôn lại" if status == LessonProgress.Status.COMPLETED else "Tiếp tục"
+    return s.PathUnitSheetCtaOut(
+        lesson_code=lesson.code,
+        label_vi=f"{action} Bài {lesson.order}",
+        enabled=True,
+    )
 
 
 def _stars(correct: int, total: int) -> int:
@@ -308,9 +385,9 @@ def learn_path(request, level: str):
     if level_obj is None:
         raise NotFound("Không tìm thấy cấp học")
 
-    units = (
-        Unit.objects.filter(level_id=level.upper()).prefetch_related("lessons").order_by("order")
-    )
+    units = Unit.objects.filter(level_id=level.upper()).prefetch_related(
+        Prefetch("lessons", queryset=Lesson.objects.order_by("order")),
+    ).order_by("order")
 
     progress = {
         p.lesson_id: p
@@ -322,41 +399,89 @@ def learn_path(request, level: str):
     xp_target = 0
     lessons_total = 0
     for unit in units:
-        lessons = list(unit.lessons.order_by("order"))
+        lessons = list(unit.lessons.all())
         lessons_total += len(lessons)
         unit_locked = not prev_completed
         done = 0
-        lesson_outs = []
+        lesson_rows: list[tuple[Lesson, str, bool, LessonProgress | None]] = []
+        previous_lesson_completed = True
         for ls in lessons:
             p = progress.get(ls.id)
             status = p.status if p else "not_started"
             xp_target += ls.xp_reward
             xp_earned += p.xp_earned if p else 0
-            if status == LessonProgress.Status.COMPLETED:
+            is_completed = status == LessonProgress.Status.COMPLETED
+            if is_completed:
                 done += 1
+            is_locked = unit_locked or not previous_lesson_completed
+            lesson_rows.append((ls, status, is_locked, p))
+            previous_lesson_completed = is_completed
+        unit_completed = bool(lessons) and done == len(lessons)
+        if unit_locked:
+            unit_status = "locked"
+        elif unit_completed:
+            unit_status = "completed"
+        elif done > 0 or any(status == LessonProgress.Status.IN_PROGRESS for _, status, _, _ in lesson_rows):
+            unit_status = "in_progress"
+        else:
+            unit_status = "not_started"
+        prev_completed = unit_completed
+
+        primary_row = next(
+            (
+                row
+                for row in lesson_rows
+                if not row[2] and row[1] == LessonProgress.Status.IN_PROGRESS
+            ),
+            None,
+        )
+        if primary_row is None:
+            primary_row = next(
+                (row for row in lesson_rows if not row[2] and row[1] == "not_started"),
+                None,
+            )
+        if primary_row is None and unit_completed:
+            primary_row = next((row for row in lesson_rows if not row[2]), None)
+
+        completion_reward = _path_completion_reward(unit, is_reached=unit_completed)
+        lesson_outs = []
+        for index, (ls, status, is_locked, p) in enumerate(lesson_rows):
+            state_label, unlock_hint = _path_lesson_presentation(
+                lesson=ls,
+                status=status,
+                is_locked=is_locked,
+                unit_locked=unit_locked,
+                unit_order=unit.order,
+            )
             lesson_outs.append(
                 s.PathLessonOut(
                     id=ls.id,
                     code=ls.code,
                     order=ls.order,
                     title_vi=ls.title_vi,
+                    display_title_vi=_path_display_title(ls),
+                    subtitle_vi=ls.path_subtitle_vi,
                     est_minutes=ls.est_minutes,
                     xp_reward=ls.xp_reward,
                     status=status,
                     stars=p.stars if p else 0,
-                    is_locked=unit_locked or not _is_unlocked(user, ls),
+                    is_locked=is_locked,
+                    state_label_vi=state_label,
+                    unlock_hint_vi=unlock_hint,
+                    is_primary=primary_row is not None and ls.id == primary_row[0].id,
+                    completion_reward=completion_reward if index == len(lesson_rows) - 1 else None,
                 )
             )
-        unit_completed = bool(lessons) and done == len(lessons)
-        if unit_locked:
-            unit_status = "locked"
-        elif unit_completed:
-            unit_status = "completed"
-        elif done > 0 or any(lo.status == LessonProgress.Status.IN_PROGRESS for lo in lesson_outs):
-            unit_status = "in_progress"
-        else:
-            unit_status = "not_started"
-        prev_completed = unit_completed
+
+        sheet = s.PathUnitSheetOut(
+            progress_percent=round(done * 100 / len(lessons)) if lessons else 0,
+            xp_total=sum(lesson.xp_reward for lesson in lessons),
+            cta=_path_sheet_cta(
+                unit_order=unit.order,
+                unit_locked=unit_locked,
+                primary=(primary_row[0], primary_row[1]) if primary_row else None,
+            ),
+        )
         out_units.append(
             s.PathUnitOut(
                 id=unit.id,
@@ -371,6 +496,7 @@ def learn_path(request, level: str):
                 reward=unit.reward or {},
                 lesson_count=len(lessons),
                 done_count=done,
+                sheet=sheet,
                 lessons=lesson_outs,
             )
         )
@@ -440,6 +566,41 @@ def start_lesson(request, code: str):
         raise Forbidden("Bài học chưa mở khoá", code="lesson_locked")
     p, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
     return _progress_out(lesson, p)
+
+
+@router.post(
+    "/learn/lessons/{code}/writing",
+    response={200: s.WritingFeedbackOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Chấm câu luyện viết (AI Tutor)",
+    description=(
+        "Nhận bản nháp của học viên, trả nhận xét + gợi ý tự nhiên. Hiện chấm theo luật "
+        "(từ khoá + độ dài tối thiểu trong `payload` của bước `writing`); sẽ thay bằng LLM."
+    ),
+)
+def writing_feedback(request, code: str, payload: s.WritingCheckIn):
+    user = request.auth
+    ensure_profile(user)
+    lesson = _get_lesson(code)
+    steps = LessonStep.objects.filter(lesson=lesson, kind=LessonStep.Kind.WRITING)
+    if payload.step_order is not None:
+        steps = steps.filter(order=payload.step_order)
+    step = steps.order_by("order").first()
+    cfg = (step.payload if step else {}) or {}
+
+    keywords = [str(k).lower() for k in cfg.get("keywords", [])]
+    min_len = int(cfg.get("min_len", 5))
+    xp = int(cfg.get("xp", 20))
+    tip = cfg.get("natural_tip_vi", "")
+
+    draft = payload.draft.strip()
+    low = draft.lower()
+    correct = len(draft) >= min_len and (not keywords or any(k in low for k in keywords))
+    return s.WritingFeedbackOut(
+        correct=correct,
+        xp=xp if correct else 0,
+        message_vi="Câu đúng!" if correct else "Câu chưa đạt, thử thêm mẫu câu gợi ý nhé!",
+        natural_tip_vi=tip if correct else "",
+    )
 
 
 @router.get(
@@ -1047,6 +1208,216 @@ def practice_hub(request):
         skills=skills_out,
         counts=counts,
         games=games,
+    )
+
+
+# =============================================================== profile overview (C48)
+def _cefr_rank(code: str) -> int:
+    return _CEFR_ORDER.index(code) if code in _CEFR_ORDER else 0
+
+
+def _handle_for(user) -> str:
+    base = (user.email or "").split("@")[0].lower()
+    cleaned = re.sub(r"[^a-z0-9._]+", ".", base).strip(".")
+    return cleaned or f"user{str(user.id).replace('-', '')[:6]}"
+
+
+def _member_id_for(user) -> str:
+    n = int(str(user.id).replace("-", "")[:8], 16) % 100000
+    return f"ENG-{n:05d}"
+
+
+def _cefr_short_label(cefr: str) -> str:
+    label = dict(CEFR.choices).get(cefr, cefr)
+    return label.split("—")[-1].strip() if "—" in label else label
+
+
+def _goal_progress_percent(user, profile) -> int:
+    goal = profile.goal_level
+    if _cefr_rank(profile.cefr_level) > _cefr_rank(goal):
+        return 100
+    total = Lesson.objects.filter(unit__level_id=goal).count()
+    if total == 0:
+        return 100 if _cefr_rank(profile.cefr_level) >= _cefr_rank(goal) else 0
+    done = LessonProgress.objects.filter(
+        user=user,
+        lesson__unit__level_id=goal,
+        status=LessonProgress.Status.COMPLETED,
+    ).count()
+    return min(100, round(done * 100 / total))
+
+
+@router.get(
+    "/profile/overview",
+    response={200: s.ProfileOverviewOut, 401: ErrorOut},
+    summary="Tổng quan hồ sơ (C48) — gộp 1 lần gọi",
+    description="Danh tính, chỉ số học tập, tiến độ mục tiêu, bậc liên đoàn và số liệu cho tab Hồ sơ.",
+)
+def profile_overview(request):
+    user = request.auth
+    profile = ensure_profile(user)
+
+    group, rank, xp_week = gami_services.league_rank(user)
+    league = s.ProfileLeagueOut(
+        tier=group.tier,
+        tier_label=group.get_tier_display(),
+        rank=rank,
+        xp_week=xp_week,
+    )
+
+    return s.ProfileOverviewOut(
+        id=user.id,
+        full_name=user.full_name,
+        handle=_handle_for(user),
+        member_id=_member_id_for(user),
+        avatar_url=_media(user.avatar_path),
+        date_joined=user.date_joined,
+        is_active=user.is_active,
+        is_premium=profile.is_premium,
+        goal_level=profile.goal_level,
+        goal_progress_percent=_goal_progress_percent(user, profile),
+        stats=s.ProfileStatsOut(
+            level=profile.level,
+            cefr_level=profile.cefr_level,
+            cefr_label=_cefr_short_label(profile.cefr_level),
+            xp_total=profile.xp_total,
+            streak_current=profile.streak_current,
+            streak_best=profile.streak_best,
+            coins=profile.coins,
+            hearts=profile.hearts,
+        ),
+        league=league,
+        friend_invites=0,
+        unread_notifications=Notification.objects.filter(user=user, read_at__isnull=True).count(),
+        shop_new=ShopItem.objects.filter(is_active=True).exists(),
+    )
+
+
+# =============================================================== challenges overview (C6)
+_TIER_WEEK_TARGET = {1: 600, 2: 900, 3: 1200, 4: 1500, 5: 1800}
+_NEXT_TIER_LABEL = {1: "Bạc", 2: "Vàng", 3: "Bạch kim", 4: "Kim cương", 5: "Huyền Thoại"}
+_DIVISIONS = ["I", "II", "III", "IV", "V"]
+_SPEAKING_TARGET = 15
+_CHECKIN_XP = 5
+_CHECKIN_COINS = 10
+
+
+def _division(xp_week: int, target: int) -> str:
+    if target <= 0:
+        return _DIVISIONS[0]
+    idx = min(len(_DIVISIONS), int(min(1.0, xp_week / target) * len(_DIVISIONS)) + 1)
+    return _DIVISIONS[idx - 1]
+
+
+def _week_left_sec() -> int:
+    now = djtz.now()
+    days_ahead = 7 - now.weekday()
+    next_monday = (now + timedelta(days=days_ahead)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return int((next_monday - now).total_seconds())
+
+
+@router.get(
+    "/challenges/overview",
+    response={200: s.ChallengesOverviewOut, 401: ErrorOut},
+    summary="Trung tâm thử thách (C6) — gộp 1 lần gọi",
+    description="Liên đoàn tuần, mục tiêu hôm nay, chuỗi ngày, điểm danh và nhiệm vụ hằng ngày.",
+)
+def challenges_overview(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    today = services.local_today(profile)
+
+    group, rank, xp_week = gami_services.league_rank(user)
+    size = LeagueMembership.objects.filter(group=group).count() or 1
+    week_target = _TIER_WEEK_TARGET.get(group.tier, 1800)
+    league = s.ChallengeLeagueOut(
+        tier=group.tier,
+        tier_label=group.get_tier_display(),
+        division=_division(xp_week, week_target),
+        rank=rank,
+        percentile=max(1, round(rank / size * 100)),
+        time_left_sec=_week_left_sec(),
+        xp_week=xp_week,
+        xp_week_target=week_target,
+        xp_to_next=max(0, week_target - xp_week),
+        next_tier_label=_NEXT_TIER_LABEL.get(group.tier),
+        percent=min(100, round(xp_week / week_target * 100)) if week_target else 0,
+    )
+
+    daily = DailyActivity.objects.filter(user=user, date=today).first()
+    xp_today = daily.xp if daily else 0
+    words_today = daily.words_reviewed if daily else 0
+    speaking_today = daily.speaking_count if daily else 0
+    parts = [
+        min(1.0, xp_today / profile.daily_goal_xp) if profile.daily_goal_xp else 1.0,
+        min(1.0, words_today / profile.daily_goal_words) if profile.daily_goal_words else 1.0,
+        min(1.0, speaking_today / _SPEAKING_TARGET),
+    ]
+    goals = s.ChallengeGoalsOut(
+        xp=xp_today,
+        xp_target=profile.daily_goal_xp,
+        words=words_today,
+        words_target=profile.daily_goal_words,
+        speaking=speaking_today,
+        speaking_target=_SPEAKING_TARGET,
+        percent=round(sum(parts) / len(parts) * 100),
+    )
+
+    tz = ZoneInfo(profile.timezone)
+    start_today = datetime.combine(today, dtime.min, tz)
+    checkin = s.ChallengeCheckinOut(
+        done_today=CoinTransaction.objects.filter(
+            user=user, reason="checkin", created_at__gte=start_today
+        ).exists(),
+        reward_xp=_CHECKIN_XP,
+        reward_coins=_CHECKIN_COINS,
+    )
+
+    dailies_today = [daily] if daily else []
+    pk = gami_services.period_key(Challenge.Scope.DAILY, today)
+    claims = {
+        uc.challenge_id: uc for uc in UserChallenge.objects.filter(user=user, period_key=pk)
+    }
+    tasks = []
+    tasks_done = 0
+    for ch in Challenge.objects.filter(scope=Challenge.Scope.DAILY, is_active=True).order_by(
+        "tier", "code"
+    ):
+        cur = gami_services.challenge_progress(ch, dailies_today)
+        completed = cur >= ch.target
+        if completed:
+            tasks_done += 1
+        uc = claims.get(ch.id)
+        tasks.append(
+            s.ChallengeTaskOut(
+                id=ch.id,
+                code=ch.code,
+                metric=ch.metric,
+                title_vi=ch.title_vi,
+                description_vi=ch.description_vi,
+                current=min(cur, ch.target),
+                target=ch.target,
+                reward_xp=ch.reward_xp,
+                reward_coins=ch.reward_coins,
+                completed=completed,
+                claimed=bool(uc and uc.claimed_at),
+            )
+        )
+
+    return s.ChallengesOverviewOut(
+        level=profile.level,
+        streak_days=profile.streak_current,
+        coins=profile.coins,
+        hearts=profile.hearts,
+        league=league,
+        goals=goals,
+        streak=s.ChallengeStreakOut(days=profile.streak_current, week=_week_progress(user, today)),
+        checkin=checkin,
+        tasks_done=tasks_done,
+        tasks_total=len(tasks),
+        tasks=tasks,
     )
 
 
