@@ -3,7 +3,7 @@ from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import CEFR
-from apps.content.models import Lesson, Unit, Vocabulary
+from apps.content.models import Lesson, ShadowingDeck, Unit, Vocabulary
 
 
 class LessonProgress(models.Model):
@@ -212,3 +212,24 @@ class PlacementAttempt(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} → {self.suggested_level}"
+
+
+class SpeakingTopicProgress(models.Model):
+    """Tiến độ luyện nói theo chủ đề (mỗi ShadowingDeck = 1 chủ đề) — hiển thị 'x/y' ở C8a."""
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="speaking_topic_progress"
+    )
+    deck = models.ForeignKey(
+        ShadowingDeck, on_delete=models.CASCADE, related_name="topic_progress"
+    )
+    done_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "deck"], name="uniq_speaking_topic_progress")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · deck{self.deck_id} · {self.done_count}"

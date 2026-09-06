@@ -175,3 +175,47 @@ def test_rate_limit_chan_do_mat_khau(api, user, settings):
     codes = [api.post("/auth/token", {"email": user.email, "password": "sai"}).status_code
              for _ in range(7)]
     assert 429 in codes, f"phải bị chặn sau vài lần, nhận được: {codes}"
+
+
+# ------------------------------------------------------------------ luyện nói theo chủ đề (C8a)
+def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
+    from apps.content.models import Level, ShadowingDeck, ShadowingSentence
+
+    lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
+    deck = ShadowingDeck.objects.create(
+        level=lv, order=1, title_en="Greetings", title_vi="Chào hỏi",
+        icon="greeting", est_seconds=180, is_free=True,
+    )
+    for j in range(4):
+        ShadowingSentence.objects.create(deck=deck, order=j, text_en=f"s{j}", text_vi=f"c{j}")
+    premium = ShadowingDeck.objects.create(
+        level=lv, order=2, title_en="Interview", title_vi="Phỏng vấn", is_free=False,
+    )
+    ShadowingSentence.objects.create(deck=premium, order=0, text_en="x", text_vi="y")
+
+    access = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+
+    body = api.get("/learn/speaking/topics", token=access).json()
+    assert body["week_practiced"] == 0
+    assert body["by_lesson"] == []  # tab "Theo bài học" trống ở v1
+    basic = {t["title_vi"]: t for t in body["basic"]}
+    assert basic["Chào hỏi"]["sentence_count"] == 4
+    assert basic["Chào hỏi"]["est_minutes"] == 3
+    assert basic["Chào hỏi"]["is_premium"] is False
+    assert basic["Chào hỏi"]["done"] == 0 and basic["Chào hỏi"]["total"] == 4
+    assert basic["Phỏng vấn"]["is_premium"] is True
+    # Gợi ý: chỉ chủ đề chưa xong & không khoá → có "Chào hỏi", không có "Phỏng vấn" (khoá)
+    suggested_titles = {t["title_vi"] for t in body["suggested"]}
+    assert "Chào hỏi" in suggested_titles and "Phỏng vấn" not in suggested_titles
+
+    # luyện 1 câu của chủ đề → tiến độ 1/4, hero tuần +1
+    r = api.post(
+        "/learn/practice",
+        {"kind": "speaking", "score": 80, "duration_sec": 30, "deck_id": deck.id},
+        token=access,
+    )
+    assert r.status_code == 200
+    body2 = api.get("/learn/speaking/topics", token=access).json()
+    greet = next(t for t in body2["basic"] if t["title_vi"] == "Chào hỏi")
+    assert greet["done"] == 1 and greet["percent"] == 25
+    assert body2["week_practiced"] == 1

@@ -466,6 +466,7 @@ class ShadowingDeck(models.Model):
     title_vi = models.CharField(max_length=128, blank=True)
     focus_vi = models.CharField(max_length=128, blank=True)  # "Âm /æ/ & ngữ điệu cảm thán"
     est_seconds = models.PositiveIntegerField(default=0)
+    icon = models.CharField(max_length=48, blank=True)  # icon 3D-clay cho thẻ chủ đề luyện nói (C8a)
     is_free = models.BooleanField(default=True)
 
     class Meta:

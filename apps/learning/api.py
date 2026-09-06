@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Sum
 from django.http import HttpResponse
 from django.utils import timezone as djtz
 from ninja import File, Query, Router
@@ -60,6 +60,7 @@ from .models import (
     NotebookEntry,
     PlacementAttempt,
     PlacementQuestion,
+    SpeakingTopicProgress,
     SRSCard,
     SRSReviewLog,
     UserSkill,
@@ -1110,12 +1111,25 @@ def practice(request, payload: s.PracticeIn):
             minutes=round(payload.duration_sec / 60),
         )
         skill = services.bump_skill(user, payload.kind, xp)
+        if payload.deck_id and payload.kind in ("speaking", "shadowing"):
+            _bump_speaking_topic(user, payload.deck_id)
     return s.PracticeResultOut(
         xp_earned=xp,
         skill=skill.kind if skill else None,
         skill_level=skill.level if skill else None,
         skill_percent=services.skill_percent(skill.xp) if skill else None,
     )
+
+
+def _bump_speaking_topic(user, deck_id: int) -> None:
+    """Cộng 1 câu đã luyện cho chủ đề (ShadowingDeck), chặn trần theo số câu của deck."""
+    deck = ShadowingDeck.objects.filter(id=deck_id).annotate(n=Count("sentences")).first()
+    if not deck:
+        return
+    prog, _ = SpeakingTopicProgress.objects.get_or_create(user=user, deck_id=deck_id)
+    if prog.done_count < deck.n:
+        prog.done_count += 1
+        prog.save(update_fields=["done_count", "updated_at"])
 
 
 @router.get(
@@ -1142,6 +1156,52 @@ def skills(request):
         kind=weakest.kind, title=_SKILL_LABELS[weakest.kind], est_minutes=4, xp=10
     )
     return s.SkillsOverviewOut(skills=out, suggestion=suggestion)
+
+
+@router.get(
+    "/learn/speaking/topics",
+    response={200: s.SpeakingTopicsOut, 401: ErrorOut},
+    summary="Chủ đề luyện nói (C8a)",
+    description="Mỗi ShadowingDeck = 1 chủ đề: số câu, phút ước tính, cờ Premium và tiến độ x/y. "
+    "Chia 2 tab: 'Gợi ý' (chủ đề chưa xong, không khoá) và 'Cơ bản' (tất cả); 'Theo bài học' "
+    "để trống ở v1. Hero đếm số câu đã luyện nói trong 7 ngày gần nhất.",
+)
+def speaking_topics(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    decks = ShadowingDeck.objects.annotate(n=Count("sentences")).order_by("level__order", "order")
+    progress = {p.deck_id: p.done_count for p in SpeakingTopicProgress.objects.filter(user=user)}
+    basic = []
+    for d in decks:
+        total = d.n
+        done = min(progress.get(d.id, 0), total)
+        est_minutes = max(1, round(d.est_seconds / 60)) if d.est_seconds else max(1, total)
+        basic.append(
+            s.SpeakingTopicOut(
+                id=d.id,
+                title_vi=d.title_vi or d.title_en,
+                icon=d.icon,
+                sentence_count=total,
+                est_minutes=est_minutes,
+                is_premium=not d.is_free,
+                done=done,
+                total=total,
+                percent=round(done * 100 / total) if total else 0,
+            )
+        )
+    # Gợi ý: chủ đề chưa xong & không khoá, ưu tiên đang luyện dở, tối đa 3
+    suggested = sorted(
+        (t for t in basic if not t.is_premium and t.done < t.total),
+        key=lambda t: (t.done == 0, -t.percent),
+    )[:3]
+    today = services.local_today(profile)
+    week_practiced = (
+        DailyActivity.objects.filter(
+            user=user, date__gte=today - timedelta(days=6), date__lte=today
+        ).aggregate(n=Sum("speaking_count"))["n"]
+        or 0
+    )
+    return s.SpeakingTopicsOut(week_practiced=week_practiced, suggested=suggested, basic=basic)
 
 
 @router.get(

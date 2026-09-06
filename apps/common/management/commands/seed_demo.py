@@ -54,7 +54,14 @@ from apps.gamification.models import (
     ShopItem,
     UserChallenge,
 )
-from apps.learning.models import DailyActivity, LessonProgress, PlacementQuestion, WeeklyStat
+from apps.learning.models import (
+    DailyActivity,
+    LessonProgress,
+    PlacementQuestion,
+    SpeakingTopicProgress,
+    SRSCard,
+    WeeklyStat,
+)
 from apps.learning.services import local_today
 from apps.notifications.models import Notification
 
@@ -459,14 +466,17 @@ class Command(BaseCommand):
 
         sd, _ = ShadowingDeck.objects.update_or_create(
             level=a1, order=1,
-            defaults={"title_en": "The Teacher's Apple", "title_vi": "Quả táo cô giáo",
-                      "focus_vi": "Âm /æ/ & ngữ điệu", "est_seconds": 105},
+            defaults={"title_en": "Greetings & Introductions", "title_vi": "Chào hỏi & giới thiệu",
+                      "focus_vi": "Ngữ điệu câu chào", "est_seconds": 180, "icon": "greeting"},
         )
         sd.sentences.all().delete()
-        ShadowingSentence.objects.create(deck=sd, order=0,
-                                         text_en="She took a fresh red apple from the counter.",
-                                         ipa="/ʃiː tʊk ə frɛʃ rɛd ˈæpəl frəm ðə ˈkaʊntər/",
-                                         text_vi="Cô lấy một quả táo đỏ tươi từ quầy.")
+        for j, (en, ipa, vi) in enumerate([
+            ("Hello, nice to meet you.", "/həˈloʊ naɪs tə miːt juː/", "Xin chào, rất vui được gặp bạn."),
+            ("My name is Long. What's yours?", "/maɪ neɪm ɪz lɒŋ wɒts jɔːz/", "Tôi tên Long. Còn bạn?"),
+            ("Where are you from?", "/wɛər ɑːr juː frɒm/", "Bạn đến từ đâu?"),
+            ("I'm from Vietnam.", "/aɪm frəm ˌvjɛtˈnɑːm/", "Tôi đến từ Việt Nam."),
+        ]):
+            ShadowingSentence.objects.create(deck=sd, order=j, text_en=en, ipa=ipa, text_vi=vi)
 
         root, _ = WordRoot.objects.update_or_create(
             kind="prefix", text="un-",
@@ -556,11 +566,33 @@ class Command(BaseCommand):
             )
 
         # Thêm nội dung để counts Trung tâm luyện tập (C19) khớp design
-        for i in range(2, 7):  # +5 shadowing → 6
-            ShadowingDeck.objects.update_or_create(
+        # + làm chủ đề luyện nói (C8a): icon, est_seconds, cờ Premium, vài câu mỗi deck
+        _speaking_sets = [
+            ("Shopping", "Mua sắm", "shopping", 210, True,
+             [("How much is this?", "/haʊ mʌtʃ ɪz ðɪs/", "Cái này bao nhiêu tiền?"),
+              ("Do you have a smaller size?", "/duː juː hæv ə ˈsmɔːlər saɪz/", "Bạn có cỡ nhỏ hơn không?"),
+              ("I'll take it, thanks.", "/aɪl teɪk ɪt θæŋks/", "Tôi lấy cái này, cảm ơn.")]),
+            ("Travel", "Du lịch", "travel", 240, True,
+             [("Where is the station?", "/wɛər ɪz ðə ˈsteɪʃən/", "Nhà ga ở đâu?"),
+              ("One ticket to the city, please.", "/wʌn ˈtɪkɪt tə ðə ˈsɪti pliːz/", "Cho tôi một vé vào thành phố.")]),
+            ("At the Restaurant", "Ở nhà hàng", "restaurant", 200, True,
+             [("A table for two, please.", "/ə ˈteɪbəl fɔːr tuː pliːz/", "Cho bàn hai người."),
+              ("Can I see the menu?", "/kæn aɪ siː ðə ˈmɛnjuː/", "Cho tôi xem thực đơn được không?")]),
+            ("At Work", "Ở nơi làm việc", "work", 260, True,
+             [("Let's schedule a meeting.", "/lɛts ˈskɛdʒuːl ə ˈmiːtɪŋ/", "Hãy lên lịch một cuộc họp."),
+              ("Could you send me the file?", "/kʊd juː sɛnd miː ðə faɪl/", "Bạn gửi tôi tệp được không?")]),
+            ("Job Interview", "Phỏng vấn xin việc", "interview", 300, False,
+             [("Tell me about yourself.", "/tɛl miː əˈbaʊt jɔːˈsɛlf/", "Hãy giới thiệu về bản thân bạn.")]),
+        ]
+        for i, (ten, tvi, icon, secs, is_free, sents) in enumerate(_speaking_sets, start=2):
+            deck, _ = ShadowingDeck.objects.update_or_create(
                 level=a1, order=i,
-                defaults={"title_en": f"Shadowing set {i}", "title_vi": f"Nhại giọng {i}"},
+                defaults={"title_en": ten, "title_vi": tvi, "icon": icon,
+                          "est_seconds": secs, "is_free": is_free},
             )
+            deck.sentences.all().delete()
+            for j, (en, ipa, vi) in enumerate(sents):
+                ShadowingSentence.objects.create(deck=deck, order=j, text_en=en, ipa=ipa, text_vi=vi)
         for i in range(2, 7):  # +5 dialogue → 6  (speaking = 6 + 6 = 12)
             Dialogue.objects.update_or_create(
                 title_en=f"Everyday dialogue {i}",
@@ -643,11 +675,26 @@ class Command(BaseCommand):
             lesson=lesson3,
             defaults={"status": LessonProgress.Status.IN_PROGRESS, "step_index": 2},
         )
+        # Tiến độ luyện nói theo chủ đề (C8a): đã nói 2/4 câu chủ đề "Chào hỏi"
+        _greet_deck = ShadowingDeck.objects.filter(level=a1, order=1).first()
+        if _greet_deck:
+            SpeakingTopicProgress.objects.update_or_create(
+                user=demo, deck=_greet_deck, defaults={"done_count": 2},
+            )
         LessonProgress.objects.filter(
             user=demo,
             lesson__unit=unit,
             lesson__order__gt=3,
         ).delete()
+        for index, vocab in enumerate(Vocabulary.objects.filter(level=a1).order_by("headword")):
+            SRSCard.objects.update_or_create(
+                user=demo,
+                vocabulary=vocab,
+                defaults={
+                    "state": SRSCard.State.LEARNING,
+                    "due_at": djtz.now() - timedelta(minutes=index + 1),
+                },
+            )
         for code, progress, claimed in (
             ("daily_xp", 120, True), ("daily_words", 18, False), ("daily_speak", 12, False)
         ):

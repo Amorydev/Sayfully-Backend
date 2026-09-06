@@ -351,6 +351,7 @@ class PracticeIn(Schema):
     score: int = Field(ge=0, le=100)
     duration_sec: int = 0
     ref_id: str = ""
+    deck_id: int | None = None  # chủ đề luyện nói (ShadowingDeck) để cộng tiến độ C8a
 
 
 class PracticeResultOut(Schema):
@@ -358,6 +359,25 @@ class PracticeResultOut(Schema):
     skill: str | None
     skill_level: int | None
     skill_percent: int | None
+
+
+class SpeakingTopicOut(Schema):
+    id: int
+    title_vi: str
+    icon: str
+    sentence_count: int
+    est_minutes: int
+    is_premium: bool
+    done: int
+    total: int
+    percent: int
+
+
+class SpeakingTopicsOut(Schema):
+    week_practiced: int  # số câu đã luyện nói trong 7 ngày gần nhất (hero C8a)
+    suggested: list[SpeakingTopicOut]  # tab "Gợi ý": chủ đề chưa xong, không khoá
+    basic: list[SpeakingTopicOut]  # tab "Cơ bản": toàn bộ chủ đề
+    by_lesson: list[SpeakingTopicOut] = []  # tab "Theo bài học": để trống ở v1
 
 
 class SkillProgressOut(Schema):
