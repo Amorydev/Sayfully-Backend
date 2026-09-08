@@ -18,25 +18,19 @@ from ninja import File, Query, Router
 from ninja.files import UploadedFile
 
 from apps.accounts.services import ensure_profile
-from apps.ai.models import RoleplayScenario
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
 from apps.content.models import (
-    Dialogue,
-    GrammarPoint,
     IPASound,
     Lesson,
     LessonStep,
     Level,
     LevelMilestone,
     ListeningTopic,
-    Reading,
     ShadowingDeck,
-    Story,
     Topic,
     Unit,
-    Video,
     Vocabulary,
 )
 from apps.content.schemas import Page
@@ -45,7 +39,6 @@ from apps.gamification.models import (
     Badge,
     Challenge,
     CoinTransaction,
-    Game,
     LeagueMembership,
     ShopItem,
     UserBadge,
@@ -272,12 +265,77 @@ def _key_vocab(lesson: Lesson, accent: str) -> list[s.KeyVocabOut]:
     return out
 
 
+def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
+    notebook_total = NotebookEntry.objects.filter(user=user).count()
+    ipa_sounds = IPASound.objects.count()
+    return [
+        s.HomeLearningToolOut(
+            code="ai_tutor",
+            title_vi="Gia sư AI 1:1",
+            description_vi="Trò chuyện theo kịch bản mở, sửa lỗi tức thì",
+            action="coming_soon",
+            is_premium=True,
+        ),
+        s.HomeLearningToolOut(
+            code="exam_prep",
+            title_vi="Luyện đề IELTS & TOEIC",
+            description_vi="Bộ đề sát thực tế kèm lời giải chi tiết",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="ipa",
+            title_vi=f"Bảng {ipa_sounds} âm IPA chuẩn",
+            description_vi="Khẩu hình miệng 3D và sóng âm mẫu",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="video",
+            title_vi="Học qua Video ngắn",
+            description_vi="Phụ đề song ngữ tương tác tra từ",
+            action="video",
+        ),
+        s.HomeLearningToolOut(
+            code="notebook",
+            title_vi="Sổ từ của tôi",
+            description_vi=f"{notebook_total} từ đã lưu từ các bài đọc",
+            action="notebook",
+        ),
+        s.HomeLearningToolOut(
+            code="dictionary",
+            title_vi="Từ điển Anh – Việt",
+            description_vi="Tra cứu IPA, phát âm và lưu từ mới",
+            action="dictionary",
+        ),
+        s.HomeLearningToolOut(
+            code="challenge",
+            title_vi="Thách đấu 1:1",
+            description_vi="Đua tốc độ từ vựng thời gian thực",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="hearing",
+            title_vi="Thẩm âm câu dài",
+            description_vi="Nhận diện nối âm, nuốt âm chuẩn bản xứ",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="progress",
+            title_vi="Biểu đồ tiến độ chi tiết",
+            description_vi="Phân tích điểm mạnh và điểm cần cải thiện",
+            action="coming_soon",
+        ),
+    ]
+
+
 # =============================================================== /home
 @router.get(
     "/home",
     response={200: s.HomeOut, 401: ErrorOut},
     summary="Dữ liệu trang chủ (1 lần gọi)",
-    description="Hồ sơ tóm tắt, mục tiêu ngày, bài đang học, số từ đến hạn, thông báo chưa đọc.",
+    description=(
+        "Hồ sơ tóm tắt, mục tiêu ngày, bài đang học, số từ đến hạn, thông báo chưa đọc "
+        "và các công cụ học tập mở rộng."
+    ),
 )
 def home(request):
     user = request.auth
@@ -371,6 +429,7 @@ def home(request):
             items=challenge_items,
         ),
         rank=None,
+        learning_tools=_home_learning_tools(user),
     )
 
 
@@ -1296,81 +1355,6 @@ def listening_items(request, topic_id: int, mode: str = Query("choose")):
         mode="choose" if is_choose else "dictation",
         total=len(items),
         items=items,
-    )
-
-
-@router.get(
-    "/learn/practice-hub",
-    response={200: s.PracticeHubOut, 401: ErrorOut},
-    summary="Trung tâm luyện tập (C19) — gộp 1 lần gọi",
-    description="Hồ sơ tóm tắt, hội thoại AI nổi bật, tiến độ kỹ năng, số liệu (từ ôn/sổ tay) "
-    "và danh sách trò chơi cho tab Luyện tập.",
-)
-def practice_hub(request):
-    user = request.auth
-    profile = ensure_profile(user)
-
-    existing = {sk.kind: sk for sk in UserSkill.objects.filter(user=user)}
-    skills_out = [
-        s.SkillProgressOut(
-            kind=kind,
-            percent=services.skill_percent(existing[kind].xp if kind in existing else 0),
-            level=existing[kind].level if kind in existing else 1,
-        )
-        for kind in ["speaking", "listening", "reading", "writing"]
-    ]
-
-    scenario = RoleplayScenario.objects.order_by("-is_premium", "id").first()
-    featured = (
-        s.PracticeFeaturedOut(
-            title_vi=scenario.title_vi,
-            topic=scenario.topic,
-            description_vi=scenario.description_vi,
-            is_premium=scenario.is_premium,
-            thumbnail_url=_media(scenario.thumbnail_path),
-        )
-        if scenario
-        else None
-    )
-
-    dialogues = Dialogue.objects.count()
-    videos = Video.objects.count()
-    readings = Reading.objects.count()
-    counts = s.PracticeCountsOut(
-        vocab_due=SRSCard.objects.filter(user=user, due_at__lte=djtz.now()).exclude(state=4).count(),
-        notebook_total=NotebookEntry.objects.filter(user=user).count(),
-        ipa_sounds=IPASound.objects.count(),
-        videos=videos,
-        skills=s.PracticeSkillCountsOut(
-            speaking=ShadowingDeck.objects.count() + dialogues,
-            listening=dialogues + videos,
-            reading=readings + Story.objects.count(),
-            writing=GrammarPoint.objects.count(),
-        ),
-    )
-
-    games = [
-        s.PracticeGameOut(
-            id=g.id,
-            code=g.code,
-            title_vi=g.title_vi,
-            description_vi=g.description_vi,
-            kind=g.kind,
-            icon_url=_media(g.icon_path),
-            is_featured=g.is_featured,
-        )
-        for g in Game.objects.filter(is_active=True).order_by("order", "id")
-    ]
-
-    return s.PracticeHubOut(
-        streak_days=profile.streak_current,
-        coins=profile.coins,
-        hearts=profile.hearts,
-        is_premium=profile.is_premium,
-        featured=featured,
-        skills=skills_out,
-        counts=counts,
-        games=games,
     )
 
 

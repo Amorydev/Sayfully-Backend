@@ -3,8 +3,8 @@
 import pytest
 import time_machine
 
-from apps.content.models import Lesson, LessonStep, Level, Unit, Vocabulary
-from apps.learning.models import DailyActivity, LessonProgress, SRSCard
+from apps.content.models import IPASound, Lesson, LessonStep, Level, Unit, Vocabulary
+from apps.learning.models import DailyActivity, LessonProgress, NotebookEntry, SRSCard
 
 pytestmark = pytest.mark.django_db
 
@@ -49,6 +49,41 @@ def test_home_mac_dinh(api, token, user):
     assert body["due_review_count"] == 0
     assert body["current_lesson"] is None
     assert body["daily_goal"]["words_target"] == 10
+
+
+def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
+    NotebookEntry.objects.create(user=user, custom_word="hello", custom_meaning="xin chào")
+    IPASound.objects.create(
+        symbol="iː",
+        kind=IPASound.Kind.VOWEL,
+        description_vi="Nguyên âm dài",
+    )
+
+    response = api.get("/home", token=token)
+    assert response.status_code == 200
+    tools = response.json()["learning_tools"]
+
+    assert [tool["code"] for tool in tools] == [
+        "ai_tutor",
+        "exam_prep",
+        "ipa",
+        "video",
+        "notebook",
+        "dictionary",
+        "challenge",
+        "hearing",
+        "progress",
+    ]
+    assert tools[0]["is_premium"] is True
+    assert tools[2]["title_vi"] == "Bảng 1 âm IPA chuẩn"
+    assert tools[3]["action"] == "video"
+    assert tools[4]["description_vi"] == "1 từ đã lưu từ các bài đọc"
+    assert tools[4]["action"] == "notebook"
+    assert tools[5]["action"] == "dictionary"
+
+
+def test_practice_hub_da_xoa(api, token):
+    assert api.get("/learn/practice-hub", token=token).status_code == 404
 
 
 # --------------------------------------------------------------- path + khoá
