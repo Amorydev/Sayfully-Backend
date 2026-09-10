@@ -194,3 +194,42 @@ class GameScore(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.game_id} · {self.score}"
+
+
+class GameStageProgress(models.Model):
+    """
+    Tiến độ path map của mini-game: mỗi cấp CEFR chia thành các chặng liên tiếp
+    (mặc định 25 từ/chặng), cắt từ danh sách từ vựng của cấp theo thứ tự cố định
+    ``(frequency_rank, headword)`` — trùng thứ tự của ``GET /content/vocabulary``,
+    nên ``stage_index`` luôn ánh xạ về đúng ``offset = stage_index * stage_size``.
+
+    Một dòng = một chặng người dùng đã hoàn thành. Chặng kế tiếp mở khoá khi
+    chặng liền trước có dòng ở đây.
+    """
+
+    STAGE_SIZE = 25
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="game_stages")
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="stages")
+    level = models.CharField(max_length=2, choices=CEFR.choices)
+    stage_index = models.PositiveSmallIntegerField()  # 0-based
+    best_score = models.PositiveIntegerField(default=0)
+    best_accuracy = models.FloatField(default=0)  # 0..1
+    play_count = models.PositiveSmallIntegerField(default=0)
+    completed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "game", "level", "stage_index"],
+                name="uniq_user_game_level_stage",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "game", "level"], name="gsp_user_level_idx"),
+        ]
+        ordering = ["level", "stage_index"]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.game_id} · {self.level}#{self.stage_index}"

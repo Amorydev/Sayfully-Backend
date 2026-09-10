@@ -15,6 +15,7 @@ from ninja import Header, Query, Router
 from apps.accounts.models import User
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Conflict, NotFound
+from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut, MessageOut
 from apps.content.schemas import Page
 from apps.learning import services as learn
@@ -29,6 +30,7 @@ from .models import (
     CoinTransaction,
     Game,
     GameScore,
+    GameStageProgress,
     LeagueMembership,
     ShopItem,
     UserBadge,
@@ -440,10 +442,13 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
         GameScore.objects.create(
             user=user,
             game=game,
-            level=profile.cefr_level,
+            level=payload.level or profile.cefr_level,
             score=payload.score,
+            accuracy=payload.accuracy,
             coins_earned=coins,
         )
+        if payload.level and payload.stage_index is not None:
+            _record_stage(user, game, payload.level, payload.stage_index, payload.score, payload.accuracy)
     total = GameScore.objects.filter(game=game).count()
     below = GameScore.objects.filter(game=game, score__lt=payload.score).count()
     return s.GameScoreResultOut(
@@ -453,6 +458,71 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
         is_record=payload.score > prev_best,
         personal_best=max(prev_best, payload.score),
         percentile=round(below / total * 100) if total else 0,
+    )
+
+
+def _record_stage(user, game, level: str, stage_index: int, score: int, accuracy: float) -> None:
+    """Chỉ nâng, không hạ: chơi lại một chặng với điểm thấp hơn không xoá kỷ lục cũ."""
+    row, created = GameStageProgress.objects.get_or_create(
+        user=user,
+        game=game,
+        level=level.upper(),
+        stage_index=stage_index,
+        defaults={"best_score": score, "best_accuracy": accuracy, "play_count": 1},
+    )
+    if not created:
+        row.best_score = max(row.best_score, score)
+        row.best_accuracy = max(row.best_accuracy, accuracy)
+        row.play_count += 1
+        row.save(update_fields=["best_score", "best_accuracy", "play_count", "updated_at"])
+
+
+@router.get(
+    "/games/{code}/stages",
+    response={200: s.GameStageMapOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    summary="Path map các chặng của một cấp",
+    description="Chia từ vựng của cấp thành các chặng liên tiếp (25 từ/chặng) theo đúng thứ tự "
+    "của `GET /content/vocabulary?level=`, nên `offset` của chặng dùng thẳng để tải từ. "
+    "Chặng 0 luôn mở; chặng n mở khi chặng n-1 đã hoàn thành.",
+)
+def game_stages(request, code: str, level: str = Query(...)):
+    from apps.content.models import Vocabulary
+
+    user = request.auth
+    game = Game.objects.filter(code=code, is_active=True).first()
+    if game is None:
+        raise NotFound("Không tìm thấy trò chơi")
+    level = level.upper()
+    if level not in CEFR.values:
+        raise AppError("Cấp độ không hợp lệ", code="invalid_level", status_code=422)
+
+    size = GameStageProgress.STAGE_SIZE
+    total = Vocabulary.objects.filter(level_id=level).count()
+    stage_count = (total + size - 1) // size
+    done = {
+        row.stage_index: row
+        for row in GameStageProgress.objects.filter(user=user, game=game, level=level)
+    }
+    stages: list[s.GameStageOut] = []
+    for index in range(stage_count):
+        row = done.get(index)
+        stages.append(
+            s.GameStageOut(
+                index=index,
+                offset=index * size,
+                word_count=min(size, total - index * size),
+                is_unlocked=index == 0 or (index - 1) in done,
+                is_completed=row is not None,
+                best_score=row.best_score if row else 0,
+                best_accuracy=row.best_accuracy if row else 0.0,
+            )
+        )
+    return s.GameStageMapOut(
+        level=level,
+        stage_size=size,
+        total_words=total,
+        completed_stages=len(done),
+        stages=stages,
     )
 
 

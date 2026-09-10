@@ -110,6 +110,28 @@ class GameOut(Schema):
 class GameScoreIn(Schema):
     score: int
     duration_sec: int = 0
+    # Ván chơi theo path map: ghi kèm tiến độ chặng. Bỏ trống = ván tự do.
+    level: str | None = None
+    stage_index: int | None = None
+    accuracy: float = 0
+
+
+class GameStageOut(Schema):
+    index: int
+    offset: int
+    word_count: int
+    is_unlocked: bool
+    is_completed: bool
+    best_score: int
+    best_accuracy: float
+
+
+class GameStageMapOut(Schema):
+    level: str
+    stage_size: int
+    total_words: int
+    completed_stages: int
+    stages: list[GameStageOut]
 
 
 class GameScoreResultOut(Schema):
