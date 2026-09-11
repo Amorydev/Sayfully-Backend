@@ -1,5 +1,7 @@
 """Ghép cặp — nội dung chặng, ván chơi, kết quả."""
 
+import copy
+
 import pytest
 from django.db import transaction
 from django.db.utils import IntegrityError
@@ -169,3 +171,30 @@ def test_seed_match_pairs_idempotent():
     call_command("seed_match_pairs")
     assert MatchPairsStage.objects.count() == first
     assert MatchPairsWord.objects.count() == first * 12
+
+
+@pytest.mark.django_db
+def test_seed_match_pairs_doi_thu_tu_khong_loi(monkeypatch):
+    """Đảo thứ tự cặp trong STAGES rồi nạp lại không được vỡ ràng buộc duy nhất."""
+    from django.core.management import call_command
+
+    from apps.common.management.commands import seed_match_pairs as cmd
+
+    call_command("seed_match_pairs")
+    stage = MatchPairsStage.objects.get(code=cmd.STAGES[0]["code"])
+    stage_pk_before = stage.pk
+
+    swapped = copy.deepcopy(cmd.STAGES)
+    pairs = swapped[0]["pairs"]
+    pairs[0], pairs[1] = pairs[1], pairs[0]
+    monkeypatch.setattr(cmd, "STAGES", swapped)
+
+    call_command("seed_match_pairs")  # trước đây: IntegrityError uniq_stage_english
+
+    stage.refresh_from_db()
+    assert stage.pk == stage_pk_before
+    assert list(stage.pairs.order_by("order").values_list("english", flat=True)[:2]) == [
+        pairs[0][0],
+        pairs[1][0],
+    ]
+    assert stage.pairs.count() == 12

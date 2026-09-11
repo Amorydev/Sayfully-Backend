@@ -1,4 +1,10 @@
-"""Nạp chặng mẫu cho Ghép cặp. Chạy lại nhiều lần không sinh trùng."""
+"""Nạp chặng mẫu cho Ghép cặp. Chạy lại nhiều lần không sinh trùng.
+
+Mỗi lần chạy, bộ cặp của các chặng mẫu (theo `code` trong STAGES) bị xóa và
+nạp lại toàn bộ từ đầu, để đổi thứ tự hay chèn/xóa từ trong STAGES không bao
+giờ vỡ ràng buộc duy nhất; các chặng biên tập tay khác (code không nằm trong
+STAGES) không bị đụng tới.
+"""
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -82,12 +88,11 @@ class Command(BaseCommand):
                     "is_active": True,
                 },
             )
-            for index, (english, vietnamese) in enumerate(spec["pairs"]):
-                MatchPairsWord.objects.update_or_create(
-                    stage=stage,
-                    order=index,
-                    defaults={"english": english, "vietnamese": vietnamese},
-                )
+            stage.pairs.all().delete()
+            MatchPairsWord.objects.bulk_create(
+                MatchPairsWord(stage=stage, order=index, english=english, vietnamese=vietnamese)
+                for index, (english, vietnamese) in enumerate(spec["pairs"])
+            )
         self.stdout.write(
             self.style.SUCCESS(f"Đã nạp {len(STAGES)} chặng Ghép cặp")
         )
