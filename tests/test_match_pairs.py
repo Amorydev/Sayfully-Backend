@@ -352,6 +352,7 @@ def test_round_tra_dung_so_cap(api, token, user):
 
 @pytest.mark.django_db
 def test_round_cac_cap_phan_biet(api, token, user):
+    """Bắt rút *có* hoàn lại (choices thay vì sample): 12 lấy 12 mà trùng là hỏng."""
     stage = _stage()
     body = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=expert", token=token).json()
     english = [p["english"] for p in body["pairs"]]
@@ -390,3 +391,137 @@ def test_round_chang_bi_khoa_403(api, token, user):
     locked = _stage(code="s1", order=1)
     r = api.get(f"/match-pairs/stages/{locked.id}/round?difficulty=easy", token=token)
     assert r.status_code == 403 and r.json()["error"]["code"] == "stage_locked"
+
+
+@pytest.mark.django_db
+def test_round_da_choi_thi_luon_mo(api, token, user):
+    """Chặng đã có dòng tiến độ luôn mở cho ván mới, kể cả khi chặng liền trước chưa hoàn thành."""
+    from apps.gamification.models import MatchPairsProgress
+
+    s0 = _stage(code="s0", order=0)
+    s1 = _stage(code="s1", order=1)
+    s2 = _stage(code="s2", order=2)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s1, difficulty="easy", stars=1, best_moves=9, play_count=1
+    )
+    assert (
+        api.get(f"/match-pairs/stages/{s1.id}/round?difficulty=easy", token=token).status_code
+        == 200
+    )
+    assert (
+        api.get(f"/match-pairs/stages/{s2.id}/round?difficulty=easy", token=token).status_code
+        == 200
+    )
+    assert (
+        api.get(f"/match-pairs/stages/{s0.id}/round?difficulty=easy", token=token).status_code
+        == 200
+    )
+
+
+@pytest.mark.django_db
+def test_round_chang_thieu_cap_404(api, token, user):
+    """Chặng chưa đủ cặp bị ẩn khỏi danh sách chơi được: guard `random.sample` khỏi bao giờ nổ."""
+    stage = _stage(words=11)
+    r = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=expert", token=token)
+    assert r.status_code == 404
+
+
+def _match_pairs_game():
+    from apps.gamification.models import Game
+
+    return Game.objects.create(
+        code="match_pairs", title_vi="Ghép cặp", description_vi="x", kind="memory"
+    )
+
+
+@pytest.mark.django_db
+def test_result_tinh_sao_va_thuong(api, token, user):
+    _match_pairs_game()
+    stage = _stage()
+    body = api.post(
+        f"/match-pairs/stages/{stage.id}/result",
+        {"difficulty": "easy", "moves": 7, "duration_sec": 40},
+        token=token,
+    ).json()
+    assert body["stars"] == 3 and body["best_stars"] == 3 and body["best_moves"] == 7
+    assert body["coins_earned"] > 0 and body["xp_earned"] > 0
+    user.profile.refresh_from_db()
+    assert user.profile.coins == body["coins_earned"]
+
+
+@pytest.mark.django_db
+def test_result_chi_nang_khong_ha(api, token, user):
+    _match_pairs_game()
+    stage = _stage()
+    api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 7}, token=token
+    )
+    body = api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 30}, token=token
+    ).json()
+    assert body["stars"] == 1 and body["best_stars"] == 3 and body["best_moves"] == 7
+
+
+@pytest.mark.django_db
+def test_result_mo_khoa_chang_ke(api, token, user):
+    _match_pairs_game()
+    s0 = _stage(code="s0", order=0)
+    s1 = _stage(code="s1", order=1)
+    body = api.post(
+        f"/match-pairs/stages/{s0.id}/result", {"difficulty": "easy", "moves": 7}, token=token
+    ).json()
+    assert body["unlocked_stage_id"] == s1.id
+
+
+@pytest.mark.django_db
+def test_result_choi_lai_khong_bao_mo_khoa_nua(api, token, user):
+    """Mở khoá chỉ xảy ra một lần; chơi lại không được báo mở khoá lần hai."""
+    _match_pairs_game()
+    s0 = _stage(code="s0", order=0)
+    _stage(code="s1", order=1)
+    api.post(
+        f"/match-pairs/stages/{s0.id}/result", {"difficulty": "easy", "moves": 7}, token=token
+    )
+    body = api.post(
+        f"/match-pairs/stages/{s0.id}/result", {"difficulty": "hard", "moves": 13}, token=token
+    ).json()
+    assert body["unlocked_stage_id"] is None
+
+
+@pytest.mark.django_db
+def test_result_khong_bao_mo_khoa_chang_ke_da_choi(api, token, user):
+    """Chặng kế đã có dòng tiến độ riêng (đã mở từ trước) thì không báo mở khoá lại."""
+    from apps.gamification.models import MatchPairsProgress
+
+    _match_pairs_game()
+    s0 = _stage(code="s0", order=0)
+    s1 = _stage(code="s1", order=1)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s1, difficulty="easy", stars=1, best_moves=9, play_count=1
+    )
+    body = api.post(
+        f"/match-pairs/stages/{s0.id}/result", {"difficulty": "easy", "moves": 7}, token=token
+    ).json()
+    assert body["unlocked_stage_id"] is None
+
+
+@pytest.mark.django_db
+def test_result_ghi_gamescore_cho_bang_xep_hang(api, token, user):
+    from apps.gamification.models import GameScore
+
+    _match_pairs_game()
+    stage = _stage()
+    api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "expert", "moves": 15}, token=token
+    )
+    assert GameScore.objects.filter(user=user, game__code="match_pairs").count() == 1
+
+
+@pytest.mark.django_db
+def test_result_so_luot_vo_ly_422(api, token, user):
+    _match_pairs_game()
+    stage = _stage()
+    r = api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 3}, token=token
+    )
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_moves"

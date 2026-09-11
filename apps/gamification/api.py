@@ -718,6 +718,81 @@ def match_pairs_round(request, stage_id: int, difficulty: str = Query(...)):
     )
 
 
+@router.post(
+    "/match-pairs/stages/{stage_id}/result",
+    response={
+        200: s.MatchPairsResultOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+    },
+    summary="Nộp kết quả một ván Ghép cặp",
+    description="Máy chủ tự chấm sao từ số lượt lật, cộng xu/XP và mở chặng kế. "
+    "Kỷ lục chỉ nâng: chơi lại tệ hơn không xoá sao cũ.",
+)
+def match_pairs_result(request, stage_id: int, payload: s.MatchPairsResultIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    difficulty = _check_difficulty(payload.difficulty)
+    stage, stages, played = _open_stage(user, stage_id)
+    # Chặng đã có dòng tiến độ trước ván này chưa — quyết định có báo "vừa mở khoá" hay không.
+    was_played = stage.id in played
+    pairs = MatchPairsProgress.pairs_for(difficulty)
+    # Ít hơn `pairs` lượt là không thể: mỗi cặp cần tối thiểu một lượt lật.
+    if payload.moves < pairs:
+        raise AppError("Số lượt lật không hợp lệ", code="invalid_moves", status_code=422)
+
+    stars = MatchPairsProgress.stars_for(difficulty, payload.moves)
+    score = pairs * 100 * stars
+    coins = min(15, score // 80)
+    xp = min(10, score // 100)
+    game = Game.objects.filter(code="match_pairs", is_active=True).first()
+
+    with transaction.atomic():
+        learn.record(
+            profile, xp=xp, coins=coins, coin_reason="game", ref_type="game", ref_id="match_pairs"
+        )
+        row, created = MatchPairsProgress.objects.get_or_create(
+            user=user,
+            stage=stage,
+            difficulty=difficulty,
+            defaults={"stars": stars, "best_moves": payload.moves, "play_count": 1},
+        )
+        if not created:
+            row.stars = max(row.stars, stars)
+            row.best_moves = min(row.best_moves, payload.moves) if row.best_moves else payload.moves
+            row.play_count += 1
+            row.save(update_fields=["stars", "best_moves", "play_count", "updated_at"])
+        if game is not None:
+            GameScore.objects.create(
+                user=user,
+                game=game,
+                level=stage.level,
+                score=score,
+                accuracy=pairs / payload.moves,
+                coins_earned=coins,
+            )
+
+    # Chỉ báo chặng kế ở lần đầu hoàn thành chặng này; chơi lại không "mở khoá" lần nữa,
+    # nếu không client sẽ ăn mừng mở khoá mỗi lần chơi lại.
+    unlocked = None
+    if not was_played:
+        for index, item in enumerate(stages):
+            if item.id == stage.id and index + 1 < len(stages):
+                nxt = stages[index + 1]
+                # Chặng kế đã có dòng tiến độ (biên tập viên chèn chặng này lên trước) thì
+                # nó vốn đã mở — không báo mở khoá lần nữa.
+                if nxt.id not in played:
+                    unlocked = nxt.id
+                break
+
+    return s.MatchPairsResultOut(
+        stars=stars,
+        best_stars=row.stars,
+        best_moves=row.best_moves,
+        coins_earned=coins,
+        xp_earned=xp,
+        unlocked_stage_id=unlocked,
+    )
+
+
 # =============================================================== notifications + devices (C46)
 @router.get(
     "/notifications",
