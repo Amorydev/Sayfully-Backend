@@ -1,3 +1,5 @@
+import math
+
 from django.db import models
 
 from apps.accounts.models import User
@@ -233,3 +235,96 @@ class GameStageProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.game_id} · {self.level}#{self.stage_index}"
+
+
+class MatchPairsStage(models.Model):
+    """
+    Một chặng của Ghép cặp. Nội dung biên tập tay, không cắt từ kho từ vựng chung:
+    một ván cần các từ tiếng Anh phân biệt *và* các nghĩa tiếng Việt phân biệt, điều
+    mà lát cắt từ vựng theo tần suất không bảo đảm được.
+    """
+
+    MIN_PAIRS = 12
+
+    code = models.SlugField(max_length=48, unique=True)
+    title_vi = models.CharField(max_length=64)
+    subtitle_vi = models.CharField(max_length=96, blank=True)
+    symbol = models.CharField(max_length=4, blank=True)  # ✦ ◈ ➜ — vẽ ở mặt sau thẻ
+    level = models.CharField(max_length=2, choices=CEFR.choices, default=CEFR.A1)
+    order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self) -> str:
+        return str(self.title_vi)
+
+    @property
+    def is_playable(self) -> bool:
+        """Đủ cặp cho độ khó cao nhất; chặng thiếu từ bị ẩn khỏi bản đồ."""
+        return self.pairs.count() >= self.MIN_PAIRS
+
+
+class MatchPairsWord(models.Model):
+    """Một cặp Anh–Việt thuộc một chặng."""
+
+    stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="pairs")
+    order = models.PositiveSmallIntegerField(default=0)
+    english = models.CharField(max_length=48)
+    vietnamese = models.CharField(max_length=64)
+
+    class Meta:
+        ordering = ["order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["stage", "english"], name="uniq_stage_english"),
+            models.UniqueConstraint(fields=["stage", "vietnamese"], name="uniq_stage_vietnamese"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.english} · {self.vietnamese}"
+
+
+class MatchPairsProgress(models.Model):
+    """Sao của một (người dùng, chặng, độ khó). Chỉ nâng, không hạ."""
+
+    class Difficulty(models.TextChoices):
+        EASY = "easy", "Dễ"
+        MEDIUM = "medium", "Trung bình"
+        HARD = "hard", "Khó"
+        EXPERT = "expert", "Siêu cấp"
+
+    _PAIRS = {"easy": 6, "medium": 8, "hard": 10, "expert": 12}
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="match_pairs_progress")
+    stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="progress")
+    difficulty = models.CharField(max_length=6, choices=Difficulty.choices)
+    stars = models.PositiveSmallIntegerField(default=0)  # 1..3
+    best_moves = models.PositiveSmallIntegerField(default=0)
+    play_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "stage", "difficulty"], name="uniq_user_stage_difficulty"
+            )
+        ]
+        indexes = [models.Index(fields=["user", "stage"], name="mpp_user_stage_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.stage_id} · {self.difficulty} · {self.stars}★"
+
+    @classmethod
+    def pairs_for(cls, difficulty: str) -> int:
+        return cls._PAIRS[str(difficulty)]
+
+    @classmethod
+    def stars_for(cls, difficulty: str, moves: int) -> int:
+        """Mốc tỉ lệ thuận số cặp; 12 cặp giữ nguyên mốc 15 và 21 mà client đang dùng."""
+        pairs = cls.pairs_for(difficulty)
+        if moves <= math.ceil(pairs * 1.25):
+            return 3
+        if moves <= math.ceil(pairs * 1.75):
+            return 2
+        return 1
