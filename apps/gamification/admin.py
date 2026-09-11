@@ -87,7 +87,7 @@ class MatchPairsStageAdmin(admin.ModelAdmin):
     inlines = [MatchPairsWordInline]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_pairs=Count("pairs"))
+        return super().get_queryset(request).annotate(_pairs=Count("pairs", distinct=True))
 
     @admin.display(description="Cặp", ordering="_pairs")
     def pair_count(self, obj):

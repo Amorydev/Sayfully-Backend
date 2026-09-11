@@ -135,11 +135,13 @@ def test_admin_canh_bao_chang_thieu_cap(django_assert_num_queries):
 
     request = RequestFactory().get("/admin/gamification/matchpairsstage/")
     with django_assert_num_queries(1):
-        qs = model_admin.get_queryset(request)
-        by_code = {obj.code: obj for obj in qs.filter(code__startswith="canh-bao-")}
+        by_code = {
+            obj.code: model_admin.pair_count(obj)
+            for obj in model_admin.get_queryset(request).filter(code__startswith="canh-bao-")
+        }
 
-    assert model_admin.pair_count(by_code["canh-bao-thieu"]) == "5 ⚠"
-    assert model_admin.pair_count(by_code["canh-bao-du"]) == 12
+    assert by_code["canh-bao-thieu"] == "5 ⚠"
+    assert by_code["canh-bao-du"] == 12
 
 
 @pytest.mark.django_db
