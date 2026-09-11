@@ -1,5 +1,4 @@
 from django.contrib import admin
-from django.db.models import Count
 
 from . import models as m
 
@@ -87,11 +86,11 @@ class MatchPairsStageAdmin(admin.ModelAdmin):
     inlines = [MatchPairsWordInline]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_pairs=Count("pairs", distinct=True))
+        return super().get_queryset(request).with_pair_count()
 
-    @admin.display(description="Cặp", ordering="_pairs")
+    @admin.display(description="Cặp", ordering="pair_count")
     def pair_count(self, obj):
-        n = obj._pairs
+        n = obj.pair_count
         return n if n >= m.MatchPairsStage.MIN_PAIRS else f"{n} ⚠"
 
 

@@ -16,7 +16,7 @@ def token(api, user, password):
     return api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
 
 
-def _stage(code="the-gioi-quanh-ta", order=0, words=12, level="A1"):
+def _stage(code="the-gioi-quanh-ta", order=0, words=12, level="A1", is_active=True):
     stage = MatchPairsStage.objects.create(
         code=code,
         title_vi="Thế giới quanh ta",
@@ -24,6 +24,7 @@ def _stage(code="the-gioi-quanh-ta", order=0, words=12, level="A1"):
         symbol="✦",
         level=level,
         order=order,
+        is_active=is_active,
     )
     for i in range(words):
         MatchPairsWord.objects.create(
@@ -36,20 +37,20 @@ def _stage(code="the-gioi-quanh-ta", order=0, words=12, level="A1"):
 def test_stage_pair_count():
     stage = _stage()
     assert stage.pairs.count() == 12
-    assert stage.is_playable is True
+    assert MatchPairsStage.objects.playable().filter(pk=stage.pk).exists() is True
 
 
 @pytest.mark.django_db
 def test_stage_thieu_tu_thi_khong_choi_duoc():
     stage = _stage(code="thieu", words=5)
-    assert stage.is_playable is False
+    assert MatchPairsStage.objects.playable().filter(pk=stage.pk).exists() is False
 
 
 @pytest.mark.django_db
 def test_stage_11_tu_van_khong_choi_duoc():
     """Biên ngay dưới MIN_PAIRS: 11 chưa đủ, phải là False."""
     stage = _stage(code="muoimot", words=11)
-    assert stage.is_playable is False
+    assert MatchPairsStage.objects.playable().filter(pk=stage.pk).exists() is False
 
 
 def test_difficulty_pair_counts():
@@ -254,3 +255,87 @@ def test_stages_can_dang_nhap():
 
     r = Client().get("/api/v1/match-pairs/stages")
     assert r.status_code == 401
+
+
+@pytest.mark.django_db
+def test_stages_dong_0_sao_van_hoan_thanh(api, token, user):
+    """Dòng tiến độ 0 sao (vd. admin tạo tay) vẫn tính là đã chơi: hoàn thành = có dòng, không phải có sao."""
+    from apps.gamification.models import MatchPairsProgress
+
+    s0 = _stage(code="s0", order=0)
+    _stage(code="s1", order=1)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s0, difficulty="easy", stars=0, best_moves=0, play_count=0
+    )
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert body["stages"][0]["is_completed"] is True
+    assert body["stages"][1]["is_unlocked"] is True
+    assert body["total_stars"] == 0
+
+
+@pytest.mark.django_db
+def test_stages_chang_tat_bi_an_va_chuoi_noi_qua(api, token, user):
+    """Chặng tắt hoặc thiếu cặp bị ẩn khỏi bản đồ; chuỗi mở khoá chỉ nối các chặng còn hiển thị."""
+    from apps.gamification.models import MatchPairsProgress
+
+    s0 = _stage(code="s0", order=0)
+    _stage(code="h1", order=1, is_active=False)
+    _stage(code="h2", order=2, words=4)
+    _stage(code="s3", order=3)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s0, difficulty="easy", stars=3, best_moves=7, play_count=1
+    )
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert [st["code"] for st in body["stages"]] == ["s0", "s3"]
+    assert body["stages"][1]["is_unlocked"] is True
+
+
+@pytest.mark.django_db
+def test_stages_da_choi_thi_luon_mo(api, token, user):
+    """Chặng đã có dòng tiến độ luôn mở, kể cả khi chặng liền trước nó chưa hoàn thành."""
+    from apps.gamification.models import MatchPairsProgress
+
+    _stage(code="s0", order=0)
+    s1 = _stage(code="s1", order=1)
+    _stage(code="s2", order=2)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s1, difficulty="easy", stars=2, best_moves=10, play_count=1
+    )
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert body["stages"][0]["is_unlocked"] is True
+    assert body["stages"][1]["is_unlocked"] is True
+    assert body["stages"][2]["is_unlocked"] is True
+
+
+@pytest.mark.django_db
+def test_playable_stages_mot_truy_van(django_assert_num_queries):
+    """`_playable_stages` chạy đúng một truy vấn và không kéo từ nào của chặng về."""
+    from apps.gamification.api import _playable_stages
+
+    _stage(code="p0", order=0)
+    _stage(code="p1", order=1)
+    _stage(code="p2", order=2)
+    _stage(code="thieu", order=3, words=4)
+
+    with django_assert_num_queries(1):
+        stages = _playable_stages()
+
+    assert len(stages) == 3
+    if hasattr(stages[0], "_prefetched_objects_cache"):
+        assert "pairs" not in stages[0]._prefetched_objects_cache
+    else:
+        assert not hasattr(stages[0], "_prefetched_objects_cache")
+
+
+def test_thresholds_for_khop_stars_for():
+    """`thresholds_for` phải khớp đúng các mốc mà `stars_for` dùng để chấm sao."""
+    from apps.gamification.models import MatchPairsProgress as P
+
+    for d in P.Difficulty.values:
+        three, two = P.thresholds_for(d)
+        assert P.stars_for(d, three) == 3
+        assert P.stars_for(d, three + 1) == 2
+        assert P.stars_for(d, two) == 2
+        assert P.stars_for(d, two + 1) == 1
+
+    assert P.thresholds_for("expert") == (15, 21)

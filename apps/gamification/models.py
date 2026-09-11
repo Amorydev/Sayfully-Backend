@@ -237,6 +237,21 @@ class GameStageProgress(models.Model):
         return f"{self.user_id} · {self.game_id} · {self.level}#{self.stage_index}"
 
 
+class MatchPairsStageQuerySet(models.QuerySet):
+    def with_pair_count(self):
+        # distinct=True: ChangeList.distinct() chạy sau GROUP BY nên không bảo vệ
+        # aggregate; lọc qua `progress__` trong admin sẽ nhân đôi nếu thiếu nó.
+        return self.annotate(pair_count=models.Count("pairs", distinct=True))
+
+    def playable(self):
+        """Nơi duy nhất định nghĩa "chơi được": đang bật và đủ cặp cho Siêu cấp."""
+        return (
+            self.filter(is_active=True)
+            .with_pair_count()
+            .filter(pair_count__gte=self.model.MIN_PAIRS)
+        )
+
+
 class MatchPairsStage(models.Model):
     """
     Một chặng của Ghép cặp. Nội dung biên tập tay, không cắt từ kho từ vựng chung:
@@ -254,16 +269,13 @@ class MatchPairsStage(models.Model):
     order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
+    objects = MatchPairsStageQuerySet.as_manager()
+
     class Meta:
         ordering = ["order", "id"]
 
     def __str__(self) -> str:
         return str(self.title_vi)
-
-    @property
-    def is_playable(self) -> bool:
-        """Đủ cặp cho độ khó cao nhất; chặng thiếu từ bị ẩn khỏi bản đồ."""
-        return self.pairs.count() >= self.MIN_PAIRS
 
 
 class MatchPairsWord(models.Model):
@@ -320,11 +332,16 @@ class MatchPairsProgress(models.Model):
         return cls._PAIRS[str(difficulty)]
 
     @classmethod
-    def stars_for(cls, difficulty: str, moves: int) -> int:
-        """Mốc tỉ lệ thuận số cặp; 12 cặp giữ nguyên mốc 15 và 21 mà client đang dùng."""
+    def thresholds_for(cls, difficulty: str) -> tuple[int, int]:
+        """(mốc 3 sao, mốc 2 sao) — tỉ lệ thuận số cặp; 12 cặp giữ đúng 15/21 client đang dùng."""
         pairs = cls.pairs_for(difficulty)
-        if moves <= math.ceil(pairs * 1.25):
+        return math.ceil(pairs * 1.25), math.ceil(pairs * 1.75)
+
+    @classmethod
+    def stars_for(cls, difficulty: str, moves: int) -> int:
+        three, two = cls.thresholds_for(difficulty)
+        if moves <= three:
             return 3
-        if moves <= math.ceil(pairs * 1.75):
+        if moves <= two:
             return 2
         return 1

@@ -4,7 +4,6 @@ Tiến độ thử thách tính từ DailyActivity (không lưu tăng dần). Nh
 theo (user, challenge, period_key).
 """
 
-import math
 from datetime import timedelta
 
 from django.conf import settings
@@ -572,23 +571,30 @@ def game_leaderboard(request, code: str, period: str = "week"):
 
 
 # =============================================================== Ghép cặp (C12)
-def _playable_stages():
-    """
-    Chặng thiếu cặp bị ẩn: người chơi không thể hoàn thành nó ở Siêu cấp, và
-    `random.sample` ở endpoint bốc ván sẽ nổ. Đây là nơi duy nhất định nghĩa
-    "chơi được" — đừng gọi `stage.is_playable` trong vòng lặp, nó bắn một COUNT
-    mỗi chặng.
-    """
-    return [
-        stage
-        for stage in MatchPairsStage.objects.filter(is_active=True)
-        .prefetch_related("pairs")
-        .order_by("order", "id")
-        if len(stage.pairs.all()) >= MatchPairsStage.MIN_PAIRS
-    ]
+def _playable_stages() -> list[MatchPairsStage]:
+    """Đúng một truy vấn, không kéo từ nào về: A6 tự lấy `stage.pairs` của một chặng."""
+    return list(MatchPairsStage.objects.playable().order_by("order", "id"))
 
 
-def _difficulty_rows(progress_by_difficulty) -> list[s.MatchPairsDifficultyOut]:
+def _unlocked_ids(stages: list[MatchPairsStage], played: set[int]) -> set[int]:
+    """
+    Chặng đầu luôn mở; chặng kế mở khi chặng liền trước đã có dòng tiến độ. Chặng
+    đã có dòng tiến độ thì luôn mở — biên tập viên chèn chặng mới lên trước không
+    được khoá lại chặng người chơi đã qua.
+    """
+    unlocked: set[int] = set()
+    previous_completed = True
+    for stage in stages:
+        completed = stage.id in played
+        if previous_completed or completed:
+            unlocked.add(stage.id)
+        previous_completed = completed
+    return unlocked
+
+
+def _difficulty_rows(
+    progress_by_difficulty: dict[str, MatchPairsProgress],
+) -> list[s.MatchPairsDifficultyOut]:
     rows = []
     for choice in MatchPairsProgress.Difficulty:
         row = progress_by_difficulty.get(choice.value)
@@ -599,7 +605,7 @@ def _difficulty_rows(progress_by_difficulty) -> list[s.MatchPairsDifficultyOut]:
                 label_vi=choice.label,
                 pairs=pairs,
                 cards=pairs * 2,
-                three_star_moves=math.ceil(pairs * 1.25),
+                three_star_moves=MatchPairsProgress.thresholds_for(choice.value)[0],
                 stars=row.stars if row else 0,
                 best_moves=row.best_moves if row else 0,
             )
@@ -612,7 +618,7 @@ def _difficulty_rows(progress_by_difficulty) -> list[s.MatchPairsDifficultyOut]:
     response={200: s.MatchPairsStageMapOut, 401: ErrorOut},
     summary="Bản đồ chặng Ghép cặp",
     description="Chặng biên tập tay kèm sao của từng độ khó. Chặng 0 luôn mở; "
-    "chặng n mở khi chặng n-1 đã đạt sao ở ít nhất một độ khó.",
+    "chặng n mở khi chặng n-1 đã chơi ít nhất một độ khó.",
 )
 def match_pairs_stages(request):
     user = request.auth
@@ -621,9 +627,9 @@ def match_pairs_stages(request):
     progress: dict[int, dict[str, MatchPairsProgress]] = {}
     for row in MatchPairsProgress.objects.filter(user=user, stage__in=stages):
         progress.setdefault(row.stage_id, {})[row.difficulty] = row
+    unlocked = _unlocked_ids(stages, set(progress))
 
     out: list[s.MatchPairsStageOut] = []
-    previous_completed = True  # chặng đầu luôn mở
     total_stars = 0
     completed_stages = 0
     for stage in stages:
@@ -643,13 +649,12 @@ def match_pairs_stages(request):
                 symbol=stage.symbol,
                 level=stage.level,
                 order=stage.order,
-                is_unlocked=previous_completed,
+                is_unlocked=stage.id in unlocked,
                 is_completed=completed,
                 stars=stars,
                 difficulties=_difficulty_rows(rows),
             )
         )
-        previous_completed = completed
 
     return s.MatchPairsStageMapOut(
         total_stars=total_stars,
