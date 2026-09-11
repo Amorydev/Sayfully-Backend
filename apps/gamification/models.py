@@ -244,11 +244,18 @@ class MatchPairsStageQuerySet(models.QuerySet):
         return self.annotate(pair_count=models.Count("pairs", distinct=True))
 
     def playable(self):
-        """Nơi duy nhất định nghĩa "chơi được": đang bật và đủ cặp cho Siêu cấp."""
+        """
+        Nơi duy nhất định nghĩa "chơi được": đang bật và đủ cặp cho Siêu cấp.
+
+        Sắp xếp ngay tại đây (`order`, `id`) vì Django bỏ `Meta.ordering` trên
+        truy vấn có GROUP BY (do `with_pair_count()` gây ra) — không tự sắp thì
+        thứ tự tuỳ ý, làm hỏng chuỗi mở khoá.
+        """
         return (
             self.filter(is_active=True)
             .with_pair_count()
             .filter(pair_count__gte=self.model.MIN_PAIRS)
+            .order_by("order", "id")
         )
 
 

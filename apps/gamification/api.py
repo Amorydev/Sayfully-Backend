@@ -4,6 +4,7 @@ Tiến độ thử thách tính từ DailyActivity (không lưu tăng dần). Nh
 theo (user, challenge, period_key).
 """
 
+import random
 from datetime import timedelta
 
 from django.conf import settings
@@ -573,7 +574,7 @@ def game_leaderboard(request, code: str, period: str = "week"):
 # =============================================================== Ghép cặp (C12)
 def _playable_stages() -> list[MatchPairsStage]:
     """Đúng một truy vấn, không kéo từ nào về: A6 tự lấy `stage.pairs` của một chặng."""
-    return list(MatchPairsStage.objects.playable().order_by("order", "id"))
+    return list(MatchPairsStage.objects.playable())
 
 
 def _unlocked_ids(stages: list[MatchPairsStage], played: set[int]) -> set[int]:
@@ -661,6 +662,59 @@ def match_pairs_stages(request):
         max_stars=len(stages) * len(MatchPairsProgress.Difficulty) * 3,
         completed_stages=completed_stages,
         stages=out,
+    )
+
+
+def _open_stage(
+    user, stage_id: int
+) -> tuple[MatchPairsStage, list[MatchPairsStage], set[int]]:
+    """
+    Chặng đang mở, kèm danh sách chặng đã dựng và tập id chặng người chơi đã có
+    dòng tiến độ. Trả cả ba để endpoint nộp kết quả không dựng lại danh sách chỉ
+    để tìm chặng kế, và không hỏi `.exists()` lần nữa để biết "đã chơi chưa".
+    """
+    stages = _playable_stages()
+    stage = next((item for item in stages if item.id == stage_id), None)
+    if stage is None:
+        raise NotFound("Không tìm thấy chặng")
+    played = set(
+        MatchPairsProgress.objects.filter(user=user, stage__in=stages).values_list(
+            "stage_id", flat=True
+        )
+    )
+    if stage.id not in _unlocked_ids(stages, played):
+        raise AppError("Chặng chưa mở khoá", code="stage_locked", status_code=403)
+    return stage, stages, played
+
+
+def _check_difficulty(difficulty: str) -> str:
+    if difficulty not in MatchPairsProgress.Difficulty.values:
+        raise AppError("Độ khó không hợp lệ", code="invalid_difficulty", status_code=422)
+    return difficulty
+
+
+@router.get(
+    "/match-pairs/stages/{stage_id}/round",
+    response={
+        200: s.MatchPairsRoundOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+    },
+    summary="Bốc một ván Ghép cặp",
+    description="Rút ngẫu nhiên đủ số cặp cho độ khó. Rút lại mỗi lần gọi nên chơi lại "
+    "cùng chặng sẽ gặp từ khác.",
+)
+def match_pairs_round(request, stage_id: int, difficulty: str = Query(...)):
+    user = request.auth
+    difficulty = _check_difficulty(difficulty)
+    stage, _, _ = _open_stage(user, stage_id)
+    wanted = MatchPairsProgress.pairs_for(difficulty)
+    chosen = random.sample(list(stage.pairs.all()), wanted)
+    three_star_moves, two_star_moves = MatchPairsProgress.thresholds_for(difficulty)
+    return s.MatchPairsRoundOut(
+        stage_id=stage.id,
+        difficulty=difficulty,
+        pairs=[s.MatchPairsWordOut(english=p.english, vietnamese=p.vietnamese) for p in chosen],
+        three_star_moves=three_star_moves,
+        two_star_moves=two_star_moves,
     )
 
 

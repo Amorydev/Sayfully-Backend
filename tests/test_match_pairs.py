@@ -339,3 +339,54 @@ def test_thresholds_for_khop_stars_for():
         assert P.stars_for(d, two + 1) == 1
 
     assert P.thresholds_for("expert") == (15, 21)
+
+
+@pytest.mark.django_db
+def test_round_tra_dung_so_cap(api, token, user):
+    stage = _stage()
+    body = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=easy", token=token).json()
+    assert body["stage_id"] == stage.id and body["difficulty"] == "easy"
+    assert len(body["pairs"]) == 6
+    assert body["three_star_moves"] == 8 and body["two_star_moves"] == 11
+
+
+@pytest.mark.django_db
+def test_round_cac_cap_phan_biet(api, token, user):
+    stage = _stage()
+    body = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=expert", token=token).json()
+    english = [p["english"] for p in body["pairs"]]
+    vietnamese = [p["vietnamese"] for p in body["pairs"]]
+    assert len(set(english)) == 12 and len(set(vietnamese)) == 12
+
+
+@pytest.mark.django_db
+def test_round_doi_cap_moi_lan_goi(api, token, user):
+    """Chơi lại Dễ phải gặp từ khác, nếu không chặng chỉ dạy được sáu từ đầu."""
+    stage = _stage()
+    seen = set()
+    for _ in range(12):
+        body = api.get(
+            f"/match-pairs/stages/{stage.id}/round?difficulty=easy", token=token
+        ).json()
+        seen.add(tuple(sorted(p["english"] for p in body["pairs"])))
+    assert len(seen) > 1
+
+
+@pytest.mark.django_db
+def test_round_do_kho_sai_422(api, token, user):
+    stage = _stage()
+    r = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=sieu-kho", token=token)
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_difficulty"
+
+
+@pytest.mark.django_db
+def test_round_chang_khong_ton_tai_404(api, token, user):
+    assert api.get("/match-pairs/stages/9999/round?difficulty=easy", token=token).status_code == 404
+
+
+@pytest.mark.django_db
+def test_round_chang_bi_khoa_403(api, token, user):
+    _stage(code="s0", order=0)
+    locked = _stage(code="s1", order=1)
+    r = api.get(f"/match-pairs/stages/{locked.id}/round?difficulty=easy", token=token)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "stage_locked"
