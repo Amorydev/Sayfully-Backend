@@ -573,3 +573,31 @@ def test_result_dong_admin_0_luot_lay_luot_cua_van_dau(api, token, user):
     assert body["best_moves"] == 9 and body["stars"] == 2 and body["best_stars"] == 2
     row = MatchPairsProgress.objects.get(user=user, stage=stage, difficulty="easy")
     assert row.play_count == 1
+
+
+@pytest.mark.django_db
+def test_bang_xep_hang_hoa_diem_thu_tu_on_dinh(api, token, user):
+    """Ba người hoà điểm — điểm Ghép cặp chỉ có 12 giá trị nên hoà là chuyện thường. Thử lại
+    với chỉ order_by("-best") thì cả 10 lần gọi trên Postgres vẫn tình cờ ra cùng một thứ tự
+    (bảng có 3 dòng, quá ít để lộ tính vô định của DB), nên bài test không chỉ đòi "ổn định"
+    mà ghim đúng luật đã chọn: sắp theo -best rồi user_id tăng dần — đúng thứ tự sinh ra bởi
+    order_by("-best", "user_id")."""
+    from apps.accounts.models import User
+    from apps.gamification.models import Game, GameScore
+
+    _match_pairs_game()
+    game = Game.objects.get(code="match_pairs")
+    other1 = User.objects.create_user(email="hoa1@example.com", full_name="Người Hoà Một")
+    other2 = User.objects.create_user(email="hoa2@example.com", full_name="Người Hoà Hai")
+    for u in (user, other1, other2):
+        GameScore.objects.create(
+            user=u, game=game, level="A1", score=1800, accuracy=0.5, coins_earned=5
+        )
+    by_user_id = sorted([user, other1, other2], key=lambda u: u.id)
+    expected_names = [u.full_name for u in by_user_id]
+    expected_rank = by_user_id.index(user) + 1
+
+    calls = [api.get("/games/leaderboard?code=match_pairs", token=token).json() for _ in range(3)]
+    for body in calls:
+        assert [e["name"] for e in body["entries"]] == expected_names
+        assert body["my_rank"] == expected_rank

@@ -546,7 +546,11 @@ def game_leaderboard(request, code: str, period: str = "week"):
     qs = GameScore.objects.filter(game=game)
     if period == "week":
         qs = qs.filter(played_at__gte=now - timedelta(days=now.weekday()))
-    rows = list(qs.values_list("user_id").annotate(best=Max("score")).order_by("-best")[:50])
+    # Khoá phụ `user_id` để hoà điểm không đảo thứ hạng giữa hai lần gọi: điểm Ghép cặp
+    # chỉ có 12 giá trị nên hoà là chuyện thường.
+    rows = list(
+        qs.values_list("user_id").annotate(best=Max("score")).order_by("-best", "user_id")[:50]
+    )
 
     users = {
         u.id: u for u in User.objects.filter(id__in=[r[0] for r in rows]).select_related("profile")
