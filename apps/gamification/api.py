@@ -18,6 +18,7 @@ from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Conflict, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut, MessageOut
+from apps.content.models import Vocabulary
 from apps.content.schemas import Page
 from apps.learning import services as learn
 from apps.learning.models import DailyActivity, WeeklyStat
@@ -879,3 +880,62 @@ def register_device(request, payload: s.DeviceIn):
         },
     )
     return s.DeviceOut(id=device.id, platform=device.platform, is_active=device.is_active)
+
+
+# ----------------------------------------------------------------- Bậc thầy trọng âm
+STRESS_ROUND_MIN, STRESS_ROUND_DEFAULT, STRESS_ROUND_MAX = 5, 30, 50
+
+
+def _stress_words(level: str) -> list[Vocabulary]:
+    """Từ chơi được: đã gen_ipa, ≥ 2 âm tiết, chính tả và IPA tách cùng số đoạn, trọng âm nằm trong mảng."""
+    qs = (
+        Vocabulary.objects.filter(level_id=level, primary_stress__isnull=False, syllables__len__gte=2)
+        .exclude(ipa_us="")
+        .only("id", "headword", "meaning_vi", "syllables", "ipa_syllables", "primary_stress", "audio_us_path")
+    )
+    return [
+        v for v in qs
+        if len(v.syllables) == len(v.ipa_syllables) and 0 <= v.primary_stress < len(v.syllables)
+    ]
+
+
+def _bare_ipa(syllable: str) -> str:
+    """Dấu nhấn trong IPA chính là đáp án — bỏ đi trước khi gửi xuống máy."""
+    return syllable.replace("ˈ", "").replace("ˌ", "")
+
+
+@router.get(
+    "/stress-master/round",
+    response={200: s.StressRoundOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    summary="Bốc từ cho một ván Bậc thầy trọng âm",
+    description="Trả ngẫu nhiên các từ đa âm tiết của một cấp CEFR kèm âm tiết, IPA (đã bỏ dấu nhấn) "
+    "và chỉ số âm tiết mang trọng âm chính. Điểm nộp qua POST /games/stress_master/scores.",
+)
+def stress_master_round(
+    request,
+    level: str = Query(...),
+    count: int = Query(STRESS_ROUND_DEFAULT, ge=STRESS_ROUND_MIN, le=STRESS_ROUND_MAX),
+):
+    ensure_profile(request.auth)
+    level = level.upper()
+    if level not in CEFR.values:
+        raise AppError("Cấp không hợp lệ", code="invalid_level", status_code=422)
+    words = _stress_words(level)
+    if len(words) < STRESS_ROUND_MIN:
+        raise NotFound("Cấp này chưa đủ từ có trọng âm")
+    chosen = random.sample(words, min(count, len(words)))
+    return s.StressRoundOut(
+        level=level,
+        words=[
+            s.StressWordOut(
+                id=v.id,
+                headword=v.headword,
+                meaning_vi=v.meaning_vi,
+                syllables=v.syllables,
+                ipa_syllables=[_bare_ipa(p) for p in v.ipa_syllables],
+                primary_stress=v.primary_stress,
+                audio_url=_media(v.audio_us_path),
+            )
+            for v in chosen
+        ],
+    )

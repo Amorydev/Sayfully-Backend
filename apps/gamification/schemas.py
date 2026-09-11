@@ -235,3 +235,19 @@ class MatchPairsResultOut(Schema):
     coins_earned: int
     xp_earned: int
     unlocked_stage_id: int | None = None
+
+
+# --------------------------------------------------------------- Bậc thầy trọng âm
+class StressWordOut(Schema):
+    id: int
+    headword: str
+    meaning_vi: str
+    syllables: list[str]        # chính tả: ['beau', 'ti', 'ful']
+    ipa_syllables: list[str]    # đã bỏ ˈ ˌ để không lộ đáp án: ['bjuː', 'tɪ', 'fəl']
+    primary_stress: int         # chỉ số 0-based trong hai mảng trên
+    audio_url: str | None = None
+
+
+class StressRoundOut(Schema):
+    level: str
+    words: list[StressWordOut]
