@@ -15,6 +15,13 @@ from apps.content.models import Vocabulary
 from apps.content.phonemics import arpabet_to_ipa
 
 
+def _americanised(word: str) -> str:
+    for british, american in (("ise", "ize"), ("yse", "yze"), ("isation", "ization"), ("iser", "izer"), ("ising", "izing"), ("ised", "ized")):
+        if word.endswith(british):
+            return word[: -len(british)] + american
+    return word
+
+
 class Command(BaseCommand):
     help = "Sinh IPA/âm tiết/trọng âm từ CMUdict (US)."
 
@@ -36,7 +43,8 @@ class Command(BaseCommand):
         misses: list[str] = []
         for vocab in qs.iterator():
             key = vocab.headword.lower()
-            pron = cmu.get(key)
+            # CMUdict is American: British -ise/-yse spellings are looked up as -ize/-yze.
+            pron = cmu.get(key) or cmu.get(_americanised(key))
             if not pron:
                 missing += 1
                 misses.append(vocab.headword)

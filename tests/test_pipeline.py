@@ -95,6 +95,14 @@ def test_gen_ipa_force_ghi_de(a1):
     assert v.ipa_us != "/CU/" and "æ" in v.ipa_us
 
 
+def test_gen_ipa_chinh_ta_anh_tra_ve_cmudict_my(a1):
+    v = Vocabulary.objects.create(headword="organise", pos="v", level=a1, meaning_vi="tổ chức")
+    call_command("gen_ipa", "--level", "A1", stdout=StringIO())
+    v.refresh_from_db()
+    assert v.ipa_us and v.primary_stress == 0  # tra "organize"
+    assert v.syllables == ["or", "gan", "ise"]  # chính tả gốc vẫn giữ
+
+
 # --------------------------------------------------------------- L3 gen_audio
 @pytest.fixture
 def fake_tts(monkeypatch):
