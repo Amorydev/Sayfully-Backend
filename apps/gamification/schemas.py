@@ -173,3 +173,65 @@ class DeviceOut(Schema):
     id: int
     platform: str
     is_active: bool
+
+
+# --------------------------------------------------------------- Ghép cặp
+class MatchPairsDifficultyOut(Schema):
+    """Một ô độ khó trong popup chọn level."""
+
+    code: str          # easy | medium | hard | expert
+    label_vi: str
+    pairs: int
+    cards: int
+    three_star_moves: int
+    stars: int         # 0 khi chưa chơi
+    best_moves: int    # 0 khi chưa chơi
+
+
+class MatchPairsStageOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    subtitle_vi: str
+    symbol: str
+    level: str
+    order: int
+    is_unlocked: bool
+    is_completed: bool
+    stars: int         # tổng sao của cả bốn độ khó, tối đa 12
+    difficulties: list[MatchPairsDifficultyOut]
+
+
+class MatchPairsStageMapOut(Schema):
+    total_stars: int
+    max_stars: int
+    completed_stages: int
+    stages: list[MatchPairsStageOut]
+
+
+class MatchPairsWordOut(Schema):
+    english: str
+    vietnamese: str
+
+
+class MatchPairsRoundOut(Schema):
+    stage_id: int
+    difficulty: str
+    pairs: list[MatchPairsWordOut]
+    three_star_moves: int
+    two_star_moves: int
+
+
+class MatchPairsResultIn(Schema):
+    difficulty: str
+    moves: int
+    duration_sec: int = 0
+
+
+class MatchPairsResultOut(Schema):
+    stars: int
+    best_stars: int
+    best_moves: int
+    coins_earned: int
+    xp_earned: int
+    unlocked_stage_id: int | None = None
