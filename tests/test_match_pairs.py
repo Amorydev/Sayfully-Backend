@@ -3,7 +3,9 @@
 import pytest
 from django.db import transaction
 from django.db.utils import IntegrityError
+from django.test import RequestFactory
 
+from apps.gamification.admin import MatchPairsStageAdmin
 from apps.gamification.models import MatchPairsStage, MatchPairsWord
 
 
@@ -117,6 +119,27 @@ def test_trung_tu_o_chang_khac_duoc_phep():
     assert word.pk is not None
     assert stage_a.pairs.filter(english="chang-a-en-0").exists()
     assert stage_b.pairs.filter(english="chang-a-en-0").exists()
+
+
+@pytest.mark.django_db
+def test_admin_canh_bao_chang_thieu_cap(django_assert_num_queries):
+    """Changelist phải cảnh báo chặng thiếu cặp, và đếm đúng cho chặng đủ cặp — qua đúng một truy vấn."""
+    from django.contrib import admin as django_admin
+
+    site = django_admin.site
+    model_admin = site._registry[MatchPairsStage]
+    assert isinstance(model_admin, MatchPairsStageAdmin)
+
+    _stage(code="canh-bao-thieu", words=5)
+    _stage(code="canh-bao-du", words=12)
+
+    request = RequestFactory().get("/admin/gamification/matchpairsstage/")
+    with django_assert_num_queries(1):
+        qs = model_admin.get_queryset(request)
+        by_code = {obj.code: obj for obj in qs.filter(code__startswith="canh-bao-")}
+
+    assert model_admin.pair_count(by_code["canh-bao-thieu"]) == "5 ⚠"
+    assert model_admin.pair_count(by_code["canh-bao-du"]) == 12
 
 
 @pytest.mark.django_db
