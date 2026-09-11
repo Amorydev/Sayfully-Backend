@@ -155,3 +155,17 @@ def test_trung_user_stage_do_kho_bi_chan(user):
     with pytest.raises(IntegrityError):
         with transaction.atomic():
             P.objects.create(user=user, stage=stage, difficulty=P.Difficulty.EASY)
+
+
+@pytest.mark.django_db
+def test_seed_match_pairs_idempotent():
+    from django.core.management import call_command
+
+    call_command("seed_match_pairs")
+    first = MatchPairsStage.objects.count()
+    assert first >= 3
+    assert all(s.pairs.count() == 12 for s in MatchPairsStage.objects.all())
+
+    call_command("seed_match_pairs")
+    assert MatchPairsStage.objects.count() == first
+    assert MatchPairsWord.objects.count() == first * 12
