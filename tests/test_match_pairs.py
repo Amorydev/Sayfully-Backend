@@ -1,6 +1,8 @@
 """Ghép cặp — nội dung chặng, ván chơi, kết quả."""
 
 import pytest
+from django.db import transaction
+from django.db.utils import IntegrityError
 
 from apps.gamification.models import MatchPairsStage, MatchPairsWord
 
@@ -35,6 +37,12 @@ def test_stage_thieu_tu_thi_khong_choi_duoc():
 
 
 @pytest.mark.django_db
+def test_stage_11_tu_van_khong_choi_duoc():
+    """Biên ngay dưới MIN_PAIRS: 11 chưa đủ, phải là False."""
+    stage = _stage(code="muoimot", words=11)
+    assert stage.is_playable is False
+
+
 def test_difficulty_pair_counts():
     from apps.gamification.models import MatchPairsProgress as P
 
@@ -42,6 +50,20 @@ def test_difficulty_pair_counts():
     assert P.pairs_for(P.Difficulty.MEDIUM) == 8
     assert P.pairs_for(P.Difficulty.HARD) == 10
     assert P.pairs_for(P.Difficulty.EXPERT) == 12
+
+
+def test_pairs_dinh_nghia_du_cho_moi_do_kho():
+    """Thêm độ khó mà quên số cặp sẽ làm 500 màn bản đồ, nên chốt ở đây."""
+    from apps.gamification.models import MatchPairsProgress as P
+
+    assert set(P._PAIRS) == set(P.Difficulty.values)
+
+
+def test_chang_du_cap_cho_do_kho_cao_nhat():
+    """random.sample sẽ nổ nếu độ khó cao nhất cần nhiều cặp hơn ngưỡng chặng."""
+    from apps.gamification.models import MatchPairsProgress as P
+
+    assert MatchPairsStage.MIN_PAIRS >= max(P._PAIRS.values())
 
 
 @pytest.mark.django_db
@@ -58,3 +80,53 @@ def test_stars_for(difficulty, moves, expected):
     from apps.gamification.models import MatchPairsProgress as P
 
     assert P.stars_for(difficulty, moves) == expected
+
+
+@pytest.mark.django_db
+def test_trung_english_trong_chang_bi_chan():
+    """Hai thẻ tiếng Anh giống nhau trong cùng chặng làm ván không thể thắng."""
+    stage = _stage(code="trung-en", words=1)
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            MatchPairsWord.objects.create(
+                stage=stage, order=1, english="trung-en-en-0", vietnamese="nghia-khac"
+            )
+
+
+@pytest.mark.django_db
+def test_trung_vietnamese_trong_chang_bi_chan():
+    """Hai thẻ nghĩa tiếng Việt giống nhau trong cùng chặng làm ván không thể thắng."""
+    stage = _stage(code="trung-vi", words=1)
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            MatchPairsWord.objects.create(
+                stage=stage, order=1, english="tu-khac", vietnamese="trung-vi-vi-0"
+            )
+
+
+@pytest.mark.django_db
+def test_trung_tu_o_chang_khac_duoc_phep():
+    """Ràng buộc chỉ chặn trùng trong cùng chặng, không chặn qua chặng khác."""
+    stage_a = _stage(code="chang-a", words=1)
+    stage_b = _stage(code="chang-b", words=0)
+
+    word = MatchPairsWord.objects.create(
+        stage=stage_b, order=0, english="chang-a-en-0", vietnamese="chang-a-vi-0"
+    )
+
+    assert word.pk is not None
+    assert stage_a.pairs.filter(english="chang-a-en-0").exists()
+    assert stage_b.pairs.filter(english="chang-a-en-0").exists()
+
+
+@pytest.mark.django_db
+def test_trung_user_stage_do_kho_bi_chan(user):
+    """(user, stage, difficulty) phải là duy nhất — không thì mất tính năng chỉ nâng sao."""
+    from apps.gamification.models import MatchPairsProgress as P
+
+    stage = _stage(code="progress", words=1)
+    P.objects.create(user=user, stage=stage, difficulty=P.Difficulty.EASY)
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            P.objects.create(user=user, stage=stage, difficulty=P.Difficulty.EASY)
