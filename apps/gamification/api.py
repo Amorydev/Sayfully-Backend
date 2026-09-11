@@ -35,7 +35,6 @@ from .models import (
     LeagueMembership,
     MatchPairsProgress,
     MatchPairsStage,
-    MatchPairsWord,
     ShopItem,
     UserBadge,
     UserChallenge,
