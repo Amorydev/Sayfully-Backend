@@ -735,8 +735,9 @@ def match_pairs_result(request, stage_id: int, payload: s.MatchPairsResultIn):
     # Chặng đã có dòng tiến độ trước ván này chưa — quyết định có báo "vừa mở khoá" hay không.
     was_played = stage.id in played
     pairs = MatchPairsProgress.pairs_for(difficulty)
-    # Ít hơn `pairs` lượt là không thể: mỗi cặp cần tối thiểu một lượt lật.
-    if payload.moves < pairs:
+    # Ít hơn `pairs` lượt là không thể: mỗi cặp cần tối thiểu một lượt lật. Quá trần
+    # cột `best_moves` thì cũng từ chối, không để DB nổ.
+    if not pairs <= payload.moves <= MatchPairsProgress.MAX_MOVES:
         raise AppError("Số lượt lật không hợp lệ", code="invalid_moves", status_code=422)
 
     stars = MatchPairsProgress.stars_for(difficulty, payload.moves)

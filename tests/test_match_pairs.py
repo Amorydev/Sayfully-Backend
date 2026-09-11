@@ -525,3 +525,51 @@ def test_result_so_luot_vo_ly_422(api, token, user):
         f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 3}, token=token
     )
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_moves"
+
+
+@pytest.mark.django_db
+def test_result_so_luot_qua_tran_422(api, token, user):
+    """40000 lượt vượt trần smallint của cột best_moves — phải bị chặn trước khi chạm DB
+    ở ván đầu tiên (get_or_create defaults ghi thẳng payload.moves), không để DataError 500."""
+    from apps.gamification.models import MatchPairsProgress
+
+    _match_pairs_game()
+    stage = _stage()
+    r = api.post(
+        f"/match-pairs/stages/{stage.id}/result",
+        {"difficulty": "easy", "moves": 40000},
+        token=token,
+    )
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_moves"
+    assert not MatchPairsProgress.objects.exists()
+    assert user.profile.coins == 0
+
+
+@pytest.mark.django_db
+def test_result_dung_bang_so_cap_la_van_hoan_hao(api, token, user):
+    """moves == pairs là mức tối thiểu còn hợp lệ — vẫn phải chấm hoàn hảo (3 sao)."""
+    _match_pairs_game()
+    stage = _stage()
+    body = api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 6}, token=token
+    ).json()
+    assert body["stars"] == 3 and body["best_moves"] == 6
+
+
+@pytest.mark.django_db
+def test_result_dong_admin_0_luot_lay_luot_cua_van_dau(api, token, user):
+    """Dòng tiến độ do admin tạo tay có best_moves=0 (falsy) — lượt của ván đầu tiên phải
+    được lấy thẳng, không rơi vào min(0, moves) == 0."""
+    from apps.gamification.models import MatchPairsProgress
+
+    _match_pairs_game()
+    stage = _stage()
+    MatchPairsProgress.objects.create(
+        user=user, stage=stage, difficulty="easy", stars=0, best_moves=0, play_count=0
+    )
+    body = api.post(
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 9}, token=token
+    ).json()
+    assert body["best_moves"] == 9 and body["stars"] == 2 and body["best_stars"] == 2
+    row = MatchPairsProgress.objects.get(user=user, stage=stage, difficulty="easy")
+    assert row.play_count == 1

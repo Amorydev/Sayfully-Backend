@@ -314,6 +314,7 @@ class MatchPairsProgress(models.Model):
         EXPERT = "expert", "Siêu cấp"
 
     _PAIRS = {"easy": 6, "medium": 8, "hard": 10, "expert": 12}
+    MAX_MOVES = 32767  # trần của PositiveSmallIntegerField `best_moves`; vượt là 422, không phải 500
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="match_pairs_progress")
     stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="progress")
