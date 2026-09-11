@@ -175,7 +175,7 @@ class DeviceOut(Schema):
     is_active: bool
 
 
-# --------------------------------------------------------------- Ghép cặp
+# --------------------------------------------------------------- Ghép cặp (C12)
 class MatchPairsDifficultyOut(Schema):
     """Một ô độ khó trong popup chọn level."""
 
@@ -194,10 +194,10 @@ class MatchPairsStageOut(Schema):
     title_vi: str
     subtitle_vi: str
     symbol: str
-    level: str
+    level: str          # CEFR A1–C2, không phải độ khó
     order: int
     is_unlocked: bool
-    is_completed: bool
+    is_completed: bool  # có dòng tiến độ, không phải stars > 0
     stars: int         # tổng sao của cả bốn độ khó, tối đa 12
     difficulties: list[MatchPairsDifficultyOut]
 

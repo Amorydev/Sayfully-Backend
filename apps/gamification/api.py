@@ -4,6 +4,7 @@ Tiến độ thử thách tính từ DailyActivity (không lưu tăng dần). Nh
 theo (user, challenge, period_key).
 """
 
+import math
 from datetime import timedelta
 
 from django.conf import settings
@@ -32,6 +33,9 @@ from .models import (
     GameScore,
     GameStageProgress,
     LeagueMembership,
+    MatchPairsProgress,
+    MatchPairsStage,
+    MatchPairsWord,
     ShopItem,
     UserBadge,
     UserChallenge,
@@ -565,6 +569,94 @@ def game_leaderboard(request, code: str, period: str = "week"):
         my_rank=my_rank,
         xp_to_promote=0,
         entries=entries,
+    )
+
+
+# =============================================================== Ghép cặp (C12)
+def _playable_stages():
+    """
+    Chặng thiếu cặp bị ẩn: người chơi không thể hoàn thành nó ở Siêu cấp, và
+    `random.sample` ở endpoint bốc ván sẽ nổ. Đây là nơi duy nhất định nghĩa
+    "chơi được" — đừng gọi `stage.is_playable` trong vòng lặp, nó bắn một COUNT
+    mỗi chặng.
+    """
+    return [
+        stage
+        for stage in MatchPairsStage.objects.filter(is_active=True)
+        .prefetch_related("pairs")
+        .order_by("order", "id")
+        if len(stage.pairs.all()) >= MatchPairsStage.MIN_PAIRS
+    ]
+
+
+def _difficulty_rows(progress_by_difficulty) -> list[s.MatchPairsDifficultyOut]:
+    rows = []
+    for choice in MatchPairsProgress.Difficulty:
+        row = progress_by_difficulty.get(choice.value)
+        pairs = MatchPairsProgress.pairs_for(choice.value)
+        rows.append(
+            s.MatchPairsDifficultyOut(
+                code=choice.value,
+                label_vi=choice.label,
+                pairs=pairs,
+                cards=pairs * 2,
+                three_star_moves=math.ceil(pairs * 1.25),
+                stars=row.stars if row else 0,
+                best_moves=row.best_moves if row else 0,
+            )
+        )
+    return rows
+
+
+@router.get(
+    "/match-pairs/stages",
+    response={200: s.MatchPairsStageMapOut, 401: ErrorOut},
+    summary="Bản đồ chặng Ghép cặp",
+    description="Chặng biên tập tay kèm sao của từng độ khó. Chặng 0 luôn mở; "
+    "chặng n mở khi chặng n-1 đã đạt sao ở ít nhất một độ khó.",
+)
+def match_pairs_stages(request):
+    user = request.auth
+    ensure_profile(user)
+    stages = _playable_stages()
+    progress: dict[int, dict[str, MatchPairsProgress]] = {}
+    for row in MatchPairsProgress.objects.filter(user=user, stage__in=stages):
+        progress.setdefault(row.stage_id, {})[row.difficulty] = row
+
+    out: list[s.MatchPairsStageOut] = []
+    previous_completed = True  # chặng đầu luôn mở
+    total_stars = 0
+    completed_stages = 0
+    for stage in stages:
+        rows = progress.get(stage.id, {})
+        stars = sum(row.stars for row in rows.values())
+        # Tín hiệu hoàn thành là *có dòng tiến độ*, không phải số sao: một dòng 0 sao
+        # tạo tay qua trang quản trị vẫn tính là đã chơi, và vẫn mở chặng kế.
+        completed = bool(rows)
+        total_stars += stars
+        completed_stages += 1 if completed else 0
+        out.append(
+            s.MatchPairsStageOut(
+                id=stage.id,
+                code=stage.code,
+                title_vi=stage.title_vi,
+                subtitle_vi=stage.subtitle_vi,
+                symbol=stage.symbol,
+                level=stage.level,
+                order=stage.order,
+                is_unlocked=previous_completed,
+                is_completed=completed,
+                stars=stars,
+                difficulties=_difficulty_rows(rows),
+            )
+        )
+        previous_completed = completed
+
+    return s.MatchPairsStageMapOut(
+        total_stars=total_stars,
+        max_stars=len(stages) * len(MatchPairsProgress.Difficulty) * 3,
+        completed_stages=completed_stages,
+        stages=out,
     )
 
 

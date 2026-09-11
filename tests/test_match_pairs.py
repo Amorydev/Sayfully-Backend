@@ -11,6 +11,11 @@ from apps.gamification.admin import MatchPairsStageAdmin
 from apps.gamification.models import MatchPairsStage, MatchPairsWord
 
 
+@pytest.fixture
+def token(api, user, password):
+    return api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+
+
 def _stage(code="the-gioi-quanh-ta", order=0, words=12, level="A1"):
     stage = MatchPairsStage.objects.create(
         code=code,
@@ -198,3 +203,54 @@ def test_seed_match_pairs_doi_thu_tu_khong_loi(monkeypatch):
         pairs[1][0],
     ]
     assert stage.pairs.count() == 12
+
+
+@pytest.mark.django_db
+def test_stages_chang_dau_mo_khoa(api, token, user):
+    _stage(code="s0", order=0)
+    _stage(code="s1", order=1)
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert body["max_stars"] == 24  # 2 chặng × 4 độ khó × 3 sao
+    assert body["total_stars"] == 0
+    assert [s["code"] for s in body["stages"]] == ["s0", "s1"]
+    assert body["stages"][0]["is_unlocked"] is True
+    assert body["stages"][1]["is_unlocked"] is False
+    assert [d["code"] for d in body["stages"][0]["difficulties"]] == [
+        "easy", "medium", "hard", "expert"
+    ]
+    assert body["stages"][0]["difficulties"][0]["pairs"] == 6
+    assert body["stages"][0]["difficulties"][0]["three_star_moves"] == 8
+
+
+@pytest.mark.django_db
+def test_stages_an_chang_thieu_tu(api, token, user):
+    _stage(code="du", order=0)
+    _stage(code="thieu", order=1, words=4)
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert [s["code"] for s in body["stages"]] == ["du"]
+
+
+@pytest.mark.django_db
+def test_stages_sao_va_mo_khoa_theo_tien_do(api, token, user):
+    from apps.gamification.models import MatchPairsProgress
+
+    s0 = _stage(code="s0", order=0)
+    _stage(code="s1", order=1)
+    MatchPairsProgress.objects.create(
+        user=user, stage=s0, difficulty="easy", stars=3, best_moves=7, play_count=1
+    )
+    body = api.get("/match-pairs/stages", token=token).json()
+    assert body["total_stars"] == 3
+    assert body["stages"][0]["stars"] == 3
+    assert body["stages"][0]["is_completed"] is True
+    assert body["stages"][0]["difficulties"][0]["stars"] == 3
+    assert body["stages"][0]["difficulties"][0]["best_moves"] == 7
+    assert body["stages"][1]["is_unlocked"] is True
+
+
+@pytest.mark.django_db
+def test_stages_can_dang_nhap():
+    from django.test import Client
+
+    r = Client().get("/api/v1/match-pairs/stages")
+    assert r.status_code == 401
