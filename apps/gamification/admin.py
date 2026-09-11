@@ -71,3 +71,23 @@ class GameScoreAdmin(admin.ModelAdmin):
     list_display = ("user", "game", "level", "score", "accuracy", "coins_earned", "played_at")
     list_filter = ("game", "level")
     raw_id_fields = ("user",)
+
+
+class MatchPairsWordInline(admin.TabularInline):
+    model = m.MatchPairsWord
+    extra = 0
+
+
+@admin.register(m.MatchPairsStage)
+class MatchPairsStageAdmin(admin.ModelAdmin):
+    list_display = ("order", "code", "title_vi", "level", "is_active")
+    list_filter = ("level", "is_active")
+    search_fields = ("code", "title_vi")
+    inlines = [MatchPairsWordInline]
+
+
+@admin.register(m.MatchPairsProgress)
+class MatchPairsProgressAdmin(admin.ModelAdmin):
+    list_display = ("user", "stage", "difficulty", "stars", "best_moves", "play_count")
+    list_filter = ("difficulty", "stars")
+    raw_id_fields = ("user",)
