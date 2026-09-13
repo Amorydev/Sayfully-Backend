@@ -72,9 +72,19 @@ class ProfileOut(Schema):
     accent: str
     show_ipa: bool
     daily_goal_xp: int
+    daily_goal_words: int
     timezone: str
+    ui_language: str
+    reminder_enabled: bool
+    reminder_time: str  # "HH:MM"
+    streak_reminder: bool
+    event_notifications: bool
     is_premium: bool
     premium_until: datetime | None = None
+
+    @staticmethod
+    def resolve_reminder_time(obj) -> str:
+        return obj.reminder_time.strftime("%H:%M")
 
 
 class MeOut(Schema):
