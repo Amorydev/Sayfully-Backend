@@ -184,6 +184,7 @@ def test_shop_purchase(client, token, user):
 def test_shop_purchase_idempotent(client, token, user):
     item = _item(cost=100)
     user.profile.coins = 200
+    user.profile.hearts = 1  # tim đầy thì bị chặn hearts_full
     user.profile.save()
     _purchase(client, token, item.id, "key1")
     _purchase(client, token, item.id, "key1")  # cùng key
@@ -208,6 +209,7 @@ def test_shop_thieu_idempotency_key_400(api, token, user):
 def test_coin_transactions(client, api, token, user):
     item = _item(cost=100)
     user.profile.coins = 200
+    user.profile.hearts = 1
     user.profile.save()
     _purchase(client, token, item.id, "key1")
     body = api.get("/coins/transactions", token=token).json()

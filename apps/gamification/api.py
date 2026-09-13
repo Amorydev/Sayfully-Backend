@@ -282,11 +282,20 @@ def leaderboard_me(request):
 
 
 # =============================================================== shop / coins (C50)
+# Chỉ bán vật phẩm mà `shop_purchase` thực sự cài hiệu ứng; item seed khác (vd. xp_boost) bị ẩn
+# để không trừ xu mà không có gì xảy ra.
+SUPPORTED_EFFECTS = {"hearts", "streak_freeze"}
+
+
+def _sellable(item) -> bool:
+    return bool(SUPPORTED_EFFECTS & set((item.effect or {}).keys()))
+
+
 @router.get(
     "/shop/items",
     response={200: list[s.ShopItemOut], 401: ErrorOut},
     summary="Vật phẩm cửa hàng",
-    description="Danh sách vật phẩm mua bằng xu.",
+    description="Danh sách vật phẩm mua bằng xu (chỉ vật phẩm có hiệu ứng đã cài).",
 )
 def shop_items(request):
     ensure_profile(request.auth)
@@ -301,6 +310,7 @@ def shop_items(request):
             icon_url=_media(it.icon_path),
         )
         for it in ShopItem.objects.filter(is_active=True).order_by("code")
+        if _sellable(it)
     ]
 
 
@@ -308,7 +318,10 @@ def shop_items(request):
     "/shop/purchase",
     response={200: s.PurchaseResultOut, 400: ErrorOut, 401: ErrorOut, 404: ErrorOut, 409: ErrorOut},
     summary="Mua vật phẩm (idempotent)",
-    description="Cần header `Idempotency-Key`. Thiếu xu → `insufficient_coins`.",
+    description=(
+        "Cần header `Idempotency-Key`. Thiếu xu → `insufficient_coins`; "
+        "mua bơm tim khi tim đã đầy → `hearts_full`."
+    ),
 )
 def shop_purchase(
     request,
@@ -339,6 +352,10 @@ def shop_purchase(
         raise Conflict("Không đủ xu", code="insufficient_coins")
 
     eff = item.effect or {}
+    if not _sellable(item):
+        raise NotFound("Vật phẩm không còn bán")
+    if "hearts" in eff and profile.hearts >= learn.HEARTS_MAX:
+        raise Conflict("Tim đã đầy", code="hearts_full")
     with transaction.atomic():
         profile.coins -= item.cost_coins
         if "hearts" in eff:

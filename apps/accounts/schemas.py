@@ -69,6 +69,7 @@ class ProfileOut(Schema):
     hearts: int
     streak_current: int
     streak_best: int
+    streak_freezes: int
     accent: str
     show_ipa: bool
     daily_goal_xp: int
