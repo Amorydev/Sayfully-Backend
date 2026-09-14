@@ -69,9 +69,18 @@ class ShopItemOut(Schema):
     code: str
     title_vi: str
     description_vi: str
-    cost_coins: int
+    category: str  # booster | bundle | cosmetic | special
+    cost_coins: int  # giá gốc
+    price_coins: int  # giá phải trả (đã trừ khuyến mãi)
+    discount_pct: int  # 0 = không giảm
+    sale_until: datetime | None = None
     effect: dict
+    meta: dict  # cosmetic: {"slot": "avatar_frame", "colors": [...]}
     icon_url: str | None
+    owned: bool = False  # cosmetic đã sở hữu
+    equipped: bool = False  # cosmetic đang trang bị
+    wishlisted: bool = False
+    order: int = 0
 
 
 class PurchaseIn(Schema):
@@ -80,16 +89,68 @@ class PurchaseIn(Schema):
 
 class PurchaseResultOut(Schema):
     item_code: str
+    title_vi: str
     coins_spent: int
     balance: int
-    effect: dict
+    effect: dict  # hiệu ứng THỰC nhận (rương may mắn → phần thưởng cụ thể)
+
+
+class StreakRepairOut(Schema):
+    lost_value: int
+    lost_at: datetime
+    expires_at: datetime
+
+
+class WalletOut(Schema):
+    coins: int
+    hearts: int
+    hearts_max: int
+    streak_freezes: int
+    streak_current: int
+    xp_boost_until: datetime | None = None
+    xp_boost_active: bool = False
+    streak_repair: StreakRepairOut | None = None
+    is_premium: bool = False
+    premium_until: datetime | None = None
+    premium_coin_bonus_pct: int = 0
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
+    owned_cosmetic_ids: list[int] = []
+    wishlist_item_ids: list[int] = []
+
+
+class EarnOptionOut(Schema):
+    code: str  # checkin | challenge:<code> | game:<code> | premium
+    title_vi: str
+    subtitle_vi: str = ""
+    reward_coins: int  # 0 = tuỳ điểm
+    done: bool = False
+    current: int = 0
+    target: int = 0
+    screen: str  # challenges | games | premium
+
+
+class WishlistOut(Schema):
+    item_id: int
+    wishlisted: bool
+    wishlist_item_ids: list[int]
+
+
+class EquipIn(Schema):
+    item_id: int | None = None  # null = tháo khung
+
+
+class EquipOut(Schema):
+    avatar_frame: str | None
+    avatar_frame_colors: list[str]
 
 
 class CoinTxOut(Schema):
     amount: int
-    reason: str
+    reason: str  # checkin | challenge | game | lesson | shop_purchase | mystery_box | coin_pack
     ref_type: str
     ref_id: str
+    label_vi: str = ""  # shop_purchase: tên vật phẩm
     balance_after: int
     created_at: datetime
 
@@ -179,13 +240,13 @@ class DeviceOut(Schema):
 class MatchPairsDifficultyOut(Schema):
     """Một ô độ khó trong popup chọn level."""
 
-    code: str          # easy | medium | hard | expert
+    code: str  # easy | medium | hard | expert
     label_vi: str
     pairs: int
     cards: int
     three_star_moves: int
-    stars: int         # 0 khi chưa chơi
-    best_moves: int    # 0 khi chưa chơi
+    stars: int  # 0 khi chưa chơi
+    best_moves: int  # 0 khi chưa chơi
 
 
 class MatchPairsStageOut(Schema):
@@ -194,11 +255,11 @@ class MatchPairsStageOut(Schema):
     title_vi: str
     subtitle_vi: str
     symbol: str
-    level: str          # CEFR A1–C2, không phải độ khó
+    level: str  # CEFR A1–C2, không phải độ khó
     order: int
     is_unlocked: bool
     is_completed: bool  # có dòng tiến độ, không phải stars > 0
-    stars: int         # tổng sao của cả bốn độ khó, tối đa 12
+    stars: int  # tổng sao của cả bốn độ khó, tối đa 12
     difficulties: list[MatchPairsDifficultyOut]
 
 
@@ -242,9 +303,9 @@ class StressWordOut(Schema):
     id: int
     headword: str
     meaning_vi: str
-    syllables: list[str]        # chính tả: ['beau', 'ti', 'ful']
-    ipa_syllables: list[str]    # đã bỏ ˈ ˌ để không lộ đáp án: ['bjuː', 'tɪ', 'fəl']
-    primary_stress: int         # chỉ số 0-based trong hai mảng trên
+    syllables: list[str]  # chính tả: ['beau', 'ti', 'ful']
+    ipa_syllables: list[str]  # đã bỏ ˈ ˌ để không lộ đáp án: ['bjuː', 'tɪ', 'fəl']
+    primary_stress: int  # chỉ số 0-based trong hai mảng trên
     audio_url: str | None = None
 
 

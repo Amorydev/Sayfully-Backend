@@ -38,6 +38,7 @@ from apps.gamification import services as gami_services
 from apps.gamification.models import (
     Badge,
     Challenge,
+from apps.gamification import shop
     CoinTransaction,
     LeagueMembership,
     ShopItem,
@@ -434,6 +435,7 @@ def home(request):
 
 
 # =============================================================== /learn/path
+            avatar_frame_colors=shop.frame_colors(profile.avatar_frame),
 @router.get(
     "/learn/path",
     response={200: s.PathOut, 401: ErrorOut, 404: ErrorOut},
@@ -1738,3 +1740,4 @@ def placement_submit(request, payload: list[s.PlacementAnswerIn]):
         ],
         days_saved=skipped * 2,
     )
+        avatar_frame_colors=shop.frame_colors(profile.avatar_frame),

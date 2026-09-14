@@ -12,13 +12,15 @@ from django.utils import timezone as djtz
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Conflict, NotFound
 
-from .models import GiftCode, GiftCodeRedemption, PaymentEvent, Subscription
+from .models import GiftCode, GiftCodeRedemption, PaymentEvent, Product, Subscription
 
 _GRANT_EVENTS = {"purchase", "renewal", "initial_purchase", "product_change", "uncancellation"}
 _REVOKE_EVENTS = {"expiration", "cancel", "expire"}
 
 
-def grant_premium(user, *, provider, product_code, expires_at, status="active", store="", txn_id=""):
+def grant_premium(
+    user, *, provider, product_code, expires_at, status="active", store="", txn_id=""
+):
     Subscription.objects.create(
         user=user,
         provider=provider,
@@ -33,6 +35,16 @@ def grant_premium(user, *, provider, product_code, expires_at, status="active", 
     profile.is_premium = True
     profile.premium_until = expires_at
     profile.save(update_fields=["is_premium", "premium_until"])
+
+
+def grant_coin_pack(user, product: Product, *, event_id: str) -> int:
+    """Gói xu mua bằng tiền: cộng xu + ghi sổ (reason=coin_pack, ref=event_id)."""
+    from apps.gamification.shop import grant_coins  # noqa: PLC0415 — tránh import vòng
+
+    profile = ensure_profile(user)
+    return grant_coins(
+        profile, product.coins, reason="coin_pack", ref_type="payment", ref_id=event_id
+    )
 
 
 def revoke_premium(user):
@@ -59,7 +71,10 @@ def process_payment_event(
             return False  # đã xử lý
         if user is not None:
             et = event_type.lower()
-            if et in _GRANT_EVENTS and product_code and expires_at:
+            product = Product.objects.filter(code=product_code).first() if product_code else None
+            if et in _GRANT_EVENTS and product and product.kind == Product.Kind.COINS:
+                grant_coin_pack(user, product, event_id=event_id)
+            elif et in _GRANT_EVENTS and product_code and expires_at:
                 grant_premium(
                     user, provider=provider, product_code=product_code, expires_at=expires_at
                 )
@@ -73,7 +88,11 @@ def process_payment_event(
 def redeem_gift(user, code: str):
     gift = GiftCode.objects.filter(code=code, is_active=True).first()
     now = djtz.now()
-    if gift is None or (gift.expires_at and gift.expires_at < now) or gift.used_count >= gift.max_uses:
+    if (
+        gift is None
+        or (gift.expires_at and gift.expires_at < now)
+        or gift.used_count >= gift.max_uses
+    ):
         raise NotFound("Mã quà tặng không hợp lệ", code="gift_code_invalid")
     if GiftCodeRedemption.objects.filter(gift_code=gift, user=user).exists():
         raise Conflict("Bạn đã dùng mã này rồi", code="gift_code_used")

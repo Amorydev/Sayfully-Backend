@@ -8,8 +8,17 @@ class Product(models.Model):
         MONTH = "month", "Tháng"
         YEAR = "year", "Năm"
         LIFETIME = "lifetime", "Trọn đời"
+        ONE_TIME = "one_time", "Mua 1 lần"
 
-    code = models.SlugField(max_length=48, unique=True)  # premium_year | premium_lifetime
+    class Kind(models.TextChoices):
+        PREMIUM = "premium", "Gói Premium"
+        COINS = "coins", "Gói xu"
+
+    code = models.SlugField(
+        max_length=48, unique=True
+    )  # premium_year | premium_lifetime | coins_500
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.PREMIUM)
+    coins = models.PositiveIntegerField(default=0)  # kind=coins: số xu cộng khi thanh toán xong
     name_vi = models.CharField(max_length=64)
     period = models.CharField(max_length=10, choices=Period.choices)
     price = models.PositiveIntegerField()

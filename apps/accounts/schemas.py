@@ -82,10 +82,19 @@ class ProfileOut(Schema):
     event_notifications: bool
     is_premium: bool
     premium_until: datetime | None = None
+    xp_boost_until: datetime | None = None
+    avatar_frame: str = ""
+    avatar_frame_colors: list[str] = []
 
     @staticmethod
     def resolve_reminder_time(obj) -> str:
         return obj.reminder_time.strftime("%H:%M")
+
+    @staticmethod
+    def resolve_avatar_frame_colors(obj) -> list[str]:
+        from apps.gamification.shop import frame_colors  # noqa: PLC0415 — tránh import vòng
+
+        return frame_colors(getattr(obj, "avatar_frame", ""))
 
 
 class MeOut(Schema):

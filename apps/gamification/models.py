@@ -121,16 +121,85 @@ class LeagueMembership(models.Model):
 
 
 class ShopItem(models.Model):
+    class Category(models.TextChoices):
+        BOOSTER = "booster", "Bổ trợ"
+        BUNDLE = "bundle", "Combo"
+        COSMETIC = "cosmetic", "Trang trí"
+        SPECIAL = "special", "Đặc biệt"
+
     code = models.SlugField(max_length=48, unique=True)  # refill_hearts | streak_freeze | gift_box
     title_vi = models.CharField(max_length=128)
     description_vi = models.CharField(max_length=255)
     cost_coins = models.PositiveIntegerField()
-    effect = models.JSONField(default=dict)  # {"hearts":5} | {"streak_freeze":1}
+    # Hiệu ứng server áp dụng khi mua; combo = nhiều khoá. Khoá hỗ trợ: xem gamification.shop.
+    # {"hearts":5} | {"streak_freeze":1} | {"xp_boost":15} | {"streak_repair":1}
+    # | {"premium_days":1} | {"mystery_box":1} | {"cosmetic":1}
+    effect = models.JSONField(default=dict)
     icon_path = models.CharField(max_length=255, blank=True)
+    category = models.CharField(max_length=10, choices=Category.choices, default=Category.BOOSTER)
+    # Khuyến mãi: giảm % tới `sale_until` (null = không hạn). Giá bán = cost * (100 - pct) / 100.
+    discount_pct = models.PositiveSmallIntegerField(default=0)
+    sale_until = models.DateTimeField(null=True, blank=True)
+    # Trang trí: {"slot": "avatar_frame", "colors": ["#FFD54F", "#FF8F00"]}
+    meta = models.JSONField(default=dict, blank=True)
+    order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["order", "code"]
 
     def __str__(self) -> str:
         return str(self.code)
+
+
+class ShopReceipt(models.Model):
+    """Biên lai mua hàng — idempotent theo (user, idempotency_key); lưu hiệu ứng thực nhận
+    (rương may mắn là ngẫu nhiên nên phải trả lại đúng kết quả cũ khi gọi lại)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shop_receipts")
+    item = models.ForeignKey(ShopItem, on_delete=models.PROTECT, related_name="receipts")
+    idempotency_key = models.CharField(max_length=64)
+    coins_spent = models.PositiveIntegerField()
+    balance_after = models.PositiveIntegerField()
+    granted = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "idempotency_key"], name="shop_receipt_uniq")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.item_id} -{self.coins_spent}"
+
+
+class UserCosmetic(models.Model):
+    """Vật phẩm trang trí đã sở hữu (mua 1 lần, không mất). Đang trang bị: UserProfile.avatar_frame."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="cosmetics")
+    item = models.ForeignKey(ShopItem, on_delete=models.CASCADE, related_name="owners")
+    acquired_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "item"], name="user_cosmetic_uniq")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.item_id}"
+
+
+class ShopWishlist(models.Model):
+    """Muốn mua: báo 1 lần khi số dư đủ (notified_at). Reset khi người dùng bỏ rồi thêm lại."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shop_wishlist")
+    item = models.ForeignKey(ShopItem, on_delete=models.CASCADE, related_name="wishers")
+    notified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "item"], name="shop_wishlist_uniq")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} ♥ {self.item_id}"
 
 
 class CoinTransaction(models.Model):

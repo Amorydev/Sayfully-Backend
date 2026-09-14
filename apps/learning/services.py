@@ -98,6 +98,10 @@ def _bump_streak(profile: UserProfile, today) -> bool:
         profile.streak_freezes -= 1
         profile.streak_current += 1
     else:
+        # Mất streak: ghi lại để có thể mua "Hồi sinh streak" trong 48h (gamification.shop).
+        if prev is not None and profile.streak_current > 0:
+            profile.streak_lost_value = profile.streak_current
+            profile.streak_lost_at = djtz.now()
         profile.streak_current = 1
     record = profile.streak_current > profile.streak_best
     profile.streak_best = max(profile.streak_best, profile.streak_current)
@@ -118,7 +122,15 @@ def record(
     listening: int = 0,
     minutes: int = 0,
 ) -> RewardResult:
-    """Ghi 1 lần hoạt động: DailyActivity + streak + XP/level + xu (kèm sổ cái)."""
+    """Ghi 1 lần hoạt động: DailyActivity + streak + XP/level + xu (kèm sổ cái).
+
+    XP nhân đôi khi đang bật boost; Premium được cộng thêm % xu (xem gamification.shop)."""
+    from apps.gamification import shop  # noqa: PLC0415 — tránh import vòng
+
+    now = djtz.now()
+    if xp and shop.xp_boost_active(profile, now):
+        xp *= shop.XP_BOOST_MULTIPLIER
+    coins = shop.coin_bonus(profile, coins, now)
     today = local_today(profile)
     first_today = not DailyActivity.objects.filter(user=profile.user, date=today).exists()
 
@@ -134,9 +146,7 @@ def record(
     is_record = _bump_streak(profile, today) if first_today else False
 
     iso = today.isocalendar()
-    ws, _ = WeeklyStat.objects.get_or_create(
-        user=profile.user, iso_year=iso[0], iso_week=iso[1]
-    )
+    ws, _ = WeeklyStat.objects.get_or_create(user=profile.user, iso_year=iso[0], iso_week=iso[1])
     ws.xp += xp
     if first_today:
         ws.days_active += 1
@@ -155,6 +165,8 @@ def record(
             "streak_current",
             "streak_best",
             "streak_freezes",
+            "streak_lost_value",
+            "streak_lost_at",
         ]
     )
     if coins:
@@ -166,6 +178,7 @@ def record(
             ref_id=str(ref_id),
             balance_after=profile.coins,
         )
+        shop.notify_wishlist(profile)
 
     return RewardResult(
         xp_earned=xp,

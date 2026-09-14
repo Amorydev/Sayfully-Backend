@@ -64,15 +64,20 @@ def _verify(request, secret_setting: str):
 @billing_router.get(
     "/products",
     response={200: list[s.ProductOut], 401: ErrorOut},
-    summary="Danh sách gói Premium",
-    description="Gói + giá + đặc quyền để dựng paywall.",
+    summary="Danh sách gói Premium / gói xu",
+    description="Gói + giá + đặc quyền để dựng paywall. `kind=coins` là gói xu mua bằng tiền.",
 )
-def products(request):
+def products(request, kind: str | None = None):
     ensure_profile(request.auth)
+    qs = Product.objects.filter(is_active=True).order_by("order")
+    if kind:
+        qs = qs.filter(kind=kind)
     return [
         s.ProductOut(
             code=p.code,
             name_vi=p.name_vi,
+            kind=p.kind,
+            coins=p.coins,
             period=p.period,
             price=p.price,
             original_price=p.original_price,
@@ -81,7 +86,7 @@ def products(request):
             badge_vi=p.badge_vi,
             features=p.features or [],
         )
-        for p in Product.objects.filter(is_active=True).order_by("order")
+        for p in qs
     ]
 
 
@@ -120,7 +125,10 @@ def redeem(request, payload: s.RedeemIn):
     days, expires_at = services.redeem_gift(user, payload.code)
     profile.refresh_from_db()
     return s.RedeemResultOut(
-        product_code=f"gift_{days}d", days=days, expires_at=expires_at, is_premium=profile.is_premium
+        product_code=f"gift_{days}d",
+        days=days,
+        expires_at=expires_at,
+        is_premium=profile.is_premium,
     )
 
 

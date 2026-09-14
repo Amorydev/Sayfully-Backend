@@ -14,6 +14,7 @@ from apps.content.schemas import CollocationOut, ExampleOut, SyllableOut
 class HomeProfileOut(Schema):
     name: str
     avatar_url: str | None
+    avatar_frame_colors: list[str] = []  # khung avatar đang trang bị (C50)
     cefr_level: str
     level: int
     level_label: str
@@ -575,6 +576,7 @@ class PreferencesOut(Schema):
     show_ipa: bool
     daily_goal_xp: int
     daily_goal_words: int
+    avatar_frame_colors: list[str] = []
     timezone: str
     ui_language: str
     reminder_enabled: bool

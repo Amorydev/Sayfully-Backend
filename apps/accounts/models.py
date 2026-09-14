@@ -186,6 +186,12 @@ class UserProfile(models.Model):
     is_premium = models.BooleanField(default=False)
     premium_until = models.DateTimeField(null=True, blank=True)
 
+    # Cửa hàng (C50): boost XP, hồi sinh streak, khung avatar đang trang bị
+    xp_boost_until = models.DateTimeField(null=True, blank=True)
+    streak_lost_value = models.PositiveIntegerField(default=0)  # streak vừa mất, có thể hồi sinh
+    streak_lost_at = models.DateTimeField(null=True, blank=True)
+    avatar_frame = models.CharField(max_length=48, blank=True)  # ShopItem.code (cosmetic)
+
     class Meta:
         db_table = "user_profiles"
         indexes = [

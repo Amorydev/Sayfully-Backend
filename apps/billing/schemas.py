@@ -8,6 +8,8 @@ from ninja import Schema
 class ProductOut(Schema):
     code: str
     name_vi: str
+    kind: str = "premium"  # premium | coins
+    coins: int = 0  # kind=coins: số xu nhận
     period: str
     price: int
     original_price: int | None

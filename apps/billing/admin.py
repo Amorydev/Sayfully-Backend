@@ -37,3 +37,9 @@ class RedemptionInline(admin.TabularInline):
 class GiftCodeAdmin(admin.ModelAdmin):
     list_display = ("code", "days", "used_count", "max_uses", "expires_at", "is_active")
     inlines = [RedemptionInline]
+
+
+@admin.register(m.Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ("code", "name_vi", "kind", "period", "price", "coins", "is_active", "order")
+    list_filter = ("kind", "is_active")

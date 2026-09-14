@@ -530,10 +530,23 @@ class Command(BaseCommand):
                 code=code, defaults={"title_vi": title, "description_vi": title,
                                      "condition": {"metric": metric, "value": value}},
             )
-        for code, title, desc, cost, effect in [
-            ("refill_hearts", "Bơm đầy tim", "Hồi phục 5/5 tim", 150, {"hearts": 5}),
-            ("streak_freeze", "Băng bảo vệ streak", "Đóng băng chuỗi 24h", 200, {"streak_freeze": 1}),
-            ("xp_boost", "Gấp đôi XP", "x2 XP trong 15 phút", 120, {"xp_boost": 15}),
+        # (code, title, desc, cost, effect, category, order, discount_pct, meta)
+        for code, title, desc, cost, effect, cat, order, pct, meta in [
+            ("refill_hearts", "Bơm đầy tim", "Hồi phục 5/5 tim", 150, {"hearts": 5}, "booster", 1, 0, {}),
+            ("streak_freeze", "Băng bảo vệ streak", "Đóng băng chuỗi 24h", 200, {"streak_freeze": 1}, "booster", 2, 0, {}),
+            ("xp_boost", "Gấp đôi XP", "x2 XP trong 15 phút", 120, {"xp_boost": 15}, "booster", 3, 0, {}),
+            ("xp_boost_60", "Gấp đôi XP · 1 giờ", "x2 XP trong 60 phút", 350, {"xp_boost": 60}, "booster", 4, 20, {}),
+            ("bundle_week", "Gói bảo vệ tuần", "2 băng streak + bơm đầy tim", 500, {"streak_freeze": 2, "hearts": 5}, "bundle", 10, 20, {}),
+            ("bundle_grind", "Gói cày XP", "x2 XP 30 phút + bơm đầy tim", 400, {"xp_boost": 30, "hearts": 5}, "bundle", 11, 15, {}),
+            ("mystery_box", "Rương may mắn", "Ngẫu nhiên: xu, tim, băng hoặc boost XP", 120, {"mystery_box": 1}, "special", 20, 0, {}),
+            ("streak_repair", "Hồi sinh streak", "Khôi phục chuỗi vừa mất trong 48h", 350, {"streak_repair": 1}, "special", 21, 0, {}),
+            ("premium_day", "1 ngày Premium", "Mở khoá toàn bộ nội dung 24h", 1000, {"premium_days": 1}, "special", 22, 0, {}),
+            ("frame_gold", "Khung Hoàng Kim", "Viền avatar vàng óng", 500, {"cosmetic": 1}, "cosmetic", 30, 0,
+             {"slot": "avatar_frame", "colors": ["#FFE082", "#FFB300", "#FF8F00"]}),
+            ("frame_aurora", "Khung Cực Quang", "Viền avatar xanh tím chuyển sắc", 800, {"cosmetic": 1}, "cosmetic", 31, 0,
+             {"slot": "avatar_frame", "colors": ["#5EEAD4", "#818CF8", "#F472B6"]}),
+            ("frame_neon", "Khung Neon", "Viền avatar hồng neon", 650, {"cosmetic": 1}, "cosmetic", 32, 0,
+             {"slot": "avatar_frame", "colors": ["#FF4DDB", "#8B5CF6"]}),
         ]:
             ShopItem.objects.update_or_create(
                 code=code, defaults={"title_vi": title, "description_vi": desc,
@@ -558,7 +571,7 @@ class Command(BaseCommand):
             ("premium_lifetime", "Trọn đời", "lifetime", 699000, None, 0, "", 3),
         ]:
             Product.objects.update_or_create(
-                code=code, defaults={"name_vi": name, "period": period, "price": price,
+                code=code, defaults={"name_vi": name, "kind": "premium", "period": period, "price": price,
                                      "original_price": orig, "trial_days": trial, "badge_vi": badge,
                                      "features": ["Mở khoá A2–C2", "Gia sư AI", "Không quảng cáo"],
                                      "order": order},
@@ -675,6 +688,15 @@ class Command(BaseCommand):
                       "goals": ["Chào hỏi", "Gọi món", "Hỏi giá"],
                       "system_prompt": "You are a barista. Help the user order politely in English.",
                       "is_premium": False},
+        for code, name, coins, price, badge, order in [
+            ("coins_500", "500 xu", 500, 19000, "", 10),
+            ("coins_1200", "1.200 xu", 1200, 39000, "PHỔ BIẾN", 11),
+            ("coins_3000", "3.000 xu", 3000, 79000, "LỢI NHẤT", 12),
+        ]:
+            Product.objects.update_or_create(
+                code=code, defaults={"name_vi": name, "kind": "coins", "coins": coins, "period": "one_time",
+                                     "price": price, "badge_vi": badge, "features": [], "order": order},
+            )
         )
 
         # Tài khoản demo có sẵn tiến độ để preview Home (demo@sayfully.app / demo1234)

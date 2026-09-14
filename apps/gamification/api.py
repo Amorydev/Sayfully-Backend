@@ -5,7 +5,9 @@ theo (user, challenge, period_key).
 """
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
@@ -25,7 +27,7 @@ from apps.learning.models import DailyActivity, WeeklyStat
 from apps.notifications.models import Device, Notification
 
 from . import schemas as s
-from . import services
+from . import services, shop
 from .models import (
     Badge,
     Challenge,
@@ -37,11 +39,14 @@ from .models import (
     MatchPairsProgress,
     MatchPairsStage,
     ShopItem,
+    ShopReceipt,
+    ShopWishlist,
     UserBadge,
     UserChallenge,
 )
 
 router = Router()
+CHECKIN_COINS = 10  # khớp learning.api._CHECKIN_COINS
 
 
 def _media(path: str | None) -> str | None:
@@ -131,7 +136,7 @@ def claim_challenge(request, id: int):
 
     now = djtz.now()
     with transaction.atomic():
-        learn.record(
+        reward = learn.record(
             profile,
             xp=ch.reward_xp,
             coins=ch.reward_coins,
@@ -143,7 +148,7 @@ def claim_challenge(request, id: int):
         uc.completed_at = uc.completed_at or now
         uc.claimed_at = now
         uc.save()
-    return s.ClaimResultOut(xp_earned=ch.reward_xp, coins_earned=ch.reward_coins)
+    return s.ClaimResultOut(xp_earned=reward.xp_earned, coins_earned=reward.coins_earned)
 
 
 @router.get(
@@ -282,35 +287,88 @@ def leaderboard_me(request):
 
 
 # =============================================================== shop / coins (C50)
-# Chỉ bán vật phẩm mà `shop_purchase` thực sự cài hiệu ứng; item seed khác (vd. xp_boost) bị ẩn
-# để không trừ xu mà không có gì xảy ra.
-SUPPORTED_EFFECTS = {"hearts", "streak_freeze"}
+# Nghiệp vụ nằm ở gamification.shop; ở đây chỉ dựng response.
+def _item_out(it, now, owned, wishlist, equipped_code) -> s.ShopItemOut:
+    return s.ShopItemOut(
+        id=it.id,
+        code=it.code,
+        title_vi=it.title_vi,
+        description_vi=it.description_vi,
+        category=it.category,
+        cost_coins=it.cost_coins,
+        price_coins=shop.price_of(it, now),
+        discount_pct=it.discount_pct if shop.on_sale(it, now) else 0,
+        sale_until=it.sale_until if shop.on_sale(it, now) else None,
+        effect=it.effect or {},
+        meta=it.meta or {},
+        icon_url=_media(it.icon_path),
+        owned=it.id in owned,
+        equipped=bool(equipped_code) and it.code == equipped_code,
+        wishlisted=it.id in wishlist,
+        order=it.order,
+    )
 
 
-def _sellable(item) -> bool:
-    return bool(SUPPORTED_EFFECTS & set((item.effect or {}).keys()))
+def _wallet_out(user, profile) -> s.WalletOut:
+    now = djtz.now()
+    learn.regen_hearts(profile)
+    repair = None
+    if shop.streak_repairable(profile, now):
+        repair = s.StreakRepairOut(
+            lost_value=profile.streak_lost_value,
+            lost_at=profile.streak_lost_at,
+            expires_at=profile.streak_lost_at + shop.STREAK_REPAIR_WINDOW,
+        )
+    premium = shop.premium_active(profile, now)
+    return s.WalletOut(
+        coins=profile.coins,
+        hearts=profile.hearts,
+        hearts_max=learn.HEARTS_MAX,
+        streak_freezes=profile.streak_freezes,
+        streak_current=profile.streak_current,
+        xp_boost_until=profile.xp_boost_until if shop.xp_boost_active(profile, now) else None,
+        xp_boost_active=shop.xp_boost_active(profile, now),
+        streak_repair=repair,
+        is_premium=premium,
+        premium_until=profile.premium_until if premium else None,
+        premium_coin_bonus_pct=shop.PREMIUM_COIN_BONUS_PCT,
+        avatar_frame=profile.avatar_frame or None,
+        avatar_frame_colors=shop.frame_colors(profile.avatar_frame),
+        owned_cosmetic_ids=sorted(shop.owned_cosmetic_ids(user)),
+        wishlist_item_ids=sorted(shop.wishlist_ids(user)),
+    )
+
+
+@router.get(
+    "/shop/wallet",
+    response={200: s.WalletOut, 401: ErrorOut},
+    summary="Ví cửa hàng",
+    description="Xu, tim, băng, boost XP đang chạy, streak có thể hồi sinh, khung avatar, wishlist.",
+)
+def shop_wallet(request):
+    user = request.auth
+    return _wallet_out(user, ensure_profile(user))
 
 
 @router.get(
     "/shop/items",
     response={200: list[s.ShopItemOut], 401: ErrorOut},
     summary="Vật phẩm cửa hàng",
-    description="Danh sách vật phẩm mua bằng xu (chỉ vật phẩm có hiệu ứng đã cài).",
+    description=(
+        "Danh sách vật phẩm mua bằng xu (chỉ vật phẩm có hiệu ứng đã cài). "
+        "`price_coins` là giá sau khuyến mãi; `category` để chia tab."
+    ),
 )
 def shop_items(request):
-    ensure_profile(request.auth)
+    user = request.auth
+    profile = ensure_profile(user)
+    now = djtz.now()
+    owned = shop.owned_cosmetic_ids(user)
+    wishlist = shop.wishlist_ids(user)
     return [
-        s.ShopItemOut(
-            id=it.id,
-            code=it.code,
-            title_vi=it.title_vi,
-            description_vi=it.description_vi,
-            cost_coins=it.cost_coins,
-            effect=it.effect or {},
-            icon_url=_media(it.icon_path),
-        )
-        for it in ShopItem.objects.filter(is_active=True).order_by("code")
-        if _sellable(it)
+        _item_out(it, now, owned, wishlist, profile.avatar_frame)
+        for it in ShopItem.objects.filter(is_active=True).order_by("order", "code")
+        if shop.sellable(it)
     ]
 
 
@@ -320,7 +378,9 @@ def shop_items(request):
     summary="Mua vật phẩm (idempotent)",
     description=(
         "Cần header `Idempotency-Key`. Thiếu xu → `insufficient_coins`; "
-        "mua bơm tim khi tim đã đầy → `hearts_full`."
+        "mua bơm tim khi tim đã đầy → `hearts_full`; hồi sinh streak khi không mất → "
+        "`nothing_to_repair`; trang trí đã có → `already_owned`. "
+        "`effect` trả về là hiệu ứng thực nhận (rương may mắn → phần thưởng cụ thể)."
     ),
 )
 def shop_purchase(
@@ -335,44 +395,138 @@ def shop_purchase(
             "Thiếu header Idempotency-Key", code="idempotency_key_missing", status_code=400
         )
     item = ShopItem.objects.filter(id=payload.item_id, is_active=True).first()
+    if item is None or not shop.sellable(item):
+        raise NotFound("Không tìm thấy vật phẩm")
+    learn.regen_hearts(profile)
+    result = shop.purchase(profile, item, idempotency_key)
+    return s.PurchaseResultOut(
+        item_code=result.item.code,
+        title_vi=result.item.title_vi,
+        coins_spent=result.coins_spent,
+        balance=result.balance,
+        effect=result.granted,
+    )
+
+
+@router.get(
+    "/shop/earn",
+    response={200: list[s.EarnOptionOut], 401: ErrorOut},
+    summary="Cách kiếm xu",
+    description="Gợi ý cụ thể để kiếm xu hôm nay: điểm danh, nhiệm vụ chưa nhận, mini-game, Premium.",
+)
+def shop_earn(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    today = learn.local_today(profile)
+    tz = ZoneInfo(profile.timezone)
+    start_today = datetime.combine(today, dtime.min, tz)
+    out = [
+        s.EarnOptionOut(
+            code="checkin",
+            title_vi="Điểm danh hôm nay",
+            subtitle_vi="Mỗi ngày một lần, giữ streak",
+            reward_coins=CHECKIN_COINS,
+            done=CoinTransaction.objects.filter(
+                user=user, reason="checkin", created_at__gte=start_today
+            ).exists(),
+            screen="challenges",
+        )
+    ]
+    dailies = _dailies(user, Challenge.Scope.DAILY, today)
+    pk = services.period_key(Challenge.Scope.DAILY, today)
+    claims = {uc.challenge_id: uc for uc in UserChallenge.objects.filter(user=user, period_key=pk)}
+    for ch in Challenge.objects.filter(scope=Challenge.Scope.DAILY, is_active=True).order_by(
+        "tier", "code"
+    ):
+        cur = services.challenge_progress(ch, dailies)
+        uc = claims.get(ch.id)
+        out.append(
+            s.EarnOptionOut(
+                code=f"challenge:{ch.code}",
+                title_vi=ch.title_vi,
+                subtitle_vi=ch.description_vi,
+                reward_coins=ch.reward_coins,
+                done=bool(uc and uc.claimed_at),
+                current=min(cur, ch.target),
+                target=ch.target,
+                screen="challenges",
+            )
+        )
+    for g in Game.objects.filter(is_active=True).order_by("order"):
+        out.append(
+            s.EarnOptionOut(
+                code=f"game:{g.code}",
+                title_vi=f"Chơi {g.title_vi}",
+                subtitle_vi="Tối đa 15 xu mỗi ván theo điểm",
+                reward_coins=15,
+                screen="games",
+            )
+        )
+    if not shop.premium_active(profile):
+        out.append(
+            s.EarnOptionOut(
+                code="premium",
+                title_vi=f"Premium: +{shop.PREMIUM_COIN_BONUS_PCT}% xu mọi nguồn",
+                subtitle_vi="Áp dụng cho điểm danh, nhiệm vụ, mini-game",
+                reward_coins=0,
+                screen="premium",
+            )
+        )
+    return out
+
+
+@router.post(
+    "/shop/wishlist/{item_id}",
+    response={200: s.WishlistOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Thêm vào wishlist",
+    description="Nhận thông báo khi đủ xu mua vật phẩm này (báo 1 lần).",
+)
+def shop_wishlist_add(request, item_id: int):
+    user = request.auth
+    ensure_profile(user)
+    item = ShopItem.objects.filter(id=item_id, is_active=True).first()
     if item is None:
         raise NotFound("Không tìm thấy vật phẩm")
+    ShopWishlist.objects.get_or_create(user=user, item=item)
+    return s.WishlistOut(
+        item_id=item_id, wishlisted=True, wishlist_item_ids=sorted(shop.wishlist_ids(user))
+    )
 
-    existing = CoinTransaction.objects.filter(
-        user=user, ref_type="shop_purchase", ref_id=idempotency_key
-    ).first()
-    if existing:
-        return s.PurchaseResultOut(
-            item_code=item.code,
-            coins_spent=-existing.amount,
-            balance=existing.balance_after,
-            effect=item.effect or {},
-        )
-    if profile.coins < item.cost_coins:
-        raise Conflict("Không đủ xu", code="insufficient_coins")
 
-    eff = item.effect or {}
-    if not _sellable(item):
-        raise NotFound("Vật phẩm không còn bán")
-    if "hearts" in eff and profile.hearts >= learn.HEARTS_MAX:
-        raise Conflict("Tim đã đầy", code="hearts_full")
-    with transaction.atomic():
-        profile.coins -= item.cost_coins
-        if "hearts" in eff:
-            profile.hearts = min(learn.HEARTS_MAX, profile.hearts + int(eff["hearts"]))
-        if "streak_freeze" in eff:
-            profile.streak_freezes += int(eff["streak_freeze"])
-        profile.save(update_fields=["coins", "hearts", "streak_freezes"])
-        CoinTransaction.objects.create(
-            user=user,
-            amount=-item.cost_coins,
-            reason="shop_purchase",
-            ref_type="shop_purchase",
-            ref_id=idempotency_key,
-            balance_after=profile.coins,
-        )
-    return s.PurchaseResultOut(
-        item_code=item.code, coins_spent=item.cost_coins, balance=profile.coins, effect=eff
+@router.delete(
+    "/shop/wishlist/{item_id}",
+    response={200: s.WishlistOut, 401: ErrorOut},
+    summary="Bỏ khỏi wishlist",
+)
+def shop_wishlist_remove(request, item_id: int):
+    user = request.auth
+    ensure_profile(user)
+    ShopWishlist.objects.filter(user=user, item_id=item_id).delete()
+    return s.WishlistOut(
+        item_id=item_id, wishlisted=False, wishlist_item_ids=sorted(shop.wishlist_ids(user))
+    )
+
+
+@router.post(
+    "/shop/cosmetics/equip",
+    response={200: s.EquipOut, 401: ErrorOut, 404: ErrorOut, 409: ErrorOut},
+    summary="Trang bị / tháo khung avatar",
+    description="`item_id` null → tháo khung. Chưa sở hữu → `not_owned`.",
+)
+def shop_equip(request, payload: s.EquipIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    item = None
+    if payload.item_id is not None:
+        item = ShopItem.objects.filter(
+            id=payload.item_id, category=ShopItem.Category.COSMETIC
+        ).first()
+        if item is None:
+            raise NotFound("Không tìm thấy vật phẩm")
+    shop.equip_cosmetic(profile, item)
+    return s.EquipOut(
+        avatar_frame=profile.avatar_frame or None,
+        avatar_frame_colors=shop.frame_colors(profile.avatar_frame),
     )
 
 
@@ -387,7 +541,13 @@ def coin_transactions(request, limit: int = Query(20, ge=1, le=100), offset: int
     ensure_profile(user)
     qs = CoinTransaction.objects.filter(user=user).order_by("-created_at")
     count = qs.count()
-    items = qs[offset : offset + limit]
+    items = list(qs[offset : offset + limit])
+    # Tên vật phẩm cho giao dịch mua (ref_id = Idempotency-Key của biên lai).
+    keys = [t.ref_id for t in items if t.ref_type == "shop_purchase" and t.ref_id]
+    titles = {
+        r.idempotency_key: r.item.title_vi
+        for r in ShopReceipt.objects.filter(user=user, idempotency_key__in=keys).select_related("item")
+    }
     return Page(
         items=[
             s.CoinTxOut(
@@ -395,6 +555,7 @@ def coin_transactions(request, limit: int = Query(20, ge=1, le=100), offset: int
                 reason=t.reason,
                 ref_type=t.ref_type,
                 ref_id=t.ref_id,
+                label_vi=titles.get(t.ref_id, "") if t.ref_type == "shop_purchase" else "",
                 balance_after=t.balance_after,
                 created_at=t.created_at,
             )
@@ -469,7 +630,9 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
             coins_earned=coins,
         )
         if payload.level and payload.stage_index is not None:
-            _record_stage(user, game, payload.level, payload.stage_index, payload.score, payload.accuracy)
+            _record_stage(
+                user, game, payload.level, payload.stage_index, payload.score, payload.accuracy
+            )
     total = GameScore.objects.filter(game=game).count()
     below = GameScore.objects.filter(game=game, score__lt=payload.score).count()
     return s.GameScoreResultOut(
@@ -687,9 +850,7 @@ def match_pairs_stages(request):
     )
 
 
-def _open_stage(
-    user, stage_id: int
-) -> tuple[MatchPairsStage, list[MatchPairsStage], set[int]]:
+def _open_stage(user, stage_id: int) -> tuple[MatchPairsStage, list[MatchPairsStage], set[int]]:
     """
     Chặng đang mở, kèm danh sách chặng đã dựng và tập id chặng người chơi đã có
     dòng tiến độ. Trả cả ba để endpoint nộp kết quả không dựng lại danh sách chỉ
@@ -718,7 +879,11 @@ def _check_difficulty(difficulty: str) -> str:
 @router.get(
     "/match-pairs/stages/{stage_id}/round",
     response={
-        200: s.MatchPairsRoundOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+        200: s.MatchPairsRoundOut,
+        401: ErrorOut,
+        403: ErrorOut,
+        404: ErrorOut,
+        422: ErrorOut,
     },
     summary="Bốc một ván Ghép cặp",
     description="Rút ngẫu nhiên đủ số cặp cho độ khó. Rút lại mỗi lần gọi nên chơi lại "
@@ -743,7 +908,11 @@ def match_pairs_round(request, stage_id: int, difficulty: str = Query(...)):
 @router.post(
     "/match-pairs/stages/{stage_id}/result",
     response={
-        200: s.MatchPairsResultOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+        200: s.MatchPairsResultOut,
+        401: ErrorOut,
+        403: ErrorOut,
+        404: ErrorOut,
+        422: ErrorOut,
     },
     summary="Nộp kết quả một ván Ghép cặp",
     description="Máy chủ tự chấm sao từ số lượt lật, cộng xu/XP và mở chặng kế. "
@@ -906,12 +1075,23 @@ STRESS_ROUND_MIN, STRESS_ROUND_DEFAULT, STRESS_ROUND_MAX = 5, 30, 50
 def _stress_words(level: str) -> list[Vocabulary]:
     """Từ chơi được: đã gen_ipa, ≥ 2 âm tiết, chính tả và IPA tách cùng số đoạn, trọng âm nằm trong mảng."""
     qs = (
-        Vocabulary.objects.filter(level_id=level, primary_stress__isnull=False, syllables__len__gte=2)
+        Vocabulary.objects.filter(
+            level_id=level, primary_stress__isnull=False, syllables__len__gte=2
+        )
         .exclude(ipa_us="")
-        .only("id", "headword", "meaning_vi", "syllables", "ipa_syllables", "primary_stress", "audio_us_path")
+        .only(
+            "id",
+            "headword",
+            "meaning_vi",
+            "syllables",
+            "ipa_syllables",
+            "primary_stress",
+            "audio_us_path",
+        )
     )
     return [
-        v for v in qs
+        v
+        for v in qs
         if len(v.syllables) == len(v.ipa_syllables) and 0 <= v.primary_stress < len(v.syllables)
     ]
 

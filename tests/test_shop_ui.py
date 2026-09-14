@@ -30,7 +30,7 @@ def _purchase(client, token, item_id, key="k1"):
 def test_shop_items_an_vat_pham_chua_cai_hieu_ung(api, token):
     _item("refill_hearts", 150, {"hearts": 5})
     _item("streak_freeze", 200, {"streak_freeze": 1})
-    _item("xp_boost", 120, {"xp_boost": 15})
+    _item("magic_hat", 120, {"magic_hat": 1})
     codes = [it["code"] for it in api.get("/shop/items", token=token).json()]
     assert codes == ["refill_hearts", "streak_freeze"]
 
@@ -47,7 +47,7 @@ def test_mua_bom_tim_khi_tim_day_409(client, token, user):
 
 
 def test_mua_vat_pham_chua_cai_hieu_ung_404(client, token, user):
-    item = _item("xp_boost", 120, {"xp_boost": 15})
+    item = _item("magic_hat", 120, {"magic_hat": 1})
     user.profile.coins = 500
     user.profile.save()
     assert _purchase(client, token, item.id).status_code == 404
