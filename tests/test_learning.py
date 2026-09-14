@@ -513,6 +513,50 @@ def test_checkin_idempotent(api, token, user, levels):
     assert user.profile.coins == 10 and user.profile.xp_total == 5  # không cộng đôi
 
 
+def test_checkin_dung_bang_giu_chuoi(api, token, user, levels):
+    """Lỡ hôm qua + còn băng: /home báo at_risk, điểm danh tiêu 1 băng, chuỗi tiếp tục,
+    ngày hôm qua được đánh dấu frozen trên dải tuần."""
+    from datetime import timedelta
+
+    from apps.learning.models import DailyActivity
+    from apps.learning.services import local_today
+
+    profile = user.profile
+    today = local_today(profile)
+    DailyActivity.objects.create(user=user, date=today - timedelta(days=2), xp=10)
+    profile.streak_current = 5
+    profile.streak_freezes = 1
+    profile.save(update_fields=["streak_current", "streak_freezes"])
+
+    home = api.get("/home", token=token).json()["streak"]
+    assert home == {"days": 5, "freezes": 1, "at_risk": True, "frozen_yesterday": False}
+
+    r = api.post("/learn/checkin", token=token).json()
+    assert r["streak_before"] == 5 and r["streak_days"] == 6
+    assert r["freeze_used"] is True and r["freezes_left"] == 0
+    frozen = [d for d in r["week"] if d["frozen"]]
+    # hôm qua có thể rơi vào tuần trước (thứ Hai) → khi đó dải tuần không có ngày đóng băng
+    assert len(frozen) == (0 if today.weekday() == 0 else 1)
+
+    home = api.get("/home", token=token).json()["streak"]
+    assert home["at_risk"] is False and home["frozen_yesterday"] is True
+
+
+def test_checkin_het_bang_mat_chuoi(api, token, user, levels):
+    from datetime import timedelta
+
+    from apps.learning.models import DailyActivity
+    from apps.learning.services import local_today
+
+    profile = user.profile
+    DailyActivity.objects.create(user=user, date=local_today(profile) - timedelta(days=2), xp=10)
+    profile.streak_current = 5
+    profile.save(update_fields=["streak_current"])
+
+    r = api.post("/learn/checkin", token=token).json()
+    assert r["streak_before"] == 5 and r["streak_days"] == 1 and r["freeze_used"] is False
+
+
 def test_activity_range(api, token, user, levels):
     from datetime import date, timedelta
 

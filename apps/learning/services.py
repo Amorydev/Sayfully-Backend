@@ -119,6 +119,7 @@ def _bump_streak(profile: UserProfile, today) -> bool:
         profile.streak_current += 1
     elif prev == today - timedelta(days=2) and profile.streak_freezes > 0:
         profile.streak_freezes -= 1
+        profile.streak_frozen_on = today - timedelta(days=1)
         profile.streak_current += 1
     else:
         # Mất streak: ghi lại để có thể mua "Hồi sinh streak" trong 48h (gamification.shop).
@@ -188,6 +189,7 @@ def record(
             "streak_current",
             "streak_best",
             "streak_freezes",
+            "streak_frozen_on",
             "streak_lost_value",
             "streak_lost_at",
         ]

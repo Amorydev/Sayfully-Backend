@@ -199,7 +199,7 @@ def _stars(correct: int, total: int) -> int:
     return 3 if ratio >= 1 else (2 if ratio >= 0.8 else 1)
 
 
-def _week_progress(user, today) -> list[s.DayProgressOut]:
+def _week_progress(user, today, frozen_on=None) -> list[s.DayProgressOut]:
     monday = today - timedelta(days=today.weekday())
     active = set(
         DailyActivity.objects.filter(
@@ -209,8 +209,34 @@ def _week_progress(user, today) -> list[s.DayProgressOut]:
     out = []
     for i, label in enumerate(_WEEKDAYS):
         d = monday + timedelta(days=i)
-        out.append(s.DayProgressOut(label=label, active=d in active, is_today=d == today))
+        out.append(
+            s.DayProgressOut(
+                label=label, active=d in active, is_today=d == today, frozen=d == frozen_on
+            )
+        )
     return out
+
+
+def _streak_status(user, profile, today) -> s.StreakStatusOut:
+    """Trạng thái chuỗi trước hoạt động đầu tiên trong ngày: lỡ hôm qua = "at risk"."""
+    last = (
+        DailyActivity.objects.filter(user=user, date__lte=today)
+        .order_by("-date")
+        .values_list("date", flat=True)
+        .first()
+    )
+    at_risk = (
+        profile.streak_current > 0
+        and last is not None
+        and last < today
+        and last != today - timedelta(days=1)
+    )
+    return s.StreakStatusOut(
+        days=profile.streak_current,
+        freezes=profile.streak_freezes,
+        at_risk=at_risk,
+        frozen_yesterday=profile.streak_frozen_on == today - timedelta(days=1),
+    )
 
 
 def _checked_in_today(user, profile, today) -> bool:
@@ -440,6 +466,7 @@ def home(request):
 
     return s.HomeOut(
         checkin_done=_checked_in_today(user, profile, today),
+        streak=_streak_status(user, profile, today),
         profile=s.HomeProfileOut(
             name=user.full_name,
             avatar_url=_media(user.avatar_path),
@@ -1194,10 +1221,12 @@ def checkin(request):
             coins_earned=0,
             streak_before=profile.streak_current,
             streak_days=profile.streak_current,
-            week=_week_progress(user, today),
+            week=_week_progress(user, today, profile.streak_frozen_on),
             milestone=_milestone(user, profile.streak_current),
+            freezes_left=profile.streak_freezes,
         )
     streak_before = profile.streak_current
+    freezes_before = profile.streak_freezes
     reward = services.record(profile, xp=5, coins=10, coin_reason="checkin")
     return s.CheckinOut(
         already=False,
@@ -1205,8 +1234,10 @@ def checkin(request):
         coins_earned=reward.coins_earned,
         streak_before=streak_before,
         streak_days=reward.streak_days,
-        week=_week_progress(user, today),
+        week=_week_progress(user, today, profile.streak_frozen_on),
         milestone=_milestone(user, reward.streak_days),
+        freeze_used=profile.streak_freezes < freezes_before,
+        freezes_left=profile.streak_freezes,
     )
 
 

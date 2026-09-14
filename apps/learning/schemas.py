@@ -86,8 +86,16 @@ class HomeLearningToolOut(Schema):
     item_count: int | None = None
 
 
+class StreakStatusOut(Schema):
+    days: int
+    freezes: int  # băng dự phòng còn lại
+    at_risk: bool  # lỡ hôm qua, chưa hoạt động hôm nay → hoạt động kế tiếp sẽ tiêu băng / mất chuỗi
+    frozen_yesterday: bool  # hôm qua đã được băng che (băng đã tiêu)
+
+
 class HomeOut(Schema):
     checkin_done: bool = False  # đã điểm danh hôm nay → app không hiện dialog điểm danh
+    streak: StreakStatusOut | None = None
     profile: HomeProfileOut
     unread_notifications: int
     due_review_count: int
@@ -214,6 +222,7 @@ class DayProgressOut(Schema):
     label: str
     active: bool
     is_today: bool
+    frozen: bool = False  # ngày lỡ được Băng streak che
 
 
 class MilestoneOut(Schema):
@@ -382,6 +391,8 @@ class CheckinOut(Schema):
     streak_days: int
     week: list[DayProgressOut]
     milestone: MilestoneOut | None = None  # cột mốc streak kế tiếp (badge metric=streak)
+    freeze_used: bool = False  # lần điểm danh này đã tiêu 1 băng để giữ chuỗi
+    freezes_left: int = 0
 
 
 class DailyActivityOut(Schema):

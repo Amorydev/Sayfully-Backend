@@ -190,6 +190,8 @@ class UserProfile(models.Model):
     xp_boost_until = models.DateTimeField(null=True, blank=True)
     streak_lost_value = models.PositiveIntegerField(default=0)  # streak vừa mất, có thể hồi sinh
     streak_lost_at = models.DateTimeField(null=True, blank=True)
+    # Ngày bị lỡ mà Băng streak đã che (tiêu 1 băng ở hoạt động đầu tiên của ngày kế tiếp)
+    streak_frozen_on = models.DateField(null=True, blank=True)
     avatar_frame = models.CharField(max_length=48, blank=True)  # ShopItem.code (cosmetic)
 
     class Meta:
