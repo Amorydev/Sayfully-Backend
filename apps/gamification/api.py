@@ -176,12 +176,15 @@ def badges(request):
 
 
 # =============================================================== leaderboard (C16)
-def _week_left(now) -> int:
-    days_ahead = 7 - now.weekday()
-    next_monday = (now + timedelta(days=days_ahead)).replace(
+def _week_left(now, profile) -> int:
+    """Giây tới 0:00 thứ Hai tới theo múi giờ của người dùng (mặc định Asia/Ho_Chi_Minh),
+    không phải UTC — nếu không, app hiện dư ~7 giờ."""
+    local = now.astimezone(ZoneInfo(profile.timezone))
+    days_ahead = 7 - local.weekday()
+    next_monday = (local + timedelta(days=days_ahead)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    return int((next_monday - now).total_seconds())
+    return int((next_monday - local).total_seconds())
 
 
 def _entry(rank, user, profile, xp_week, me_id) -> s.LeaderboardEntryOut:
@@ -273,7 +276,7 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
         return s.LeaderboardOut(
             scope="global",
             tier="",
-            time_left_sec=_week_left(now),
+            time_left_sec=_week_left(now, profile),
             promote_top=0,
             safe_top=0,
             my_rank=my_rank,
@@ -292,7 +295,7 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
     return s.LeaderboardOut(
         scope="league",
         tier=group.get_tier_display(),
-        time_left_sec=_week_left(now),
+        time_left_sec=_week_left(now, profile),
         promote_top=5,
         safe_top=20,
         my_rank=my_rank,
@@ -750,7 +753,7 @@ def game_stages(request, code: str, level: str = Query(...)):
 def game_leaderboard(request, code: str, period: str = "week"):
 
     user = request.auth
-    ensure_profile(user)
+    profile = ensure_profile(user)
     game = Game.objects.filter(code=code).first()
     if game is None:
         raise NotFound("Không tìm thấy trò chơi")
@@ -778,7 +781,7 @@ def game_leaderboard(request, code: str, period: str = "week"):
     return s.LeaderboardOut(
         scope="game",
         tier="",
-        time_left_sec=_week_left(now),
+        time_left_sec=_week_left(now, profile),
         promote_top=0,
         safe_top=0,
         my_rank=my_rank,

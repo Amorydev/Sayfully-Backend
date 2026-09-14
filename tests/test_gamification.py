@@ -136,6 +136,21 @@ def test_leaderboard_league(api, token, user):
     assert body["promote_top"] == 5 and body["time_left_sec"] > 0
 
 
+def test_leaderboard_week_left_uses_user_timezone(api, token, user):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone as djtz
+
+    body = api.get("/leaderboard?scope=league", token=token).json()
+    local = djtz.now().astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+    next_monday = (local + timedelta(days=7 - local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    expected = int((next_monday - local).total_seconds())
+    assert abs(body["time_left_sec"] - expected) < 5
+
+
 def test_leaderboard_global_all_time(api, token, user):
     from apps.accounts.services import ensure_profile
 
