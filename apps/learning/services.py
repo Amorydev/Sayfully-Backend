@@ -74,6 +74,29 @@ def regen_hearts(profile: UserProfile) -> None:
     profile.save(update_fields=["hearts", "hearts_updated_at"])
 
 
+def hearts_next_at(profile: UserProfile):
+    """Mốc hồi tim kế tiếp; None khi đã đầy. Gọi sau `regen_hearts`."""
+    if profile.hearts >= HEARTS_MAX:
+        return None
+    return profile.hearts_updated_at + timedelta(minutes=HEART_REGEN_MINUTES)
+
+
+def lose_heart(profile: UserProfile) -> bool:
+    """Trừ 1 tim khi thua ván mini-game (hết 3 mạng). Trả False nếu đã 0 tim.
+
+    Khi đang đầy, `hearts_updated_at` chỉ là mốc vô nghĩa nên đặt lại = now để đồng hồ
+    hồi tim bắt đầu chạy từ lúc mất tim đầu tiên.
+    """
+    regen_hearts(profile)
+    if profile.hearts <= 0:
+        return False
+    if profile.hearts >= HEARTS_MAX:
+        profile.hearts_updated_at = djtz.now()
+    profile.hearts -= 1
+    profile.save(update_fields=["hearts", "hearts_updated_at"])
+    return True
+
+
 @dataclass
 class RewardResult:
     xp_earned: int

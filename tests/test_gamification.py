@@ -283,6 +283,44 @@ def test_submit_score_game_khong_ton_tai_404(api, token, user):
     assert api.post("/games/nope/scores", {"score": 100}, token=token).status_code == 404
 
 
+def _profile(user):
+    from apps.accounts.services import ensure_profile
+
+    return ensure_profile(user)
+
+
+def test_game_lost_round_costs_one_heart(api, token, user):
+    _game()
+    assert _profile(user).hearts == 5
+    body = api.post("/games/word_rain/scores", {"score": 120, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is True and body["hearts"] == 4 and body["hearts_max"] == 5
+    assert body["hearts_next_at"] is not None
+    # Thắng ván không mất tim; payload cũ (không có `cleared`) cũng coi là thắng.
+    body = api.post("/games/word_rain/scores", {"score": 900}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 4
+    wallet = api.get("/shop/wallet", token=token).json()
+    assert wallet["hearts"] == 4 and wallet["hearts_next_at"] is not None
+
+
+def test_game_lost_round_at_zero_hearts_stays_zero(api, token, user):
+    _game()
+    p = _profile(user)
+    p.hearts = 0
+    p.save(update_fields=["hearts"])
+    body = api.post("/games/word_rain/scores", {"score": 50, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 0
+
+
+def test_premium_never_loses_hearts(api, token, user):
+    _game()
+    p = _profile(user)
+    p.is_premium = True
+    p.premium_until = None
+    p.save(update_fields=["is_premium", "premium_until"])
+    body = api.post("/games/word_rain/scores", {"score": 50, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 5 and body["hearts_next_at"] is None
+
+
 def test_game_leaderboard(api, token, user):
     from apps.gamification.models import GameScore
 

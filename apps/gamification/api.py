@@ -358,6 +358,7 @@ def _wallet_out(user, profile) -> s.WalletOut:
         coins=profile.coins,
         hearts=profile.hearts,
         hearts_max=learn.HEARTS_MAX,
+        hearts_next_at=learn.hearts_next_at(profile),
         streak_freezes=profile.streak_freezes,
         streak_current=profile.streak_current,
         xp_boost_until=profile.xp_boost_until if shop.xp_boost_active(profile, now) else None,
@@ -638,7 +639,8 @@ def games(request):
     "/games/{code}/scores",
     response={200: s.GameScoreResultOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
     summary="Nộp điểm ván chơi",
-    description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile.",
+    description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile. "
+    "`cleared=false` (thua ván) trừ 1 tim hồ sơ — Premium được miễn; trả `hearts` sau ván.",
 )
 def submit_score(request, code: str, payload: s.GameScoreIn):
 
@@ -667,6 +669,11 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
             _record_stage(
                 user, game, payload.level, payload.stage_index, payload.score, payload.accuracy
             )
+        heart_lost = False
+        if not payload.cleared and not shop.premium_active(profile):
+            heart_lost = learn.lose_heart(profile)
+        else:
+            learn.regen_hearts(profile)
     total = GameScore.objects.filter(game=game).count()
     below = GameScore.objects.filter(game=game, score__lt=payload.score).count()
     return s.GameScoreResultOut(
@@ -676,6 +683,10 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
         is_record=payload.score > prev_best,
         personal_best=max(prev_best, payload.score),
         percentile=round(below / total * 100) if total else 0,
+        heart_lost=heart_lost,
+        hearts=profile.hearts,
+        hearts_max=learn.HEARTS_MAX,
+        hearts_next_at=learn.hearts_next_at(profile),
     )
 
 

@@ -108,6 +108,8 @@ class WalletOut(Schema):
     coins: int
     hearts: int
     hearts_max: int
+    # Mốc hồi tim kế tiếp; None khi đầy.
+    hearts_next_at: datetime | None = None
     streak_freezes: int
     streak_current: int
     xp_boost_until: datetime | None = None
@@ -178,6 +180,8 @@ class GameScoreIn(Schema):
     level: str | None = None
     stage_index: int | None = None
     accuracy: float = 0
+    # False = thua ván (hết 3 mạng) → trừ 1 tim hồ sơ, trừ Premium.
+    cleared: bool = True
 
 
 class GameStageOut(Schema):
@@ -205,6 +209,11 @@ class GameScoreResultOut(Schema):
     is_record: bool
     personal_best: int
     percentile: int
+    # Tim hồ sơ sau ván: client khoá "Chơi lại" khi hearts == 0.
+    heart_lost: bool = False
+    hearts: int = 0
+    hearts_max: int = 0
+    hearts_next_at: datetime | None = None
 
 
 # --------------------------------------------------------------- notifications + devices (C46)
