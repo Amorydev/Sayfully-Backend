@@ -47,11 +47,14 @@ class LeaderboardEntryOut(Schema):
 
 class LeaderboardOut(Schema):
     scope: str
+    period: str = "week"
     tier: str
     time_left_sec: int
     promote_top: int
     safe_top: int
     my_rank: int
+    # XP của tôi theo period — để hiện thanh "Bạn" kể cả khi ngoài top 50.
+    my_xp: int = 0
     xp_to_promote: int
     entries: list[LeaderboardEntryOut]
 

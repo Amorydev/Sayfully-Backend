@@ -136,6 +136,18 @@ def test_leaderboard_league(api, token, user):
     assert body["promote_top"] == 5 and body["time_left_sec"] > 0
 
 
+def test_leaderboard_global_all_time(api, token, user):
+    from apps.accounts.services import ensure_profile
+
+    p = ensure_profile(user)
+    p.xp_total = 1234
+    p.save(update_fields=["xp_total"])
+    body = api.get("/leaderboard?scope=global&period=all", token=token).json()
+    assert body["scope"] == "global" and body["period"] == "all"
+    assert body["my_rank"] == 1 and body["my_xp"] == 1234
+    assert body["entries"][0]["xp_week"] == 1234 and body["entries"][0]["is_me"] is True
+
+
 def test_leaderboard_me(api, token, user):
     _weekly(user, 100)
     body = api.get("/leaderboard/me", token=token).json()

@@ -15,7 +15,7 @@ from django.db.models import Max
 from django.utils import timezone as djtz
 from ninja import Header, Query, Router
 
-from apps.accounts.models import User
+from apps.accounts.models import User, UserProfile
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import AppError, Conflict, NotFound
 from apps.common.models import CEFR
@@ -222,12 +222,35 @@ def _league_ranking(user):
     "/leaderboard",
     response={200: s.LeaderboardOut, 401: ErrorOut},
     summary="Bảng xếp hạng",
-    description="`scope=league` (liên đoàn ~30 người) hoặc `global` (toàn cầu tuần này).",
+    description="`scope=league` (liên đoàn ~30 người) hoặc `global`; `period=week` (mặc định) hoặc `all` (mọi thời đại, chỉ với scope=global).",
 )
 def leaderboard(request, scope: str = "league", period: str = "week"):
     user = request.auth
-    ensure_profile(user)
+    profile = ensure_profile(user)
     now = djtz.now()
+    if scope == "global" and period == "all":
+        rows = (
+            UserProfile.objects.filter(xp_total__gt=0)
+            .select_related("user")
+            .order_by("-xp_total", "user_id")[:50]
+        )
+        entries, my_rank = [], 0
+        for i, prof in enumerate(rows):
+            entries.append(_entry(i + 1, prof.user, prof, prof.xp_total, user.id))
+            if prof.user_id == user.id:
+                my_rank = i + 1
+        return s.LeaderboardOut(
+            scope="global",
+            period="all",
+            tier="",
+            time_left_sec=0,
+            promote_top=0,
+            safe_top=0,
+            my_rank=my_rank,
+            my_xp=profile.xp_total,
+            xp_to_promote=0,
+            entries=entries,
+        )
     if scope == "global":
         y, w = services.current_week()
         rows = (
@@ -241,6 +264,12 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
             entries.append(_entry(i + 1, ws.user, prof, ws.xp, user.id))
             if ws.user_id == user.id:
                 my_rank = i + 1
+        my_xp = (
+            WeeklyStat.objects.filter(iso_year=y, iso_week=w, user=user)
+            .values_list("xp", flat=True)
+            .first()
+            or 0
+        )
         return s.LeaderboardOut(
             scope="global",
             tier="",
@@ -248,11 +277,12 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
             promote_top=0,
             safe_top=0,
             my_rank=my_rank,
+            my_xp=my_xp,
             xp_to_promote=0,
             entries=entries,
         )
 
-    group, ranked, xp_map, my_rank, _, xp_to_promote = _league_ranking(user)
+    group, ranked, xp_map, my_rank, my_xp, xp_to_promote = _league_ranking(user)
     entries = [
         _entry(
             i + 1, mm.user, getattr(mm.user, "profile", None), xp_map.get(mm.user_id, 0), user.id
@@ -266,6 +296,7 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
         promote_top=5,
         safe_top=20,
         my_rank=my_rank,
+        my_xp=my_xp,
         xp_to_promote=xp_to_promote,
         entries=entries,
     )
