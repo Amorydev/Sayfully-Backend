@@ -1043,6 +1043,7 @@ def _ipa_tile(snd: m.IPASound, prog: IPASoundProgress | None) -> s.IPASoundOut:
         category_vi=snd.category_vi,
         description_vi=snd.description_vi,
         sample_word=(snd.sample_words or [""])[0],
+        sample_meaning_vi=((snd.examples or [{}])[0]).get("meaning_vi", ""),
         mastered=bool(prog and prog.mastered_at),
         best_score=prog.best_score if prog else 0,
         audio_uk_url=_media(snd.audio_uk_path),

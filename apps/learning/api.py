@@ -335,7 +335,7 @@ def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
             code="ipa",
             title_vi=f"Bảng {ipa_sounds} âm IPA chuẩn",
             description_vi="Khẩu hình miệng 3D và sóng âm mẫu",
-            action="coming_soon",
+            action="ipa",
             item_count=ipa_sounds,
         ),
         s.HomeLearningToolOut(

@@ -492,6 +492,7 @@ class IPASoundOut(Schema):
     category_vi: str
     description_vi: str
     sample_word: str  # từ mẫu ngắn hiện dưới ký hiệu
+    sample_meaning_vi: str = ""
     mastered: bool
     best_score: int
     audio_uk_url: str | None
