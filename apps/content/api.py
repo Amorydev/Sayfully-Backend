@@ -6,11 +6,13 @@ Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Cấp có `is_fr
 
 from django.conf import settings
 from django.db.models import Count, Q
+from django.utils import timezone
 from ninja import Query, Router
 
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
+from apps.learning.models import IPASoundProgress
 
 from . import models as m
 from . import schemas as s
@@ -214,7 +216,9 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         p = step.payload or {}
         v = step.vocabulary
         audio_path = (
-            (v.audio_us_path if accent == "US" else v.audio_uk_path) if v else p.get("audio_path", "")
+            (v.audio_us_path if accent == "US" else v.audio_uk_path)
+            if v
+            else p.get("audio_path", "")
         )
         out.spelling = s.SpellingStepOut(
             vocab_id=step.vocabulary_id,
@@ -426,10 +430,7 @@ def list_vocabulary(
         ).values_list("vocabulary_id", "id")
     )
     return s.Page(
-        items=[
-            _vocab_list(v, profile.accent, notebook_entries.get(v.id))
-            for v in items
-        ],
+        items=[_vocab_list(v, profile.accent, notebook_entries.get(v.id)) for v in items],
         count=count,
         limit=limit,
         offset=offset,
@@ -453,14 +454,20 @@ def get_vocabulary(request, id: int):
         raise NotFound(_NOTFOUND)
     from apps.learning.models import NotebookEntry
 
-    notebook_entry_id = NotebookEntry.objects.filter(
-        user=request.auth,
-        vocabulary=v,
-    ).values_list("id", flat=True).first()
+    notebook_entry_id = (
+        NotebookEntry.objects.filter(
+            user=request.auth,
+            vocabulary=v,
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
     named_words = set(v.synonyms or []) | set(v.antonyms or [])
     related = {
         word.headword.casefold(): word
-        for word in m.Vocabulary.objects.filter(headword__in=named_words).order_by("frequency_rank", "id")
+        for word in m.Vocabulary.objects.filter(headword__in=named_words).order_by(
+            "frequency_rank", "id"
+        )
     }
     return _vocab_detail(v, profile.accent, notebook_entry_id, related)
 
@@ -1002,31 +1009,199 @@ def list_phrasal_verbs(
     )
 
 
+_IPA_GROUPS = [
+    ("vowel", m.IPASound.Group.MONOPHTHONG),
+    ("vowel", m.IPASound.Group.DIPHTHONG),
+    ("consonant", m.IPASound.Group.VOICELESS),
+    ("consonant", m.IPASound.Group.VOICED),
+    ("consonant", m.IPASound.Group.NASAL_APPROX),
+]
+
+
+def _ipa_progress_map(user) -> dict[int, IPASoundProgress]:
+    return {p.sound_id: p for p in IPASoundProgress.objects.filter(user=user)}
+
+
+def _ipa_word_audio(word: str) -> tuple[str | None, str | None]:
+    """Audio từ mẫu lấy từ kho từ vựng nếu có (khớp headword)."""
+    v = (
+        m.Vocabulary.objects.filter(headword__iexact=word)
+        .only("audio_uk_path", "audio_us_path")
+        .first()
+    )
+    if v is None:
+        return None, None
+    return _media(v.audio_uk_path), _media(v.audio_us_path)
+
+
+def _ipa_tile(snd: m.IPASound, prog: IPASoundProgress | None) -> s.IPASoundOut:
+    return s.IPASoundOut(
+        id=snd.id,
+        symbol=snd.symbol,
+        kind=snd.kind,
+        group=snd.group,
+        category_vi=snd.category_vi,
+        description_vi=snd.description_vi,
+        sample_word=(snd.sample_words or [""])[0],
+        mastered=bool(prog and prog.mastered_at),
+        best_score=prog.best_score if prog else 0,
+        audio_uk_url=_media(snd.audio_uk_path),
+        audio_us_url=_media(snd.audio_us_path),
+    )
+
+
 @router.get(
     "/ipa-sounds",
-    response={200: list[s.IPASoundOut], 401: ErrorOut},
+    response={200: s.IPABoardOut, 401: ErrorOut},
     summary="Bảng âm IPA",
-    description="Lọc theo `kind` (vowel / consonant). Kèm khẩu hình và từ mẫu.",
+    description=(
+        "44 âm chia nhóm (nguyên âm đơn/đôi, phụ âm vô thanh/hữu thanh, mũi & bán nguyên âm) "
+        "kèm tiến độ thuần thục của người dùng. Lọc `kind` = vowel | consonant."
+    ),
 )
 def list_ipa_sounds(request, kind: str | None = None):
     qs = m.IPASound.objects.all()
     if kind:
         qs = qs.filter(kind=kind)
-    return [
-        s.IPASoundOut(
-            id=snd.id,
-            symbol=snd.symbol,
-            kind=snd.kind,
-            description_vi=snd.description_vi,
-            articulation_vi=snd.articulation_vi,
-            mouth_image_url=_media(snd.mouth_image_path),
-            sample_words=snd.sample_words or [],
-            minimal_pair=snd.minimal_pair or {},
-            audio_uk_url=_media(snd.audio_uk_path),
-            audio_us_url=_media(snd.audio_us_path),
+    sounds = list(qs.order_by("order"))
+    progress = _ipa_progress_map(request.auth)
+    groups = []
+    for group_kind, group in _IPA_GROUPS:
+        if kind and group_kind != kind:
+            continue
+        members = [snd for snd in sounds if snd.group == group]
+        if members:
+            groups.append(
+                s.IPAGroupOut(
+                    code=group.value,
+                    title_vi=group.label,
+                    sounds=[_ipa_tile(snd, progress.get(snd.id)) for snd in members],
+                )
+            )
+    all_total = m.IPASound.objects.count()
+    return s.IPABoardOut(
+        total=all_total,
+        mastered=sum(1 for p in progress.values() if p.mastered_at),
+        groups=groups,
+    )
+
+
+@router.get(
+    "/ipa-sounds/{sound_id}",
+    response={200: s.IPASoundDetailOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Chi tiết một âm IPA",
+    description="Khẩu hình (môi/lưỡi + mô tả), ví dụ kèm IPA & nghĩa, cặp âm tối thiểu, mẹo, tiến độ.",
+)
+def get_ipa_sound(request, sound_id: int):
+    snd = m.IPASound.objects.filter(id=sound_id).first()
+    if snd is None:
+        raise NotFound("Không tìm thấy âm")
+    prog = IPASoundProgress.objects.filter(user=request.auth, sound=snd).first()
+
+    examples = []
+    for ex in snd.examples or []:
+        uk, us = _ipa_word_audio(ex.get("word", ""))
+        examples.append(
+            s.IPAExampleOut(
+                word=ex.get("word", ""),
+                ipa=ex.get("ipa", ""),
+                meaning_vi=ex.get("meaning_vi", ""),
+                audio_uk_url=uk,
+                audio_us_url=us,
+            )
         )
-        for snd in qs.order_by("kind", "order")
-    ]
+
+    pair = None
+    mp = snd.minimal_pair or {}
+    if mp.get("other") and len(mp.get("words") or []) == 2:
+        other = m.IPASound.objects.filter(symbol=mp["other"]).first()
+        this_word, other_word = mp["words"]
+        t_uk, t_us = _ipa_word_audio(this_word)
+        o_uk, o_us = _ipa_word_audio(other_word)
+        pair = s.IPAMinimalPairOut(
+            hint_vi=_pair_hint(snd, other),
+            this=s.IPAPairSideOut(
+                id=snd.id,
+                symbol=snd.symbol,
+                category_vi=snd.category_vi,
+                word=this_word,
+                audio_uk_url=t_uk,
+                audio_us_url=t_us,
+            ),
+            other=s.IPAPairSideOut(
+                id=other.id if other else None,
+                symbol=mp["other"],
+                category_vi=other.category_vi if other else "",
+                word=other_word,
+                audio_uk_url=o_uk,
+                audio_us_url=o_us,
+            ),
+        )
+
+    return s.IPASoundDetailOut(
+        id=snd.id,
+        symbol=snd.symbol,
+        kind=snd.kind,
+        group=snd.group,
+        category_vi=snd.category_vi,
+        category_en=snd.category_en,
+        description_vi=snd.description_vi,
+        articulation_vi=snd.articulation_vi,
+        lips_vi=snd.lips_vi,
+        tongue_vi=snd.tongue_vi,
+        tip_vi=snd.tip_vi,
+        mouth_image_url=_media(snd.mouth_image_path),
+        audio_uk_url=_media(snd.audio_uk_path),
+        audio_us_url=_media(snd.audio_us_path),
+        examples=examples,
+        minimal_pair=pair,
+        mastered=bool(prog and prog.mastered_at),
+        best_score=prog.best_score if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+def _pair_hint(a: m.IPASound, b: m.IPASound | None) -> str:
+    if b is None:
+        return "So sánh hai âm dễ nhầm"
+    if a.kind == "vowel":
+        return "So sánh độ dài & độ mở vòm miệng"
+    if {a.group, b.group} == {"voiceless", "voiced"}:
+        return "Khác nhau ở rung thanh quản"
+    return "Nghe kỹ vị trí lưỡi & luồng hơi"
+
+
+@router.post(
+    "/ipa-sounds/{sound_id}/practice",
+    response={200: s.IPAPracticeOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Ghi điểm luyện một âm",
+    description=(
+        "App chấm phát âm từ mẫu (0–100) rồi gửi lên. Điểm tốt nhất ≥ 80 → âm được đánh dấu "
+        "thuần thục (tính vào tiến độ x/44)."
+    ),
+)
+def practice_ipa_sound(request, sound_id: int, data: s.IPAPracticeIn):
+    snd = m.IPASound.objects.filter(id=sound_id).first()
+    if snd is None:
+        raise NotFound("Không tìm thấy âm")
+    prog, _ = IPASoundProgress.objects.get_or_create(user=request.auth, sound=snd)
+    prog.attempts += 1
+    prog.best_score = max(prog.best_score, data.score)
+    newly = False
+    if prog.best_score >= IPASoundProgress.MASTERY_SCORE and prog.mastered_at is None:
+        prog.mastered_at = timezone.now()
+        newly = True
+    prog.save()
+    return s.IPAPracticeOut(
+        best_score=prog.best_score,
+        attempts=prog.attempts,
+        mastered=prog.mastered_at is not None,
+        newly_mastered=newly,
+        total_mastered=IPASoundProgress.objects.filter(
+            user=request.auth, mastered_at__isnull=False
+        ).count(),
+        total=m.IPASound.objects.count(),
+    )
 
 
 # =============================================================== 2.7 Bundle manifest (G5)

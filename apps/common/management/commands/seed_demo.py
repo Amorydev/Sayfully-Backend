@@ -19,13 +19,13 @@ from apps.accounts.services import ensure_profile
 from apps.ai.models import RoleplayScenario
 from apps.billing.models import GiftCode, Product
 from apps.common.models import LearningGoal
+from apps.content.management.commands.seed_ipa import seed_ipa_sounds
 from apps.content.models import (
     Collocation,
     Dialogue,
     DialogueLine,
     GrammarExample,
     GrammarPoint,
-    IPASound,
     Lesson,
     LessonStep,
     Level,
@@ -611,13 +611,7 @@ class Command(BaseCommand):
                       "explanation_vi": "Rời giường sau khi ngủ.", "level": a1,
                       "examples": [{"en": "I get up at 6.", "vi": "Tôi dậy lúc 6 giờ.", "audio_path": ""}]},
         )
-        IPASound.objects.update_or_create(
-            symbol="iː",
-            defaults={"kind": "vowel", "description_vi": "Nguyên âm dài",
-                      "articulation_vi": "Môi dẹt, hai khoé miệng bè rộng như mỉm cười.",
-                      "sample_words": ["sheep", "see", "tea"],
-                      "minimal_pair": {"other": "ɪ", "words": ["sheep", "ship"]}},
-        )
+        seed_ipa_sounds()  # 44 âm IPA (C43)
 
         # Game hoá
         for code, scope, metric, title, target, rx, rc in [

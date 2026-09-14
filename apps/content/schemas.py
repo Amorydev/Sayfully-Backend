@@ -5,7 +5,7 @@ Quy ước: `audio_url` là URL đầy đủ (ghép R2_PUBLIC_BASE ở tầng bu
 người dùng thuộc G4.
 """
 
-from ninja import Schema
+from ninja import Field, Schema
 
 
 class Page[T](Schema):
@@ -474,17 +474,90 @@ class PhrasalVerbOut(Schema):
     examples: list[dict]
 
 
+class IPAExampleOut(Schema):
+    word: str
+    ipa: str
+    meaning_vi: str
+    audio_uk_url: str | None = None
+    audio_us_url: str | None = None
+
+
 class IPASoundOut(Schema):
+    """Một ô trên bảng âm."""
+
     id: int
     symbol: str
     kind: str
+    group: str  # monophthong | diphthong | voiceless | voiced | nasal_approx
+    category_vi: str
     description_vi: str
-    articulation_vi: str
-    mouth_image_url: str | None
-    sample_words: list[str]
-    minimal_pair: dict
+    sample_word: str  # từ mẫu ngắn hiện dưới ký hiệu
+    mastered: bool
+    best_score: int
     audio_uk_url: str | None
     audio_us_url: str | None
+
+
+class IPAGroupOut(Schema):
+    code: str
+    title_vi: str
+    sounds: list[IPASoundOut]
+
+
+class IPABoardOut(Schema):
+    total: int
+    mastered: int
+    groups: list[IPAGroupOut]
+
+
+class IPAPairSideOut(Schema):
+    id: int | None
+    symbol: str
+    category_vi: str
+    word: str
+    audio_uk_url: str | None = None
+    audio_us_url: str | None = None
+
+
+class IPAMinimalPairOut(Schema):
+    hint_vi: str
+    this: IPAPairSideOut
+    other: IPAPairSideOut
+
+
+class IPASoundDetailOut(Schema):
+    id: int
+    symbol: str
+    kind: str
+    group: str
+    category_vi: str
+    category_en: str
+    description_vi: str
+    articulation_vi: str
+    lips_vi: str
+    tongue_vi: str
+    tip_vi: str
+    mouth_image_url: str | None
+    audio_uk_url: str | None
+    audio_us_url: str | None
+    examples: list[IPAExampleOut]
+    minimal_pair: IPAMinimalPairOut | None
+    mastered: bool
+    best_score: int
+    attempts: int
+
+
+class IPAPracticeIn(Schema):
+    score: int = Field(..., ge=0, le=100)
+
+
+class IPAPracticeOut(Schema):
+    best_score: int
+    attempts: int
+    mastered: bool
+    newly_mastered: bool
+    total_mastered: int
+    total: int
 
 
 # --------------------------------------------------------------- 2.7 Bundle manifest (G5)

@@ -4,6 +4,7 @@ from django.db.models import Q
 from apps.accounts.models import User
 from apps.common.models import CEFR
 from apps.content.models import (
+    IPASound,
     Lesson,
     ListeningTopic,
     Reading,
@@ -184,6 +185,27 @@ class UserSkill(models.Model):
         return f"{self.user_id} · {self.kind} · Lv{self.level}"
 
 
+class IPASoundProgress(models.Model):
+    """Tiến độ luyện từng âm IPA (C43). Thuần thục khi điểm tốt nhất ≥ MASTERY_SCORE."""
+
+    MASTERY_SCORE = 80
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ipa_progress")
+    sound = models.ForeignKey(IPASound, on_delete=models.CASCADE, related_name="progress")
+    best_score = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    mastered_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "sound"], name="uniq_user_ipa_sound")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · /{self.sound.symbol}/ · {self.best_score}"
+
+
 class PlacementQuestion(models.Model):
     """Bài kiểm tra xếp lớp 3 phút (C23) — ~12 câu, không thuộc đề thi nào."""
 
@@ -226,12 +248,8 @@ class PlacementAttempt(models.Model):
 class SpeakingTopicProgress(models.Model):
     """Tiến độ luyện nói theo chủ đề (mỗi ShadowingDeck = 1 chủ đề) — hiển thị 'x/y' ở C8a."""
 
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="speaking_topic_progress"
-    )
-    deck = models.ForeignKey(
-        ShadowingDeck, on_delete=models.CASCADE, related_name="topic_progress"
-    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="speaking_topic_progress")
+    deck = models.ForeignKey(ShadowingDeck, on_delete=models.CASCADE, related_name="topic_progress")
     done_count = models.PositiveSmallIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 

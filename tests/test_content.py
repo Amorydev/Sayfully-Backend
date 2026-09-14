@@ -6,7 +6,6 @@ from apps.content.models import (
     Collocation,
     GrammarExample,
     GrammarPoint,
-    IPASound,
     Lesson,
     LessonStep,
     Level,
@@ -311,8 +310,13 @@ def test_shadowing_list_detail(api, token, levels):
     a1, _ = levels
     dk = ShadowingDeck.objects.create(level=a1, order=1, title_en="Apple", focus_vi="Âm /æ/")
     ShadowingSentence.objects.create(
-        deck=dk, order=0, text_en="A red apple.", text_vi="Quả táo đỏ.", ipa="/æ/",
-        speaking_goal_vi="Nhấn rõ âm /æ/", highlights=[{"text": "apple", "kind": "primary_stress"}],
+        deck=dk,
+        order=0,
+        text_en="A red apple.",
+        text_vi="Quả táo đỏ.",
+        ipa="/æ/",
+        speaking_goal_vi="Nhấn rõ âm /æ/",
+        highlights=[{"text": "apple", "kind": "primary_stress"}],
     )
     assert (
         api.get("/content/shadowing?level=A1", token=token).json()["items"][0]["sentence_count"]
@@ -342,12 +346,49 @@ def test_roots_va_phrasal_ipa(api, token, levels, vocab):
 
 
 def test_ipa_sounds(api, token):
-    IPASound.objects.create(
-        symbol="iː",
-        kind="vowel",
-        description_vi="Nguyên âm dài",
-        articulation_vi="Môi dẹt",
-        sample_words=["sheep"],
+    from apps.content.management.commands.seed_ipa import seed_ipa_sounds
+
+    assert seed_ipa_sounds() == 44
+    body = api.get("/content/ipa-sounds", token=token).json()
+    assert body["total"] == 44 and body["mastered"] == 0
+    assert [g["code"] for g in body["groups"]] == [
+        "monophthong",
+        "diphthong",
+        "voiceless",
+        "voiced",
+        "nasal_approx",
+    ]
+    assert sum(len(g["sounds"]) for g in body["groups"]) == 44
+    first = body["groups"][0]["sounds"][0]
+    assert (
+        first["symbol"] == "iː" and first["sample_word"] == "sheep" and first["mastered"] is False
     )
-    body = api.get("/content/ipa-sounds?kind=vowel", token=token).json()
-    assert body[0]["symbol"] == "iː" and body[0]["articulation_vi"] == "Môi dẹt"
+
+    vowels = api.get("/content/ipa-sounds?kind=vowel", token=token).json()
+    assert [g["code"] for g in vowels["groups"]] == ["monophthong", "diphthong"]
+    assert vowels["total"] == 44  # tổng luôn là cả bảng để tính x/44
+
+    detail = api.get(f"/content/ipa-sounds/{first['id']}", token=token).json()
+    assert detail["category_en"] == "Long Vowel" and detail["lips_vi"] == "Bè dẹt"
+    assert detail["examples"][0] == {
+        "word": "sheep",
+        "ipa": "/ʃiːp/",
+        "meaning_vi": "con cừu",
+        "audio_uk_url": None,
+        "audio_us_url": None,
+    }
+    pair = detail["minimal_pair"]
+    assert pair["this"]["word"] == "sheep" and pair["other"]["symbol"] == "ɪ"
+    assert pair["other"]["category_vi"] == "Nguyên âm ngắn" and pair["other"]["id"]
+
+    # luyện: 60 chưa thuần thục, 85 → thuần thục, gọi lại không tính lại
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 60}, token=token).json()
+    assert r["mastered"] is False and r["attempts"] == 1 and r["total_mastered"] == 0
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 85}, token=token).json()
+    assert r["mastered"] is True and r["newly_mastered"] is True and r["total_mastered"] == 1
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 50}, token=token).json()
+    assert r["best_score"] == 85 and r["newly_mastered"] is False and r["attempts"] == 3
+
+    body = api.get("/content/ipa-sounds", token=token).json()
+    assert body["mastered"] == 1 and body["groups"][0]["sounds"][0]["mastered"] is True
+    assert api.get("/content/ipa-sounds/999999", token=token).status_code == 404

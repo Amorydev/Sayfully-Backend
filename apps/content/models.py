@@ -444,12 +444,26 @@ class IPASound(models.Model):
         VOWEL = "vowel", "Nguyên âm"
         CONSONANT = "consonant", "Phụ âm"
 
+    class Group(models.TextChoices):
+        MONOPHTHONG = "monophthong", "Nguyên âm đơn"
+        DIPHTHONG = "diphthong", "Nguyên âm đôi"
+        VOICELESS = "voiceless", "Phụ âm vô thanh"
+        VOICED = "voiced", "Phụ âm hữu thanh"
+        NASAL_APPROX = "nasal_approx", "Âm mũi & bán nguyên âm"
+
     symbol = models.CharField(max_length=8, unique=True)  # "iː"
     kind = models.CharField(max_length=10, choices=Kind.choices)
+    group = models.CharField(max_length=16, choices=Group.choices, default=Group.MONOPHTHONG)
+    category_vi = models.CharField(max_length=64, blank=True)  # "Nguyên âm dài"
+    category_en = models.CharField(max_length=64, blank=True)  # "Long Vowel"
     description_vi = models.CharField(max_length=255)
     articulation_vi = models.TextField(blank=True)  # khẩu hình chi tiết: môi/lưỡi/hơi
+    lips_vi = models.CharField(max_length=64, blank=True)  # "Bè dẹt"
+    tongue_vi = models.CharField(max_length=64, blank=True)  # "Hơi nâng cao"
+    tip_vi = models.CharField(max_length=255, blank=True)  # Mẹo từ Bé Rồng
     mouth_image_path = models.CharField(max_length=255, blank=True)
-    sample_words = models.JSONField(default=list)  # ["sheep","see","tea"]
+    sample_words = models.JSONField(default=list)  # ["sheep","see","tea"] (từ mẫu ngắn cho ô bảng)
+    examples = models.JSONField(default=list)  # [{"word":"sheep","ipa":"/ʃiːp/","meaning_vi":"con cừu"}]
     minimal_pair = models.JSONField(
         default=dict, blank=True
     )  # {"other":"ɪ","words":["sheep","ship"]}
