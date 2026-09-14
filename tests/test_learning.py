@@ -70,6 +70,12 @@ def test_home_mac_dinh(api, token, user):
     assert body["current_lesson"] is None
     assert body["daily_goal"]["words_target"] == 10
     assert body["games"] == []
+    assert body["checkin_done"] is False
+
+
+def test_home_bao_da_diem_danh(api, token, user):
+    api.post("/learn/checkin", token=token)
+    assert api.get("/home", token=token).json()["checkin_done"] is True
 
 
 def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
@@ -499,8 +505,10 @@ def test_checkin_idempotent(api, token, user, levels):
     r1 = api.post("/learn/checkin", token=token).json()
     assert r1["already"] is False and r1["xp_earned"] == 5 and r1["coins_earned"] == 10
     assert r1["streak_days"] == 1 and len(r1["week"]) == 7
+    assert r1["streak_before"] == 0 and r1["milestone"] is None
     r2 = api.post("/learn/checkin", token=token).json()
     assert r2["already"] is True and r2["xp_earned"] == 0
+    assert r2["streak_before"] == 1 and r2["streak_days"] == 1
     user.profile.refresh_from_db()
     assert user.profile.coins == 10 and user.profile.xp_total == 5  # không cộng đôi
 

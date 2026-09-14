@@ -213,6 +213,13 @@ def _week_progress(user, today) -> list[s.DayProgressOut]:
     return out
 
 
+def _checked_in_today(user, profile, today) -> bool:
+    start_today = datetime.combine(today, dtime.min, ZoneInfo(profile.timezone))
+    return CoinTransaction.objects.filter(
+        user=user, reason="checkin", created_at__gte=start_today
+    ).exists()
+
+
 def _milestone(user, streak: int) -> s.MilestoneOut | None:
     earned = set(UserBadge.objects.filter(user=user).values_list("badge_id", flat=True))
     best = None
@@ -432,6 +439,7 @@ def home(request):
     )
 
     return s.HomeOut(
+        checkin_done=_checked_in_today(user, profile, today),
         profile=s.HomeProfileOut(
             name=user.full_name,
             avatar_url=_media(user.avatar_path),
@@ -1178,27 +1186,27 @@ def checkin(request):
     user = request.auth
     profile = ensure_profile(user)
     today = services.local_today(profile)
-    tz = ZoneInfo(profile.timezone)
-    start_today = datetime.combine(today, dtime.min, tz)
 
-    already = CoinTransaction.objects.filter(
-        user=user, reason="checkin", created_at__gte=start_today
-    ).exists()
-    if already:
+    if _checked_in_today(user, profile, today):
         return s.CheckinOut(
             already=True,
             xp_earned=0,
             coins_earned=0,
+            streak_before=profile.streak_current,
             streak_days=profile.streak_current,
             week=_week_progress(user, today),
+            milestone=_milestone(user, profile.streak_current),
         )
+    streak_before = profile.streak_current
     reward = services.record(profile, xp=5, coins=10, coin_reason="checkin")
     return s.CheckinOut(
         already=False,
         xp_earned=reward.xp_earned,
         coins_earned=reward.coins_earned,
+        streak_before=streak_before,
         streak_days=reward.streak_days,
         week=_week_progress(user, today),
+        milestone=_milestone(user, reward.streak_days),
     )
 
 

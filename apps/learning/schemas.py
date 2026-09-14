@@ -87,6 +87,7 @@ class HomeLearningToolOut(Schema):
 
 
 class HomeOut(Schema):
+    checkin_done: bool = False  # đã điểm danh hôm nay → app không hiện dialog điểm danh
     profile: HomeProfileOut
     unread_notifications: int
     due_review_count: int
@@ -377,8 +378,10 @@ class CheckinOut(Schema):
     already: bool
     xp_earned: int
     coins_earned: int
+    streak_before: int  # streak trước khi điểm danh — app hiện "Ngày 12 → Ngày 13"
     streak_days: int
     week: list[DayProgressOut]
+    milestone: MilestoneOut | None = None  # cột mốc streak kế tiếp (badge metric=streak)
 
 
 class DailyActivityOut(Schema):
