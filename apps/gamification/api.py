@@ -771,7 +771,13 @@ def game_leaderboard(request, code: str, period: str = "week"):
     now = djtz.now()
     qs = GameScore.objects.filter(game=game)
     if period == "week":
-        qs = qs.filter(played_at__gte=now - timedelta(days=now.weekday()))
+        # Từ 0:00 thứ Hai theo múi giờ người dùng — không phải "now - weekday", vì vào thứ Hai
+        # mốc đó trùng thời điểm gọi và loại luôn điểm vừa ghi.
+        local = now.astimezone(ZoneInfo(profile.timezone))
+        week_start = (local - timedelta(days=local.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        qs = qs.filter(played_at__gte=week_start)
     # Khoá phụ `user_id` để hoà điểm không đảo thứ hạng giữa hai lần gọi: điểm Ghép cặp
     # chỉ có 12 giá trị nên hoà là chuyện thường.
     rows = list(
