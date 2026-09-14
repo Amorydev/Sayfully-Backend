@@ -59,6 +59,8 @@ def vocab(levels):
         audio_us_path="audio/us/beautiful.mp3",
         frequency_rank=100,
         synonyms=["lovely", "gorgeous"],
+        antonyms=["ugly"],
+        definition_vi="Đẹp hoặc làm người khác cảm thấy dễ chịu.",
     )
     VocabularyExample.objects.create(
         vocabulary=v, order=0, text_en="A beautiful voice.", text_vi="Một giọng hát đẹp."
@@ -183,6 +185,16 @@ def test_vocab_q_tim_theo_nghia(api, token, levels, vocab):
     assert api.get("/content/vocabulary?q=zzz", token=token).json()["count"] == 0
 
 
+def test_vocab_search_tra_trang_thai_da_luu(api, token, user, levels, vocab):
+    from apps.learning.models import NotebookEntry
+
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+    item = api.get("/content/vocabulary?q=beautiful", token=token).json()["items"][0]
+
+    assert item["is_saved"] is True
+    assert item["notebook_entry_id"] == entry.id
+
+
 def test_vocab_ipa_theo_accent(api, token, user, levels, vocab):
     api.get("/content/levels", token=token)  # ensure_profile (mặc định US)
     r_us = api.get(f"/content/vocabulary/{vocab.id}", token=token)
@@ -196,10 +208,34 @@ def test_vocab_ipa_theo_accent(api, token, user, levels, vocab):
 def test_vocab_detail_du_truong(api, token, levels, vocab):
     body = api.get(f"/content/vocabulary/{vocab.id}", token=token).json()
     assert body["synonyms"] == ["lovely", "gorgeous"]
+    assert body["antonyms"] == ["ugly"]
+    assert body["definition_vi"] == "Đẹp hoặc làm người khác cảm thấy dễ chịu."
     assert body["collocations"][0]["text_en"] == "beautiful day"
     assert body["examples"][0]["text_en"] == "A beautiful voice."
     assert len(body["syllables"]) == 3 and body["syllables"][0]["is_primary"] is True
     assert body["audio_us_url"].endswith("audio/us/beautiful.mp3")
+
+
+def test_vocab_detail_tra_metadata_tu_lien_quan_va_trang_thai_luu(api, token, user, levels, vocab):
+    from apps.learning.models import NotebookEntry
+
+    related = Vocabulary.objects.create(
+        headword="lovely", pos="adj", level=levels[0], meaning_vi="đáng yêu"
+    )
+    vocab.word_family.add(related)
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+
+    body = api.get(f"/content/vocabulary/{vocab.id}", token=token).json()
+
+    assert body["is_saved"] is True and body["notebook_entry_id"] == entry.id
+    assert body["synonym_items"][0] == {
+        "id": related.id,
+        "headword": "lovely",
+        "pos": "adj",
+        "meaning_vi": "đáng yêu",
+    }
+    assert body["antonym_items"][0]["headword"] == "ugly"
+    assert body["word_family_items"][0]["id"] == related.id
 
 
 def test_vocab_detail_404(api, token, levels):
@@ -251,6 +287,9 @@ def test_reading_detail_va_premium(api, token, levels, vocab):
     body = api.get(f"/content/readings/{r1.id}", token=token).json()
     assert body["sentences"][0]["ipa"] == "/aɪ/"
     assert body["keywords"][0]["headword"] == "beautiful"
+    assert body["keywords"][0]["level"] == "A1"
+    assert body["keywords"][0]["audio_url"].endswith("audio/us/beautiful.mp3")
+    assert body["topic"] is None and body["cover_url"] is None
 
     r2 = Reading.objects.create(level=a2, order=1, title_en="X", title_vi="Y")
     assert api.get(f"/content/readings/{r2.id}", token=token).status_code == 403
@@ -272,7 +311,8 @@ def test_shadowing_list_detail(api, token, levels):
     a1, _ = levels
     dk = ShadowingDeck.objects.create(level=a1, order=1, title_en="Apple", focus_vi="Âm /æ/")
     ShadowingSentence.objects.create(
-        deck=dk, order=0, text_en="A red apple.", text_vi="Quả táo đỏ.", ipa="/æ/"
+        deck=dk, order=0, text_en="A red apple.", text_vi="Quả táo đỏ.", ipa="/æ/",
+        speaking_goal_vi="Nhấn rõ âm /æ/", highlights=[{"text": "apple", "kind": "primary_stress"}],
     )
     assert (
         api.get("/content/shadowing?level=A1", token=token).json()["items"][0]["sentence_count"]
@@ -280,6 +320,8 @@ def test_shadowing_list_detail(api, token, levels):
     )
     body = api.get(f"/content/shadowing/{dk.id}", token=token).json()
     assert body["sentences"][0]["ipa"] == "/æ/"
+    assert body["sentences"][0]["speaking_goal_vi"] == "Nhấn rõ âm /æ/"
+    assert body["sentences"][0]["highlights"] == [{"text": "apple", "kind": "primary_stress"}]
 
 
 # --------------------------------------------------------------- tra cứu

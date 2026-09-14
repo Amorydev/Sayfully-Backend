@@ -64,12 +64,26 @@ class HomeRankOut(Schema):
     xp_week: int
 
 
+class HomeGameOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    description_vi: str
+    kind: str
+    icon_url: str | None
+    min_level: str
+    is_locked: bool
+    is_featured: bool
+    personal_best: int
+
+
 class HomeLearningToolOut(Schema):
     code: str
     title_vi: str
     description_vi: str
     action: Literal["coming_soon", "notebook", "dictionary", "video"]
     is_premium: bool = False
+    item_count: int | None = None
 
 
 class HomeOut(Schema):
@@ -80,6 +94,7 @@ class HomeOut(Schema):
     current_lesson: CurrentLessonOut | None
     challenges: HomeChallengesOut
     rank: HomeRankOut | None
+    games: list[HomeGameOut]
     learning_tools: list[HomeLearningToolOut]
 
 
@@ -326,7 +341,27 @@ class NotebookEntryOut(Schema):
     note: str
     tags: list[str]
     srs_state: int | None
+    mastery_percent: int
+    reps: int
+    lapses: int
+    due_at: datetime | None
     created_at: datetime
+
+
+class NotebookTagFacetOut(Schema):
+    tag: str
+    count: int
+
+
+class NotebookListOut(Schema):
+    items: list[NotebookEntryOut]
+    count: int
+    notebook_total: int
+    limit: int
+    offset: int
+    capacity: int
+    is_premium: bool
+    tag_facets: list[NotebookTagFacetOut]
 
 
 class NotebookCreateIn(Schema):
@@ -374,8 +409,14 @@ class PracticeResultOut(Schema):
 
 class SpeakingTopicOut(Schema):
     id: int
+    level: str
+    title_en: str
     title_vi: str
-    icon: str
+    phrase_preview: str
+    icon: str  # token dự phòng
+    icon_url: str | None  # ảnh icon để app render trực tiếp
+    background_url: str | None  # ảnh nền card; app dùng placeholder nếu trống/lỗi
+    color: str  # màu hex "#RRGGBB", rỗng nếu chưa đặt
     sentence_count: int
     est_minutes: int
     is_premium: bool
@@ -394,7 +435,9 @@ class SpeakingTopicsOut(Schema):
 class ListeningTopicOut(Schema):
     id: int
     title_vi: str
-    icon: str
+    icon: str  # token dự phòng
+    icon_url: str | None  # ảnh icon để app render trực tiếp
+    color: str  # màu hex "#RRGGBB"
     item_count: int  # tổng số câu của chủ đề
     est_minutes: int
     is_premium: bool
@@ -424,6 +467,70 @@ class ListeningItemsOut(Schema):
     mode: str  # "choose" | "dictation"
     total: int
     items: list[ListeningItemOut]
+
+
+# --------------------------------------------------------------- reading list (C10a)
+class ReadingCardProgressOut(Schema):
+    status: Literal["not_started", "in_progress", "completed"]
+    answered_count: int
+    correct_count: int
+    progress_percent: int
+    score_percent: int
+    xp_earned: int
+
+
+class ReadingListItemOut(Schema):
+    id: int
+    level: str
+    order: int
+    title_en: str
+    title_vi: str
+    topic_id: int | None
+    topic: str | None
+    est_minutes: int
+    cover_url: str | None
+    question_count: int
+    keyword_preview: list[str]
+    is_locked: bool
+    progress: ReadingCardProgressOut
+
+
+class ReadingTopicFacetOut(Schema):
+    topic_id: int
+    name_vi: str
+    count: int
+
+
+class ReadingListOverviewOut(Schema):
+    level: str
+    level_label: str
+    reading_streak_days: int
+    total: int
+    completed: int
+    in_progress: int
+    progress_percent: int
+
+
+class ReadingListPageOut(Schema):
+    items: list[ReadingListItemOut]
+    count: int
+    limit: int
+    offset: int
+    overview: ReadingListOverviewOut
+    topic_facets: list[ReadingTopicFacetOut]
+
+
+class ReadingProgressIn(Schema):
+    answered_count: int = Field(default=0, ge=0)
+    correct_count: int = Field(default=0, ge=0)
+    completed: bool = False
+    duration_sec: int = Field(default=0, ge=0)
+
+
+class ReadingProgressResultOut(Schema):
+    progress: ReadingCardProgressOut
+    xp_awarded: int
+    reading_streak_days: int
 
 
 class SkillProgressOut(Schema):
@@ -469,6 +576,7 @@ class ProfileOverviewOut(Schema):
     handle: str
     member_id: str
     avatar_url: str | None
+    avatar_frame_colors: list[str] = []
     date_joined: datetime
     is_active: bool
     is_premium: bool
@@ -576,7 +684,6 @@ class PreferencesOut(Schema):
     show_ipa: bool
     daily_goal_xp: int
     daily_goal_words: int
-    avatar_frame_colors: list[str] = []
     timezone: str
     ui_language: str
     reminder_enabled: bool
@@ -619,3 +726,69 @@ class PlacementResultOut(Schema):
     start_unit_code: str | None
     skill_scores: list[PlacementSkillScoreOut]
     days_saved: int
+
+
+# --------------------------------------------------------------- flashcard decks (C7a → C7)
+class FlashcardDeckOut(Schema):
+    """1 ô trong lưới thư viện. Đủ để vẽ card, chưa kèm thẻ."""
+
+    id: int
+    code: str
+    title_vi: str
+    cover_title: str
+    badge_vi: str
+    background_url: str | None
+    icon: str
+    accent_color: str
+    level: str | None
+    card_count: int
+    learner_count: int
+    is_premium: bool
+    learned_count: int  # thẻ đã thuộc của người dùng hiện tại (0 nếu chưa học)
+
+
+class FlashcardDeckCollectionOut(Schema):
+    code: str
+    title_vi: str
+    chip_label_vi: str
+    deck_count: int
+    decks: list[FlashcardDeckOut]
+
+
+class FlashcardDecksOut(Schema):
+    continuing: FlashcardDeckOut | None  # thẻ "Đang học" ở hero; null nếu chưa mở bộ nào
+    collections: list[FlashcardDeckCollectionOut]
+
+
+class FlashcardDeckCardOut(Schema):
+    """1 thẻ trong bộ. Cùng hình dạng `ReviewCardOut` để app dùng chung màn C7;
+    `due_at`/`state` rỗng với thẻ người dùng chưa từng ôn."""
+
+    vocab_id: int
+    headword: str
+    pos: str
+    level: str
+    ipa: str
+    syllables: list[SyllableOut]
+    meaning_vi: str
+    definition_en: str
+    audio_uk_url: str | None
+    audio_us_url: str | None
+    examples: list[ExampleOut]
+    collocations: list[CollocationOut]
+    word_family: list[str]
+    due_at: datetime | None = None
+    state: int = 0
+
+
+class FlashcardDeckDetailOut(Schema):
+    """Toàn bộ dữ liệu 1 bộ thẻ — gọi khi người dùng bấm vào ô."""
+
+    id: int
+    code: str
+    title_vi: str
+    background_url: str | None
+    level: str | None
+    total: int
+    learned_count: int
+    cards: list[FlashcardDeckCardOut]

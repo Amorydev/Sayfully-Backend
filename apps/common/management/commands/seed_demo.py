@@ -9,6 +9,7 @@ thử thách/huy hiệu/cửa hàng, gói Premium, câu xếp lớp, mã quà t�
 
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone as djtz
@@ -43,10 +44,15 @@ from apps.content.models import (
     Topic,
     Unit,
     Video,
+    VideoSubtitle,
     Vocabulary,
+    VocabularyDeck,
+    VocabularyDeckCollection,
+    VocabularyDeckItem,
     VocabularyExample,
     WordRoot,
 )
+from apps.content.video_transcript import load_subtitle_source, replace_video_subtitles
 from apps.gamification.models import (
     Badge,
     Challenge,
@@ -69,13 +75,29 @@ from apps.learning.services import local_today
 from apps.notifications.models import Notification
 
 
-def _vocab(headword, pos, level, meaning, ipa_uk, ipa_us, syl, ipa_syl, stress, examples, colloc):
+def _vocab(
+    headword,
+    pos,
+    level,
+    meaning,
+    ipa_uk,
+    ipa_us,
+    syl,
+    ipa_syl,
+    stress,
+    examples,
+    colloc,
+    definition_vi="",
+    synonyms=None,
+    antonyms=None,
+):
     v, _ = Vocabulary.objects.update_or_create(
         headword=headword,
         pos=pos,
         defaults={
             "level": level,
             "meaning_vi": meaning,
+            "definition_vi": definition_vi,
             "ipa_uk": ipa_uk,
             "ipa_us": ipa_us,
             "syllables": syl,
@@ -84,6 +106,8 @@ def _vocab(headword, pos, level, meaning, ipa_uk, ipa_us, syl, ipa_syl, stress, 
             "audio_uk_path": f"audio/uk/{headword}.mp3",
             "audio_us_path": f"audio/us/{headword}.mp3",
             "frequency_rank": 100,
+            "synonyms": synonyms or [],
+            "antonyms": antonyms or [],
         },
     )
     v.examples.all().delete()
@@ -110,7 +134,7 @@ class Command(BaseCommand):
             code="A2",
             defaults={"name_vi": "Sơ trung cấp", "tier_label": "Xây nền vững chắc",
                       "description_vi": "Câu ngắn", "order": 2,
-                      "word_target": 800, "is_free": False},
+                      "word_target": 800, "is_free": True},
         )
         higher_levels = [
             ("B1", "Trung cấp", "Giao tiếp tự tin", "Giao tiếp tự tin về các chủ đề quen thuộc", 3, 1200),
@@ -122,7 +146,7 @@ class Command(BaseCommand):
             Level.objects.update_or_create(
                 code=code,
                 defaults={"name_vi": name_vi, "tier_label": tier_label, "description_vi": desc_vi,
-                          "order": order, "word_target": word_target, "is_free": False},
+                          "order": order, "word_target": word_target, "is_free": True},
             )
 
         travel, _ = Topic.objects.update_or_create(
@@ -139,7 +163,10 @@ class Command(BaseCommand):
                            ["beau", "ti", "ful"], ["ˈbjuː", "tɪ", "fəl"], 0,
                            [("She has a beautiful voice.", "Cô ấy có một giọng hát rất đẹp."),
                             ("It was a beautiful sunny morning.", "Đó là một buổi sáng đầy nắng tuyệt đẹp.")],
-                           [("beautiful day", "ngày đẹp trời")])
+                           [("beautiful day", "ngày đẹp trời")],
+                           definition_vi="Có vẻ đẹp hoặc làm người khác cảm thấy dễ chịu.",
+                           synonyms=["lovely", "gorgeous"],
+                           antonyms=["ugly"])
         understand = _vocab("understand", "v", a1, "hiểu, thấu hiểu", "/ˌʌn.dəˈstænd/", "/ˌʌn.dɚˈstænd/",
                             ["un", "der", "stand"], ["ˌʌn", "dər", "ˈstænd"], 2,
                             [("I understand the lesson.", "Tôi hiểu bài học.")], [])
@@ -461,16 +488,99 @@ class Command(BaseCommand):
                                      text_en="Every morning, Tom brings a shiny red apple.",
                                      text_vi="Mỗi sáng, Tom mang một quả táo đỏ bóng.")
 
-        Video.objects.update_or_create(
-            youtube_id="demo_vid_1",
-            defaults={"level": a1, "title_vi": "Gọi cà phê như người bản xứ",
-                      "title_en": "Ordering Coffee", "category": "Hội thoại", "duration_sec": 165},
-        )
+        b1 = Level.objects.get(code="B1")
+        _videos = [
+            (
+                "t6-fT0hjTvc",
+                b1,
+                "Dịch vụ giao hàng của Kiki — Trailer tiếng Anh",
+                "Kiki's Delivery Service — Official English Trailer",
+                "Phim",
+                50,
+            ),
+            ("EGFdtq8lk0c", a2, "Check-in sân bay suôn sẻ", "At the Airport Departure", "Hội thoại", 192),
+            ("SSAWEDhszA8", b1, "Nói về công việc của bạn", "Talking About Your Job", "Công sở", 325),
+            ("q_UYw-tHBCY", a2, "Khám phá ngôi nhà trên cây", "Secret Treehouse Mystery", "Phim", 220),
+            (
+                "7cTumvjrm3g",
+                b1,
+                "Toy Story — Hành trình trưởng thành",
+                "Toy Story Tribute",
+                "Phim",
+                113,
+            ),
+        ]
+        for yid, lv, tvi, ten, cat, dur in _videos:
+            Video.objects.update_or_create(
+                youtube_id=yid,
+                defaults={"level": lv, "title_vi": tvi, "title_en": ten,
+                          "category": cat, "duration_sec": dur, "is_free": True},
+            )
+        Video.objects.filter(youtube_id="demo_vid_1").delete()
+
+        _subs = {
+            # Video thật từ Parroto/YouTube. Không giữ transcript demo cũ vì nội dung
+            # "cozy weekend" không thuộc video này; phụ đề chuẩn sẽ được import riêng.
+            "SSAWEDhszA8": [],
+            # Trailer Kiki cần transcript biên tập có timestamp thật. Nạp bằng
+            # import_video_subtitles; không seed câu giả/chia đều thời lượng.
+            "t6-fT0hjTvc": [],
+            "EGFdtq8lk0c": [
+                ("Good morning, may I see your passport and ticket?",
+                 "/ɡʊd ˈmɔːr.nɪŋ meɪ aɪ siː jɔːr ˈpæs.pɔːrt ænd ˈtɪk.ɪt/",
+                 "Chào buổi sáng, cho tôi xem hộ chiếu và vé của bạn nhé?"),
+                ("Here you are. I'd like a window seat, please.",
+                 "/hɪr juː ɑːr aɪd laɪk ə ˈwɪn.doʊ siːt pliːz/",
+                 "Của bạn đây. Cho tôi chỗ ngồi cạnh cửa sổ nhé."),
+                ("Do you have any bags to check in?",
+                 "/duː juː hæv ˈɛn.i bæɡz tuː tʃɛk ɪn/",
+                 "Bạn có hành lý nào cần ký gửi không?"),
+                ("Just one suitcase and this small backpack.",
+                 "/dʒʌst wʌn ˈsuːt.keɪs ænd ðɪs smɔːl ˈbæk.pæk/",
+                 "Chỉ một vali và chiếc ba lô nhỏ này thôi."),
+                ("Your flight boards at gate twenty-two at ten.",
+                 "/jɔːr flaɪt bɔːrdz æt ɡeɪt ˈtwɛn.ti tuː æt tɛn/",
+                 "Chuyến bay của bạn lên máy bay ở cổng 22 lúc mười giờ."),
+            ],
+            "q_UYw-tHBCY": [
+                ("Nobody knows who built this treehouse in the woods.",
+                 "/ˈnoʊ.bɒd.i noʊz huː bɪlt ðɪs ˈtriː.haʊs ɪn ðə wʊdz/",
+                 "Không ai biết ai đã dựng ngôi nhà trên cây trong rừng này."),
+                ("A faint light flickered behind the tiny window.",
+                 "/ə feɪnt laɪt ˈflɪk.ərd bɪˈhaɪnd ðə ˈtaɪ.ni ˈwɪn.doʊ/",
+                 "Một ánh sáng mờ nhạt lập lòe sau ô cửa sổ nhỏ."),
+                ("We climbed the old ladder, one careful step at a time.",
+                 "/wiː klaɪmd ðə oʊld ˈlæd.ər wʌn ˈkɛr.fəl stɛp æt ə taɪm/",
+                 "Chúng tôi trèo lên chiếc thang cũ, từng bước thật cẩn thận."),
+                ("Inside, a dusty map pointed to a hidden door.",
+                 "/ɪnˈsaɪd ə ˈdʌs.ti mæp ˈpɔɪn.tɪd tuː ə ˈhɪd.ən dɔːr/",
+                 "Bên trong, một tấm bản đồ phủ bụi chỉ tới một cánh cửa bí mật."),
+                ("Whatever waited there had been asleep for years.",
+                 "/wɒtˈɛv.ər ˈweɪ.tɪd ðɛr hæd biːn əˈsliːp fɔːr jɪrz/",
+                 "Bất cứ thứ gì chờ đợi ở đó đã ngủ yên suốt nhiều năm."),
+            ],
+        }
+        for yid, lines in _subs.items():
+            vid = Video.objects.get(youtube_id=yid)
+            vid.subtitles.all().delete()
+            span = max(vid.duration_sec * 1000 // max(len(lines), 1), 3000)
+            for i, (en, ipa, vi) in enumerate(lines):
+                VideoSubtitle.objects.create(
+                    video=vid, order=i + 1,
+                    start_ms=i * span, end_ms=(i + 1) * span,
+                    text_en=en, ipa=ipa, text_vi=vi,
+                )
+
+        # Lesson video thật, giữ source JSON để seed/dev/deploy đều tái tạo cùng dữ liệu.
+        toy_story_video = Video.objects.get(youtube_id="7cTumvjrm3g")
+        toy_story_source = settings.BASE_DIR / "apps/content/data/video_7cTumvjrm3g.json"
+        replace_video_subtitles(toy_story_video, load_subtitle_source(toy_story_source))
 
         sd, _ = ShadowingDeck.objects.update_or_create(
             level=a1, order=1,
             defaults={"title_en": "Greetings & Introductions", "title_vi": "Chào hỏi & giới thiệu",
-                      "focus_vi": "Ngữ điệu câu chào", "est_seconds": 180, "icon": "greeting"},
+                      "focus_vi": "Ngữ điệu câu chào", "est_seconds": 180, "icon": "greeting",
+                      "color": "#4F46E5"},
         )
         sd.sentences.all().delete()
         for j, (en, ipa, vi, goal, highlights) in enumerate([
@@ -550,7 +660,8 @@ class Command(BaseCommand):
         ]:
             ShopItem.objects.update_or_create(
                 code=code, defaults={"title_vi": title, "description_vi": desc,
-                                     "cost_coins": cost, "effect": effect},
+                                     "cost_coins": cost, "effect": effect, "category": cat,
+                                     "order": order, "discount_pct": pct, "meta": meta},
             )
         for code, title, desc, kind, featured, order in [
             ("word_rain", "Mưa từ vựng", "Hứng bóng chữ rơi đúng nghĩa", "reflex", True, 1),
@@ -573,8 +684,18 @@ class Command(BaseCommand):
             Product.objects.update_or_create(
                 code=code, defaults={"name_vi": name, "kind": "premium", "period": period, "price": price,
                                      "original_price": orig, "trial_days": trial, "badge_vi": badge,
-                                     "features": ["Mở khoá A2–C2", "Gia sư AI", "Không quảng cáo"],
+                                     "features": ["Mở khoá A2–C2", "Gia sư AI", "Không quảng cáo",
+                                                  "+50% xu mọi nguồn"],
                                      "order": order},
+            )
+        for code, name, coins, price, badge, order in [
+            ("coins_500", "500 xu", 500, 19000, "", 10),
+            ("coins_1200", "1.200 xu", 1200, 39000, "PHỔ BIẾN", 11),
+            ("coins_3000", "3.000 xu", 3000, 79000, "LỢI NHẤT", 12),
+        ]:
+            Product.objects.update_or_create(
+                code=code, defaults={"name_vi": name, "kind": "coins", "coins": coins, "period": "one_time",
+                                     "price": price, "badge_vi": badge, "features": [], "order": order},
             )
         GiftCode.objects.update_or_create(code="SAYFULLY30", defaults={"days": 30, "max_uses": 100})
 
@@ -608,11 +729,14 @@ class Command(BaseCommand):
             ("Job Interview", "Phỏng vấn xin việc", "interview", 300, False,
              [("Tell me about yourself.", "/tɛl miː əˈbaʊt jɔːˈsɛlf/", "Hãy giới thiệu về bản thân bạn.")]),
         ]
-        for i, (ten, tvi, icon, secs, is_free, sents) in enumerate(_speaking_sets, start=2):
+        _speaking_colors = {"shopping": "#22C55E", "travel": "#38BDF8", "restaurant": "#FF6B57",
+                            "work": "#7C3AED", "interview": "#F59E0B", "greeting": "#4F46E5"}
+        for i, (ten, tvi, icon, secs, _is_free, sents) in enumerate(_speaking_sets, start=2):
             deck, _ = ShadowingDeck.objects.update_or_create(
                 level=a1, order=i,
                 defaults={"title_en": ten, "title_vi": tvi, "icon": icon,
-                          "est_seconds": secs, "is_free": is_free},
+                          "color": _speaking_colors.get(icon, ""),
+                          "est_seconds": secs, "is_free": True},
             )
             deck.sentences.all().delete()
             for j, (en, ipa, vi) in enumerate(sents):
@@ -646,10 +770,13 @@ class Command(BaseCommand):
                 ("Why do you want this job?", "Tại sao bạn muốn công việc này?", 5, ["job", "jog", "joy", "jab"], 0),
             ]),
         ]
-        for i, (title_vi, icon, secs, is_free, items) in enumerate(_listen_sets, start=1):
+        _listen_colors = {"greeting": "#4F46E5", "shopping": "#22C55E", "travel": "#38BDF8",
+                          "restaurant": "#FF6B57", "interview": "#F59E0B"}
+        for i, (title_vi, icon, secs, _is_free, items) in enumerate(_listen_sets, start=1):
             lt, _ = ListeningTopic.objects.update_or_create(
                 level=a1, order=i,
-                defaults={"title_vi": title_vi, "icon": icon, "est_seconds": secs, "is_free": is_free},
+                defaults={"title_vi": title_vi, "icon": icon, "color": _listen_colors.get(icon, ""),
+                          "est_seconds": secs, "is_free": True},
             )
             lt.items.all().delete()
             for j, (en, vi, bi, opts, ans) in enumerate(items):
@@ -658,6 +785,39 @@ class Command(BaseCommand):
                     audio_path=f"audio/listen/{icon}_{j}.mp3",
                     blank_index=bi, options=opts, answer_index=ans,
                 )
+
+        # Thư viện bộ thẻ flashcard (C7a) — 3 bộ sưu tập, 6 bộ thẻ, 2 bộ PRO
+        _deck_sets = [
+            ("popular", "Bộ sưu tập phổ biến", "Thông dụng", [
+                ("oxford-3000", "3000 từ Oxford thông dụng", "Oxford 3000", "A1 – B2", True, 354_000, "book", "#4F46E5"),
+                ("ielts-75", "IELTS Speaking & Writing 7.5+", "IELTS Advance", "Band 7.5+", False, 198_000, "exam", ""),
+                ("travel-living", "Từ vựng Du lịch & Đời sống", "Travel & Living", "Thực tế", True, 142_000, "travel", "#10B981"),
+                ("toeic-850", "TOEIC 850+ Cấp Tốc", "TOEIC Master", "850+", False, 225_000, "work", ""),
+            ]),
+            ("oxford", "Từ vựng Oxford", "Oxford", [
+                ("oxford-a1", "Từ vựng Oxford 3000 A1", "Oxford A1", "CEFR A1", True, 90_000, "style", "#4F46E5"),
+                ("oxford-a2", "Từ vựng Oxford 3000 A2", "Oxford A2", "CEFR A2", True, 40_000, "style", "#7C3AED"),
+            ]),
+        ]
+        _all_vocab = list(Vocabulary.objects.order_by("id"))
+        for ci, (ccode, ctitle, cchip, decks) in enumerate(_deck_sets, start=1):
+            coll, _ = VocabularyDeckCollection.objects.update_or_create(
+                code=ccode,
+                defaults={"title_vi": ctitle, "chip_label_vi": cchip, "order": ci},
+            )
+            for di, (dcode, dtitle, cover, badge, is_free, learners, icon, accent) in enumerate(decks, start=1):
+                deck, _ = VocabularyDeck.objects.update_or_create(
+                    code=dcode,
+                    defaults={
+                        "collection": coll, "title_vi": dtitle, "cover_title": cover,
+                        "badge_vi": badge, "background_url": "",
+                        "icon": icon, "accent_color": accent,
+                        "level": a1, "order": di, "is_free": is_free, "learner_base": learners,
+                    },
+                )
+                deck.items.all().delete()
+                for k, v in enumerate(_all_vocab):
+                    VocabularyDeckItem.objects.create(deck=deck, vocabulary=v, order=k)
 
         for i in range(2, 7):  # +5 dialogue → 6  (speaking = 6 + 6 = 12)
             Dialogue.objects.update_or_create(
@@ -679,7 +839,7 @@ class Command(BaseCommand):
                       "goals": ["Giới thiệu bản thân", "Nói điểm mạnh", "Đặt câu hỏi cho nhà tuyển dụng"],
                       "system_prompt": "You are a friendly job interviewer. Ask common interview "
                                        "questions and give short, encouraging feedback.",
-                      "is_premium": True},
+                      "is_premium": False},
         )
         RoleplayScenario.objects.update_or_create(
             title_vi="Gọi món tại quán cà phê",
@@ -688,15 +848,6 @@ class Command(BaseCommand):
                       "goals": ["Chào hỏi", "Gọi món", "Hỏi giá"],
                       "system_prompt": "You are a barista. Help the user order politely in English.",
                       "is_premium": False},
-        for code, name, coins, price, badge, order in [
-            ("coins_500", "500 xu", 500, 19000, "", 10),
-            ("coins_1200", "1.200 xu", 1200, 39000, "PHỔ BIẾN", 11),
-            ("coins_3000", "3.000 xu", 3000, 79000, "LỢI NHẤT", 12),
-        ]:
-            Product.objects.update_or_create(
-                code=code, defaults={"name_vi": name, "kind": "coins", "coins": coins, "period": "one_time",
-                                     "price": price, "badge_vi": badge, "features": [], "order": order},
-            )
         )
 
         # Tài khoản demo có sẵn tiến độ để preview Home (demo@sayfully.app / demo1234)

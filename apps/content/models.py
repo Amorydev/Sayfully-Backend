@@ -12,7 +12,7 @@ class Level(models.Model):
     description_vi = models.CharField(max_length=255, blank=True)
     order = models.PositiveSmallIntegerField()
     word_target = models.PositiveIntegerField(default=600)
-    is_free = models.BooleanField(default=False)  # chỉ A1 = True
+    is_free = models.BooleanField(default=False)  # quyết định cấp này có cần Premium hay không
 
     def __str__(self) -> str:
         return f"{self.code} · {self.name_vi}"
@@ -113,6 +113,7 @@ class Vocabulary(TimeStampedModel):
 
     meaning_vi = models.CharField(max_length=255)
     definition_en = models.TextField(blank=True)
+    definition_vi = models.TextField(blank=True)
 
     # --- Phiên âm: nuôi trực tiếp tính năng tô màu trọng âm trên UI ---
     ipa_uk = models.CharField(max_length=64, blank=True)  # /ˈbjuːtɪfəl/
@@ -131,6 +132,7 @@ class Vocabulary(TimeStampedModel):
 
     frequency_rank = models.IntegerField(null=True, blank=True)  # Oxford 3000/5000
     synonyms = models.JSONField(default=list, blank=True)  # ["household", "folks"]
+    antonyms = models.JSONField(default=list, blank=True)
     topics = models.ManyToManyField(Topic, blank=True, related_name="vocabulary")
     word_family = models.ManyToManyField("self", blank=True, symmetrical=True)
 
@@ -466,7 +468,14 @@ class ShadowingDeck(models.Model):
     title_vi = models.CharField(max_length=128, blank=True)
     focus_vi = models.CharField(max_length=128, blank=True)  # "Âm /æ/ & ngữ điệu cảm thán"
     est_seconds = models.PositiveIntegerField(default=0)
-    icon = models.CharField(max_length=48, blank=True)  # icon 3D-clay cho thẻ chủ đề luyện nói (C8a)
+    icon = models.CharField(max_length=48, blank=True)  # token icon dự phòng (map cứng ở app)
+    icon_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh icon (URL đầy đủ hoặc path R2) — app render trực tiếp, khỏi rebuild khi thêm chủ đề
+    background_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh nền card; URL đầy đủ hoặc path tương đối trên R2
+    color = models.CharField(max_length=9, blank=True)  # màu hex "#22C55E" cho thẻ; rỗng = app tự chọn
     is_free = models.BooleanField(default=True)
 
     class Meta:
@@ -504,7 +513,9 @@ class ListeningTopic(models.Model):
     level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="listening_topics")
     order = models.PositiveSmallIntegerField()
     title_vi = models.CharField(max_length=128)
-    icon = models.CharField(max_length=48, blank=True)
+    icon = models.CharField(max_length=48, blank=True)  # token icon dự phòng
+    icon_url = models.CharField(max_length=255, blank=True)  # ảnh icon (URL/path) — app render trực tiếp
+    color = models.CharField(max_length=9, blank=True)  # màu hex "#RRGGBB" cho thẻ
     est_seconds = models.PositiveIntegerField(default=0)
     is_free = models.BooleanField(default=True)
 
@@ -552,3 +563,76 @@ class ContentBundle(models.Model):
 
     def __str__(self) -> str:
         return f"{self.level_id} v{self.version}"
+
+
+class VocabularyDeckCollection(models.Model):
+    """Nhóm bộ thẻ trên màn thư viện flashcard (C7a) — "Bộ sưu tập phổ biến", "Từ vựng Oxford"."""
+
+    code = models.SlugField(max_length=48, unique=True)
+    title_vi = models.CharField(max_length=128)
+    chip_label_vi = models.CharField(max_length=32, blank=True)  # nhãn chip lọc: "Oxford", "IELTS"
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return str(self.title_vi)
+
+
+class VocabularyDeck(models.Model):
+    """Bộ thẻ flashcard (C7a → C7). Danh sách trả cover + số thẻ + số học viên;
+    bấm vào mới gọi endpoint chi tiết lấy toàn bộ thẻ."""
+
+    collection = models.ForeignKey(
+        VocabularyDeckCollection, on_delete=models.PROTECT, related_name="decks"
+    )
+    code = models.SlugField(max_length=64, unique=True)
+    title_vi = models.CharField(max_length=128)  # "3000 từ Oxford thông dụng"
+    cover_title = models.CharField(max_length=64, blank=True)  # chữ trên cover: "Oxford 3000"
+    badge_vi = models.CharField(max_length=32, blank=True)  # nhãn góc cover: "A1 – B2", "Band 7.5+"
+    background_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh cover (URL đầy đủ hoặc path R2) — app render trực tiếp
+    icon = models.CharField(
+        max_length=48, blank=True
+    )  # token icon trên cover khi chưa có ảnh: style/book/travel/work/exam/mic/headphones
+    accent_color = models.CharField(
+        max_length=9, blank=True
+    )  # màu nhấn hex "#4F46E5" cho nền cover; rỗng = app dùng indigo mặc định
+    level = models.ForeignKey(
+        Level, null=True, blank=True, on_delete=models.PROTECT, related_name="vocabulary_decks"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    is_free = models.BooleanField(default=True)  # False = cần Premium (nhãn PRO)
+    learner_base = models.PositiveIntegerField(
+        default=0
+    )  # số học viên nền khi seed; số hiển thị = learner_base + số người đã mở bộ
+    vocabulary = models.ManyToManyField(
+        Vocabulary, through="VocabularyDeckItem", related_name="decks"
+    )
+
+    class Meta:
+        ordering = ["collection__order", "order"]
+
+    def __str__(self) -> str:
+        return str(self.title_vi)
+
+
+class VocabularyDeckItem(models.Model):
+    """1 thẻ trong bộ — thứ tự học do `order` quyết định."""
+
+    deck = models.ForeignKey(VocabularyDeck, on_delete=models.CASCADE, related_name="items")
+    vocabulary = models.ForeignKey(
+        Vocabulary, on_delete=models.CASCADE, related_name="deck_items"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["deck", "vocabulary"], name="uniq_deck_vocab")
+        ]
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return f"{self.deck_id} · {self.order}. {self.vocabulary_id}"

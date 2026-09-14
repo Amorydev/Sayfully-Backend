@@ -3,7 +3,15 @@ from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import CEFR
-from apps.content.models import Lesson, ListeningTopic, ShadowingDeck, Unit, Vocabulary
+from apps.content.models import (
+    Lesson,
+    ListeningTopic,
+    Reading,
+    ShadowingDeck,
+    Unit,
+    Vocabulary,
+    VocabularyDeck,
+)
 
 
 class LessonProgress(models.Model):
@@ -262,3 +270,68 @@ class ListeningTopicProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · topic{self.topic_id} · {self.mode} · {self.done_count}"
+
+
+class ReadingProgress(models.Model):
+    """Tiến độ đọc theo bài: trạng thái, số câu đã làm và phần thưởng chỉ nhận một lần."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "Đang đọc"
+        COMPLETED = "completed", "Hoàn thành"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reading_progress")
+    reading = models.ForeignKey(Reading, on_delete=models.CASCADE, related_name="reading_progress")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.IN_PROGRESS)
+    answered_count = models.PositiveSmallIntegerField(default=0)
+    correct_count = models.PositiveSmallIntegerField(default=0)
+    xp_earned = models.PositiveSmallIntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_read_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "reading"], name="uniq_reading_progress")
+        ]
+        indexes = [
+            models.Index(fields=["user", "status"], name="readprog_user_status_idx"),
+            models.Index(fields=["user", "-last_read_at"], name="readprog_user_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · reading{self.reading_id} · {self.status}"
+
+
+class ReadingDailyActivity(models.Model):
+    """Nguồn sự thật cho chuỗi ngày đọc; một hàng cho mỗi user/ngày theo timezone hồ sơ."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reading_daily_activity")
+    date = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "date"], name="uniq_reading_daily_activity")
+        ]
+        indexes = [models.Index(fields=["user", "-date"], name="readact_user_date_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.date.isoformat()}"
+
+
+class VocabularyDeckProgress(models.Model):
+    """Người dùng đã mở bộ thẻ nào (C7a) — nuôi thẻ "Đang học" và đếm số học viên của bộ."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="deck_progress")
+    deck = models.ForeignKey(VocabularyDeck, on_delete=models.CASCADE, related_name="progress")
+    learned_count = models.PositiveIntegerField(default=0)  # số thẻ đã thuộc trong bộ
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "deck"], name="uniq_user_deck_progress")
+        ]
+        indexes = [models.Index(fields=["user", "-updated_at"], name="deck_prog_recent_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.deck_id}"

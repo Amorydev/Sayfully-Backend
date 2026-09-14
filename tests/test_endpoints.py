@@ -184,7 +184,8 @@ def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
     lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
     deck = ShadowingDeck.objects.create(
         level=lv, order=1, title_en="Greetings", title_vi="Chào hỏi",
-        icon="greeting", est_seconds=180, is_free=True,
+        icon="greeting", background_url="speaking/greeting.webp",
+        est_seconds=180, is_free=True,
     )
     for j in range(4):
         ShadowingSentence.objects.create(deck=deck, order=j, text_en=f"s{j}", text_vi=f"c{j}")
@@ -201,6 +202,10 @@ def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
     basic = {t["title_vi"]: t for t in body["basic"]}
     assert basic["Chào hỏi"]["sentence_count"] == 4
     assert basic["Chào hỏi"]["est_minutes"] == 3
+    assert basic["Chào hỏi"]["level"] == "A1"
+    assert basic["Chào hỏi"]["title_en"] == "Greetings"
+    assert basic["Chào hỏi"]["phrase_preview"] == "s0"
+    assert basic["Chào hỏi"]["background_url"].endswith("/speaking/greeting.webp")
     assert basic["Chào hỏi"]["is_premium"] is False
     assert basic["Chào hỏi"]["done"] == 0 and basic["Chào hỏi"]["total"] == 4
     assert basic["Phỏng vấn"]["is_premium"] is True

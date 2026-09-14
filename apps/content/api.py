@@ -1,6 +1,6 @@
 """21 endpoint nội dung học (G2). Tất cả `Bearer`.
 
-Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Chi tiết A2–C2 cần Premium (🔒).
+Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Cấp có `is_free=False` cần Premium (🔒).
 `audio_url` ghép đầy đủ từ `R2_PUBLIC_BASE`; `ipa` theo `UserProfile.accent`.
 """
 
@@ -59,7 +59,11 @@ def _example(e: m.VocabularyExample) -> s.ExampleOut:
 
 
 # --------------------------------------------------------------- builders: vocab
-def _vocab_list(v: m.Vocabulary, accent: str) -> s.VocabListOut:
+def _vocab_list(
+    v: m.Vocabulary,
+    accent: str,
+    notebook_entry_id: int | None = None,
+) -> s.VocabListOut:
     audio = v.audio_us_path if accent == "US" else v.audio_uk_path
     return s.VocabListOut(
         id=v.id,
@@ -70,6 +74,8 @@ def _vocab_list(v: m.Vocabulary, accent: str) -> s.VocabListOut:
         ipa=_ipa(v, accent),
         syllables=_syllables(v),
         audio_url=_media(audio),
+        is_saved=notebook_entry_id is not None,
+        notebook_entry_id=notebook_entry_id,
     )
 
 
@@ -88,7 +94,27 @@ def _vocab_card(v: m.Vocabulary, accent: str) -> s.VocabCardOut:
     )
 
 
-def _vocab_detail(v: m.Vocabulary, accent: str) -> s.VocabDetailOut:
+def _related_word(v: m.Vocabulary) -> s.RelatedWordOut:
+    return s.RelatedWordOut(
+        id=v.id,
+        headword=v.headword,
+        pos=v.pos,
+        meaning_vi=v.meaning_vi,
+    )
+
+
+def _named_related_word(name: str, by_headword: dict[str, m.Vocabulary]) -> s.RelatedWordOut:
+    vocabulary = by_headword.get(name.casefold())
+    return _related_word(vocabulary) if vocabulary else s.RelatedWordOut(headword=name)
+
+
+def _vocab_detail(
+    v: m.Vocabulary,
+    accent: str,
+    notebook_entry_id: int | None = None,
+    named_related: dict[str, m.Vocabulary] | None = None,
+) -> s.VocabDetailOut:
+    related = named_related or {}
     return s.VocabDetailOut(
         id=v.id,
         headword=v.headword,
@@ -100,11 +126,18 @@ def _vocab_detail(v: m.Vocabulary, accent: str) -> s.VocabDetailOut:
         syllables=_syllables(v),
         meaning_vi=v.meaning_vi,
         definition_en=v.definition_en,
+        definition_vi=v.definition_vi,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
         frequency_rank=v.frequency_rank,
         synonyms=v.synonyms or [],
+        antonyms=v.antonyms or [],
         word_family=[w.headword for w in v.word_family.all()],
+        synonym_items=[_named_related_word(name, related) for name in (v.synonyms or [])],
+        antonym_items=[_named_related_word(name, related) for name in (v.antonyms or [])],
+        word_family_items=[_related_word(word) for word in v.word_family.all()],
+        is_saved=notebook_entry_id is not None,
+        notebook_entry_id=notebook_entry_id,
         examples=[_example(e) for e in v.examples.all()],
         collocations=[
             s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
@@ -220,7 +253,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
     "/levels",
     response={200: list[s.LevelOut], 401: ErrorOut},
     summary="Danh sách cấp CEFR",
-    description="6 cấp A1→C2 kèm mục tiêu số từ và cờ miễn phí (`is_free`, chỉ A1).",
+    description="6 cấp A1→C2 kèm mục tiêu số từ và cờ miễn phí (`is_free`).",
 )
 def list_levels(request):
     return [
@@ -305,7 +338,7 @@ def get_unit(request, id: int):
     summary="Chi tiết bài học (lồng đủ các bước)",
     description=(
         "Trả toàn bộ bước học đa hình theo `kind` trong **một lần gọi**.\n\n"
-        "Chi tiết cấp A2–C2 cần Premium (`premium_required`). Bước `writing` chỉ có "
+        "Chi tiết cấp có `is_free=False` cần Premium (`premium_required`). Bước `writing` chỉ có "
         "khi bật AI."
     ),
 )
@@ -382,9 +415,21 @@ def list_vocabulary(
         )
     qs = qs.distinct().order_by("frequency_rank", "headword")
     count = qs.count()
-    items = qs[offset : offset + limit]
+    items = list(qs[offset : offset + limit])
+    # Import cục bộ để content không tạo vòng import module với learning.
+    from apps.learning.models import NotebookEntry
+
+    notebook_entries = dict(
+        NotebookEntry.objects.filter(
+            user=request.auth,
+            vocabulary_id__in=[item.id for item in items],
+        ).values_list("vocabulary_id", "id")
+    )
     return s.Page(
-        items=[_vocab_list(v, profile.accent) for v in items],
+        items=[
+            _vocab_list(v, profile.accent, notebook_entries.get(v.id))
+            for v in items
+        ],
         count=count,
         limit=limit,
         offset=offset,
@@ -406,7 +451,18 @@ def get_vocabulary(request, id: int):
     )
     if v is None:
         raise NotFound(_NOTFOUND)
-    return _vocab_detail(v, profile.accent)
+    from apps.learning.models import NotebookEntry
+
+    notebook_entry_id = NotebookEntry.objects.filter(
+        user=request.auth,
+        vocabulary=v,
+    ).values_list("id", flat=True).first()
+    named_words = set(v.synonyms or []) | set(v.antonyms or [])
+    related = {
+        word.headword.casefold(): word
+        for word in m.Vocabulary.objects.filter(headword__in=named_words).order_by("frequency_rank", "id")
+    }
+    return _vocab_detail(v, profile.accent, notebook_entry_id, related)
 
 
 @router.get(
@@ -477,7 +533,7 @@ def list_grammar(
     "/grammar/{id}",
     response={200: s.GrammarDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết điểm ngữ pháp",
-    description="Công thức, bảng chia, ví dụ. Cấp A2–C2 cần Premium.",
+    description="Công thức, bảng chia, ví dụ. Cấp có `is_free=False` cần Premium.",
 )
 def get_grammar(request, id: int):
     profile = ensure_profile(request.auth)
@@ -548,7 +604,7 @@ def list_readings(
     "/readings/{id}",
     response={200: s.ReadingDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết bài đọc",
-    description="Câu song ngữ (IPA + audio), từ khoá, câu hỏi. Cấp A2–C2 cần Premium.",
+    description="Câu song ngữ (IPA + audio), từ khoá, câu hỏi. Cấp có `is_free=False` cần Premium.",
 )
 def get_reading(request, id: int):
     profile = ensure_profile(request.auth)
@@ -566,7 +622,9 @@ def get_reading(request, id: int):
         level=r.level_id,
         title_en=r.title_en,
         title_vi=r.title_vi,
+        topic=r.topic.name_vi if r.topic else None,
         est_minutes=r.est_minutes,
+        cover_url=_media(r.cover_path),
         sentences=[
             _sentence(sen.text_en, sen.ipa, sen.text_vi, sen.audio_path)
             for sen in r.sentences.all()
@@ -575,7 +633,9 @@ def get_reading(request, id: int):
             s.ReadingKeywordOut(
                 id=k.id,
                 headword=k.headword,
+                level=k.level_id,
                 ipa=_ipa(k, profile.accent),
+                audio_url=_media(k.audio_us_path if profile.accent == "US" else k.audio_uk_path),
                 pos=k.pos,
                 meaning_vi=k.meaning_vi,
                 synonyms=k.synonyms or [],
@@ -642,7 +702,7 @@ def list_stories(
     "/stories/{id}",
     response={200: s.StoryDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết truyện",
-    description="Cảnh + câu (audio) + câu hỏi. Cấp A2–C2 cần Premium.",
+    description="Cảnh + câu (audio) + câu hỏi. Cấp có `is_free=False` cần Premium.",
 )
 def get_story(request, id: int):
     profile = ensure_profile(request.auth)
@@ -738,7 +798,7 @@ def list_videos(
     "/videos/{id}",
     response={200: s.VideoDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết video kèm phụ đề",
-    description="Phụ đề song ngữ có timestamp + IPA. Cấp A2–C2 cần Premium.",
+    description="Phụ đề song ngữ có timestamp + IPA. Cấp có `is_free=False` cần Premium.",
 )
 def get_video(request, id: int):
     profile = ensure_profile(request.auth)
@@ -811,7 +871,7 @@ def list_shadowing(
     "/shadowing/{id}",
     response={200: s.ShadowingDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết bộ shadowing",
-    description="Câu mục tiêu + IPA + audio bản xứ. Cấp A2–C2 cần Premium.",
+    description="Câu mục tiêu + IPA + audio bản xứ. Cấp có `is_free=False` cần Premium.",
 )
 def get_shadowing(request, id: int):
     profile = ensure_profile(request.auth)
@@ -837,6 +897,8 @@ def get_shadowing(request, id: int):
                 ipa=sen.ipa,
                 text_vi=sen.text_vi,
                 audio_url=_media(sen.audio_path),
+                speaking_goal_vi=sen.speaking_goal_vi,
+                highlights=sen.highlights or [],
             )
             for sen in dk.sentences.all()
         ],

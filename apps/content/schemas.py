@@ -207,11 +207,20 @@ class VocabListOut(Schema):
     ipa: str
     syllables: list[SyllableOut]
     audio_url: str | None
+    is_saved: bool = False
+    notebook_entry_id: int | None = None
 
 
 class CollocationOut(Schema):
     text_en: str
     meaning_vi: str
+
+
+class RelatedWordOut(Schema):
+    id: int | None = None
+    headword: str
+    pos: str = ""
+    meaning_vi: str = ""
 
 
 class VocabDetailOut(Schema):
@@ -225,11 +234,18 @@ class VocabDetailOut(Schema):
     syllables: list[SyllableOut]
     meaning_vi: str
     definition_en: str
+    definition_vi: str
     audio_uk_url: str | None
     audio_us_url: str | None
     frequency_rank: int | None
     synonyms: list[str]
+    antonyms: list[str]
     word_family: list[str]
+    synonym_items: list[RelatedWordOut]
+    antonym_items: list[RelatedWordOut]
+    word_family_items: list[RelatedWordOut]
+    is_saved: bool = False
+    notebook_entry_id: int | None = None
     examples: list[ExampleOut]
     collocations: list[CollocationOut]
 
@@ -291,7 +307,9 @@ class ReadingQuestionOut(Schema):
 class ReadingKeywordOut(Schema):
     id: int
     headword: str
+    level: str
     ipa: str
+    audio_url: str | None
     pos: str
     meaning_vi: str
     synonyms: list[str]
@@ -302,7 +320,9 @@ class ReadingDetailOut(Schema):
     level: str
     title_en: str
     title_vi: str
+    topic: str | None
     est_minutes: int
+    cover_url: str | None
     sentences: list[SentenceOut]
     keywords: list[ReadingKeywordOut]
     questions: list[ReadingQuestionOut]
@@ -403,6 +423,8 @@ class ShadowingSentenceOut(Schema):
     ipa: str
     text_vi: str
     audio_url: str | None
+    speaking_goal_vi: str
+    highlights: list[dict]
 
 
 class ShadowingDetailOut(Schema):

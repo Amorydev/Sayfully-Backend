@@ -146,6 +146,9 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Sayfully <no-reply@sayfu
 # Trang đặt lại mật khẩu ở phía frontend (Next.js)
 PASSWORD_RESET_URL = env("PASSWORD_RESET_URL", default="http://localhost:3000/reset-password")
 
+# Chỉ dùng trong pipeline nội dung, không gọi khi người học bật nút Dịch.
+GOOGLE_TRANSLATE_API_KEY = env("GOOGLE_TRANSLATE_API_KEY", default="")
+
 AI_ENABLED = env("AI_ENABLED")
 
 LANGUAGE_CODE = "vi"

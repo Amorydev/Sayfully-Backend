@@ -212,6 +212,33 @@ class VideoAdmin(admin.ModelAdmin):
     inlines = [VideoSubtitleInline]
 
 
+class ShadowingSentenceInline(admin.TabularInline):
+    model = m.ShadowingSentence
+    extra = 0
+    fields = ("order", "text_en", "ipa", "text_vi", "audio_path")
+
+
+@admin.register(m.ShadowingDeck)
+class ShadowingDeckAdmin(admin.ModelAdmin):
+    list_display = ("title_vi", "level", "order", "is_free", "background_url")
+    list_filter = ("level", "is_free")
+    search_fields = ("title_vi", "title_en", "background_url")
+    fields = (
+        "level",
+        "order",
+        "title_vi",
+        "title_en",
+        "focus_vi",
+        "est_seconds",
+        "background_url",
+        "icon",
+        "icon_url",
+        "color",
+        "is_free",
+    )
+    inlines = [ShadowingSentenceInline]
+
+
 @admin.register(m.WordRoot)
 class WordRootAdmin(admin.ModelAdmin):
     list_display = ("kind", "text", "meaning_vi", "group_vi")
@@ -232,3 +259,23 @@ class IPASoundAdmin(admin.ModelAdmin):
     list_display = ("symbol", "kind", "description_vi", "order")
     list_filter = ("kind",)
     ordering = ("order",)
+
+
+class VocabularyDeckItemInline(admin.TabularInline):
+    model = m.VocabularyDeckItem
+    extra = 0
+    autocomplete_fields = ("vocabulary",)
+
+
+@admin.register(m.VocabularyDeckCollection)
+class VocabularyDeckCollectionAdmin(admin.ModelAdmin):
+    list_display = ("title_vi", "code", "chip_label_vi", "order")
+    ordering = ("order",)
+
+
+@admin.register(m.VocabularyDeck)
+class VocabularyDeckAdmin(admin.ModelAdmin):
+    list_display = ("title_vi", "collection", "level", "order", "is_free", "learner_base")
+    list_filter = ("collection", "level", "is_free")
+    search_fields = ("title_vi", "code", "cover_title")
+    inlines = [VocabularyDeckItemInline]

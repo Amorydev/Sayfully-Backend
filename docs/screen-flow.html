@@ -234,8 +234,9 @@ C7:{n:"Flashcard",s:"practice",api:["POST /learn/review"],to:[["hết bộ thẻ
 C8a:{n:"Chọn chủ đề luyện nói",s:"practice",api:["GET /learn/speaking/topics"],to:[["chạm một chủ đề","C8"]]},
 C8:{n:"Luyện nói",s:"practice",api:["POST /learn/practice"],to:[["chạm micro","C30"]]},
 C30:{n:"Ghi âm & kết quả nói",s:"practice",api:[],to:[["“Câu tiếp”","C8"]]},
-C9a:{n:"Chọn kiểu & chủ đề nghe",s:"practice",api:["GET /learn/listening/topics"],to:[["chạm chủ đề (kiểu đã chọn)","C9"]]},
-C9:{n:"Luyện nghe / chép chính tả",s:"practice",api:["GET /learn/listening/topics/{id}?mode=","POST /learn/practice"],to:[]},
+C9a:{n:"Chọn kiểu & chủ đề nghe",s:"practice",api:["GET /learn/listening/topics"],to:[["mode “Chọn từ”","C9b"],["mode “Chép chính tả”","C9"]]},
+C9b:{n:"Nghe chọn từ (điền chỗ trống)",s:"practice",api:["GET /learn/listening/topics/{id}?mode=choose","POST /learn/practice"],to:[]},
+C9:{n:"Nghe chép chính tả",s:"practice",api:["GET /learn/listening/topics/{id}?mode=dictation","POST /learn/practice"],to:[]},
 C35:{n:"Danh sách bài đọc",s:"practice",api:["GET /content/readings"],
  to:[["chọn một bài","C10"],["bài thuộc cấp khoá","C15"]]},
 C10:{n:"Trình đọc",s:"practice",api:["POST /learn/practice"],to:[["xong câu hỏi","C35"]]},
@@ -283,6 +284,7 @@ C46:{n:"Thông báo",s:"profile",api:["GET /notifications","POST /notifications/
 const BUILT = new Set([
   "C0","C18","C21","C22","C24",           // khởi động & tài khoản
   "C1","C2","C19","C13","C14",            // 5 tab gốc
+  "C8a","C9a","C9b","C9",                 // picker + bài tập luyện nghe (chọn từ / chép chính tả)
   "C26","C3","C27","C28","C29","C29b","C4a","C4","C5" // lesson flow
 ]);
 
@@ -347,8 +349,8 @@ const FLOWS = [
   note:"Vào từ Trang chủ (tile Luyện nói) hoặc Trung tâm luyện tập C19 → <b>C8a Chọn chủ đề</b> → luyện lần lượt các câu của chủ đề đó. Thẻ gợi ý ở C19 thì vào thẳng C8 (một câu cụ thể)."},
 
  {sec:"practice", t:"Luyện nghe (2 kiểu)",
-  s:[{id:"C9a"},{id:"C9",via:"chọn kiểu + chủ đề"}],
-  note:"<b>C9a</b> chọn <b>kiểu nghe</b> (Chọn từ / Chép chính tả) rồi <b>chủ đề</b> → vào <b>C9</b> đúng kiểu. Vào từ Trang chủ (tile Luyện nghe) hoặc Trung tâm luyện tập C19. Tab 'Chép chính tả' ở C19 vẫn có thể vào thẳng C9."},
+  s:[{id:"C9a"},{id:"C9b",via:"mode “Chọn từ”"}],
+  note:"<b>C9a</b> chọn <b>kiểu nghe</b> rồi <b>chủ đề</b>: <b>Chọn từ → C9b</b> (nghe câu, điền từ vào chỗ trống) · <b>Chép chính tả → C9</b> (nghe & gõ lại câu). Vào từ Trang chủ (tile Luyện nghe) hoặc Trung tâm luyện tập C19."},
 
  {sec:"practice", t:"Đọc hiểu",
   s:[{id:"C35"},{id:"C10",via:"chọn một bài"},{id:"C35",via:"xong câu hỏi"}],
