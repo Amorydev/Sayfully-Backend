@@ -81,7 +81,7 @@ class HomeLearningToolOut(Schema):
     code: str
     title_vi: str
     description_vi: str
-    action: Literal["coming_soon", "notebook", "dictionary", "video", "ipa", "roots"]
+    action: Literal["coming_soon", "notebook", "dictionary", "video", "ipa", "roots", "grammar"]
     is_premium: bool = False
     item_count: int | None = None
 

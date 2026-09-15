@@ -94,6 +94,7 @@ def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
         "ai_tutor",
         "exam_prep",
         "ipa",
+        "grammar",
         "roots",
         "video",
         "notebook",
@@ -105,12 +106,13 @@ def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
     assert tools[0]["is_premium"] is True
     assert tools[2]["title_vi"] == "Bảng 1 âm IPA chuẩn"
     assert tools[2]["item_count"] == 1
-    assert tools[3]["action"] == "roots" and tools[3]["item_count"] == 0
-    assert tools[4]["action"] == "video"
-    assert tools[5]["description_vi"] == "1 từ đã lưu từ các bài đọc"
-    assert tools[5]["item_count"] == 1
-    assert tools[5]["action"] == "notebook"
-    assert tools[6]["action"] == "dictionary"
+    assert tools[3]["action"] == "grammar"
+    assert tools[4]["action"] == "roots" and tools[4]["item_count"] == 0
+    assert tools[5]["action"] == "video"
+    assert tools[6]["description_vi"] == "1 từ đã lưu từ các bài đọc"
+    assert tools[6]["item_count"] == 1
+    assert tools[6]["action"] == "notebook"
+    assert tools[7]["action"] == "dictionary"
 
 
 def test_practice_hub_da_xoa(api, token):

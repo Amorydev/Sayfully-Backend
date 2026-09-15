@@ -23,6 +23,7 @@ from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
 from apps.content.models import (
+    GrammarPoint,
     IPASound,
     Lesson,
     LessonStep,
@@ -319,6 +320,9 @@ def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
     notebook_total = NotebookEntry.objects.filter(user=user).count()
     ipa_sounds = IPASound.objects.count()
     word_roots = WordRoot.objects.count()
+    grammar_points = GrammarPoint.objects.filter(
+        level_id=ensure_profile(user).cefr_level or "A1"
+    ).count()
     return [
         s.HomeLearningToolOut(
             code="ai_tutor",
@@ -339,6 +343,13 @@ def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
             description_vi="Khẩu hình miệng 3D và sóng âm mẫu",
             action="ipa",
             item_count=ipa_sounds,
+        ),
+        s.HomeLearningToolOut(
+            code="grammar",
+            title_vi="Ngữ pháp theo cấp",
+            description_vi="Công thức, ví dụ và bài thực hành",
+            action="grammar",
+            item_count=grammar_points,
         ),
         s.HomeLearningToolOut(
             code="roots",
