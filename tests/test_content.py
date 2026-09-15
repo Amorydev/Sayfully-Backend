@@ -9,7 +9,6 @@ from apps.content.models import (
     Lesson,
     LessonStep,
     Level,
-    PhrasalVerb,
     Reading,
     ReadingSentence,
     ShadowingDeck,
@@ -330,19 +329,54 @@ def test_shadowing_list_detail(api, token, levels):
 
 # --------------------------------------------------------------- tra cứu
 def test_roots_va_phrasal_ipa(api, token, levels, vocab):
-    a1, _ = levels
-    root = WordRoot.objects.create(
-        kind="prefix", text="un-", meaning_vi="không", group_vi="Phủ định"
-    )
-    root.examples.add(vocab)
-    assert api.get("/content/roots?kind=prefix", token=token).json()[0]["example_count"] == 1
-    assert (
-        api.get(f"/content/roots/{root.id}", token=token).json()["examples"][0]["headword"]
-        == "beautiful"
-    )
+    from apps.content.management.commands.seed_roots import seed_word_roots
 
-    PhrasalVerb.objects.create(verb_group="get", text="get up", meaning_vi="thức dậy", level=a1)
-    assert api.get("/content/phrasal-verbs?verb_group=get", token=token).json()["count"] == 1
+    assert seed_word_roots() == 40
+    un = WordRoot.objects.get(kind="prefix", text="un-")
+    un.examples.add(vocab)  # "beautiful" liên kết tay → id có, split không tách được
+
+    board = api.get("/content/roots", token=token).json()  # mặc định prefix
+    assert board["total"] == 40 and board["learned"] == 0 and board["kind_total"] == 14
+    assert [g["title_vi"] for g in board["groups"]] == [
+        "Phủ định & Đối nghịch",
+        "Vị trí & Thời gian",
+        "Số lượng & Mức độ",
+    ]
+    first = board["groups"][0]["roots"][0]
+    assert first["text"] == "un-" and first["example_count"] == 6 and first["learned"] is False
+    assert api.get("/content/roots?kind=suffix", token=token).json()["kind_total"] == 12
+
+    detail = api.get(f"/content/roots/{un.id}", token=token).json()
+    assert detail["effect_vi"] == "Biến đổi nghĩa sang đối lập tức thì"
+    assert (
+        detail["examples"][0]["headword"] == "beautiful" and detail["examples"][0]["id"] == vocab.id
+    )
+    unhappy = detail["examples"][1]
+    assert unhappy == {
+        "id": None,
+        "headword": "unhappy",
+        "base": "happy",
+        "split": "un·happy",
+        "ipa": "/ʌnˈhæp.i/",
+        "meaning_vi": "không vui vẻ",
+    }
+    assert len(detail["distractors"]) >= 4 and "không vui vẻ" not in detail["distractors"]
+
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 5, "total": 10}, token=token
+    ).json()
+    assert r["percent"] == 50 and r["learned"] is False and r["total_learned"] == 0
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 8, "total": 10}, token=token
+    ).json()
+    assert r["learned"] is True and r["newly_learned"] is True and r["total_learned"] == 1
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 2, "total": 10}, token=token
+    ).json()
+    assert r["best_percent"] == 80 and r["newly_learned"] is False and r["attempts"] == 3
+    board = api.get("/content/roots", token=token).json()
+    assert board["learned"] == 1 and board["groups"][0]["roots"][0]["learned"] is True
+    assert api.get("/content/roots/999999", token=token).status_code == 404
 
 
 def test_ipa_sounds(api, token):

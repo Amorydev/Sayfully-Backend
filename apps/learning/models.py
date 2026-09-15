@@ -12,6 +12,7 @@ from apps.content.models import (
     Unit,
     Vocabulary,
     VocabularyDeck,
+    WordRoot,
 )
 
 
@@ -204,6 +205,23 @@ class IPASoundProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · /{self.sound.symbol}/ · {self.best_score}"
+
+
+class WordRootProgress(models.Model):
+    LEARNED_PERCENT = 70
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="root_progress")
+    root = models.ForeignKey(WordRoot, on_delete=models.CASCADE, related_name="progress")
+    best_percent = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    learned_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "root"], name="uniq_user_word_root")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.root.text} · {self.best_percent}%"
 
 
 class PlacementQuestion(models.Model):

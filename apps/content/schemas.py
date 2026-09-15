@@ -444,11 +444,29 @@ class WordRootOut(Schema):
     meaning_vi: str
     group_vi: str
     example_count: int
+    learned: bool = False
+
+
+class WordRootGroupOut(Schema):
+    kind: str
+    title_vi: str
+    order: int
+    roots: list[WordRootOut]
+
+
+class WordRootBoardOut(Schema):
+    total: int  # toàn bộ gốc từ (mọi kind) — "Đã học x/40"
+    learned: int
+    kind_total: int  # trong kind đang lọc
+    kind_learned: int
+    groups: list[WordRootGroupOut]
 
 
 class RootExampleOut(Schema):
-    id: int
+    id: int | None  # Vocabulary id nếu có trong kho (mở từ điển)
     headword: str
+    base: str  # phần còn lại sau khi bỏ tiền tố / hậu tố
+    split: str  # "un·happy"
     ipa: str
     meaning_vi: str
 
@@ -459,8 +477,28 @@ class WordRootDetailOut(Schema):
     text: str
     meaning_vi: str
     group_vi: str
+    effect_vi: str
     mnemonic_vi: str
     examples: list[RootExampleOut]
+    distractors: list[str]  # nghĩa của từ thuộc gốc khác — làm đáp án nhiễu cho bài luyện
+    learned: bool
+    best_percent: int
+    attempts: int
+
+
+class WordRootPracticeIn(Schema):
+    correct: int = Field(..., ge=0)
+    total: int = Field(..., ge=1)
+
+
+class WordRootPracticeOut(Schema):
+    percent: int
+    best_percent: int
+    attempts: int
+    learned: bool
+    newly_learned: bool
+    total_learned: int
+    total: int
 
 
 class PhrasalVerbOut(Schema):

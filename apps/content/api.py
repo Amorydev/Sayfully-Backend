@@ -12,7 +12,7 @@ from ninja import Query, Router
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
-from apps.learning.models import IPASoundProgress
+from apps.learning.models import IPASoundProgress, WordRootProgress
 
 from . import models as m
 from . import schemas as s
@@ -913,58 +913,187 @@ def get_shadowing(request, id: int):
 
 
 # =============================================================== 2.6 Tra cứu
+def _root_split(root: m.WordRoot, word: str) -> tuple[str, str]:
+    """Tách từ theo gốc: trả (phần còn lại, dạng "un·happy")."""
+    affix = root.text.strip("-").lower()
+    w = word.lower()
+    if root.kind == "prefix" and w.startswith(affix) and len(w) > len(affix):
+        return word[len(affix) :], f"{word[: len(affix)]}·{word[len(affix) :]}"
+    if root.kind == "suffix" and w.endswith(affix) and len(w) > len(affix):
+        return word[: -len(affix)], f"{word[: -len(affix)]}·{word[-len(affix) :]}"
+    idx = w.find(affix)
+    if idx > 0 and idx + len(affix) < len(w):
+        return word[:idx] + word[
+            idx + len(affix) :
+        ], f"{word[:idx]}·{word[idx : idx + len(affix)]}·{word[idx + len(affix) :]}"
+    return word, word
+
+
+def _root_examples(root: m.WordRoot, accent: str) -> list[s.RootExampleOut]:
+    """Từ vựng liên kết trước, rồi từ mẫu JSON (bỏ trùng); id = Vocabulary nếu tra được."""
+    out: list[s.RootExampleOut] = []
+    seen: set[str] = set()
+    for v in root.examples.all():
+        base, split = _root_split(root, v.headword)
+        out.append(
+            s.RootExampleOut(
+                id=v.id,
+                headword=v.headword,
+                base=base,
+                split=split,
+                ipa=_ipa(v, accent),
+                meaning_vi=v.meaning_vi,
+            )
+        )
+        seen.add(v.headword.lower())
+    for sample in root.samples or []:
+        word = sample.get("word", "")
+        if not word or word.lower() in seen:
+            continue
+        seen.add(word.lower())
+        base, split = _root_split(root, word)
+        base = sample.get("base") or base
+        vocab = (
+            m.Vocabulary.objects.filter(headword__iexact=word)
+            .only("id", "ipa_uk", "ipa_us")
+            .first()
+        )
+        out.append(
+            s.RootExampleOut(
+                id=vocab.id if vocab else None,
+                headword=word,
+                base=base,
+                split=split,
+                ipa=sample.get("ipa") or (_ipa(vocab, accent) if vocab else ""),
+                meaning_vi=sample.get("meaning_vi", ""),
+            )
+        )
+    return out
+
+
+def _root_example_count(root: m.WordRoot) -> int:
+    linked = {v.lower() for v in root.examples.values_list("headword", flat=True)}
+    extra = {str(x.get("word", "")).lower() for x in (root.samples or []) if x.get("word")}
+    return len(linked | extra)
+
+
 @router.get(
     "/roots",
-    response={200: list[s.WordRootOut], 401: ErrorOut},
-    summary="Danh sách gốc từ (tiền tố / gốc / hậu tố)",
-    description="Lọc theo `kind`; `q` tìm theo ký tự gốc.",
+    response={200: s.WordRootBoardOut, 401: ErrorOut},
+    summary="Bảng gốc từ (tiền tố / gốc / hậu tố) theo nhóm + tiến độ",
+    description=(
+        "Lọc `kind` = prefix | root | suffix (mặc định prefix). `total/learned` tính trên toàn bộ "
+        'gốc từ để hiện "Đã học x/40"; `q` tìm theo ký tự gốc.'
+    ),
 )
-def list_roots(request, kind: str | None = None, q: str | None = None):
-    qs = m.WordRoot.objects.annotate(n=Count("examples"))
+def list_roots(request, kind: str | None = "prefix", q: str | None = None):
+    learned_ids = set(
+        WordRootProgress.objects.filter(user=request.auth, learned_at__isnull=False).values_list(
+            "root_id", flat=True
+        )
+    )
+    total = m.WordRoot.objects.count()
+    qs = m.WordRoot.objects.prefetch_related("examples")
     if kind:
         qs = qs.filter(kind=kind)
     if q:
         qs = qs.filter(text__icontains=q)
-    return [
-        s.WordRootOut(
+    roots = list(qs.order_by("group_order", "order", "text"))
+    groups: list[s.WordRootGroupOut] = []
+    for r in roots:
+        tile = s.WordRootOut(
             id=r.id,
             kind=r.kind,
             text=r.text,
             meaning_vi=r.meaning_vi,
             group_vi=r.group_vi,
-            example_count=r.n,
+            example_count=_root_example_count(r),
+            learned=r.id in learned_ids,
         )
-        for r in qs.order_by("kind", "text")
-    ]
+        if groups and groups[-1].title_vi == r.group_vi and groups[-1].kind == r.kind:
+            groups[-1].roots.append(tile)
+        else:
+            groups.append(
+                s.WordRootGroupOut(
+                    kind=r.kind, title_vi=r.group_vi or "Khác", order=r.group_order, roots=[tile]
+                )
+            )
+    return s.WordRootBoardOut(
+        total=total,
+        learned=len(learned_ids),
+        kind_total=len(roots),
+        kind_learned=sum(1 for r in roots if r.id in learned_ids),
+        groups=groups,
+    )
 
 
 @router.get(
     "/roots/{id}",
     response={200: s.WordRootDetailOut, 401: ErrorOut, 404: ErrorOut},
-    summary="Chi tiết gốc từ kèm từ ví dụ",
-    description="Nghĩa, mẹo nhớ, và các từ vựng chứa gốc này.",
+    summary="Chi tiết gốc từ kèm từ ví dụ đã tách cấu trúc",
+    description="Nghĩa, tác dụng, mẹo nhớ, từ mẫu dạng `un- + happy = un·happy`, đáp án nhiễu cho bài luyện, tiến độ.",
 )
 def get_root(request, id: int):
     r = m.WordRoot.objects.filter(id=id).prefetch_related("examples").first()
     if r is None:
         raise NotFound(_NOTFOUND)
     profile = ensure_profile(request.auth)
+    examples = _root_examples(r, profile.accent)
+    own = {e.meaning_vi for e in examples}
+    distractors: list[str] = []
+    for other in m.WordRoot.objects.exclude(id=r.id).order_by("?")[:8]:
+        for x in other.samples or []:
+            mv = x.get("meaning_vi", "")
+            if mv and mv not in own and mv not in distractors:
+                distractors.append(mv)
+        if len(distractors) >= 12:
+            break
+    prog = WordRootProgress.objects.filter(user=request.auth, root=r).first()
     return s.WordRootDetailOut(
         id=r.id,
         kind=r.kind,
         text=r.text,
         meaning_vi=r.meaning_vi,
         group_vi=r.group_vi,
+        effect_vi=r.effect_vi,
         mnemonic_vi=r.mnemonic_vi,
-        examples=[
-            s.RootExampleOut(
-                id=v.id,
-                headword=v.headword,
-                ipa=_ipa(v, profile.accent),
-                meaning_vi=v.meaning_vi,
-            )
-            for v in r.examples.all()
-        ],
+        examples=examples,
+        distractors=distractors[:12],
+        learned=bool(prog and prog.learned_at),
+        best_percent=prog.best_percent if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+@router.post(
+    "/roots/{id}/practice",
+    response={200: s.WordRootPracticeOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Ghi kết quả luyện một gốc từ",
+    description="App chấm bài trắc nghiệm (đúng/tổng); ≥ 70% → gốc từ được tính là đã học.",
+)
+def practice_root(request, id: int, data: s.WordRootPracticeIn):
+    r = m.WordRoot.objects.filter(id=id).first()
+    if r is None:
+        raise NotFound(_NOTFOUND)
+    percent = min(100, round(100 * min(data.correct, data.total) / data.total))
+    prog, _ = WordRootProgress.objects.get_or_create(user=request.auth, root=r)
+    prog.attempts += 1
+    prog.best_percent = max(prog.best_percent, percent)
+    newly = False
+    if prog.best_percent >= WordRootProgress.LEARNED_PERCENT and prog.learned_at is None:
+        prog.learned_at = timezone.now()
+        newly = True
+    prog.save()
+    return s.WordRootPracticeOut(
+        percent=percent,
+        best_percent=prog.best_percent,
+        attempts=prog.attempts,
+        learned=prog.learned_at is not None,
+        newly_learned=newly,
+        total_learned=WordRootProgress.objects.filter(
+            user=request.auth, learned_at__isnull=False
+        ).count(),
+        total=m.WordRoot.objects.count(),
     )
 
 

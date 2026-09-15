@@ -412,8 +412,15 @@ class WordRoot(models.Model):
     kind = models.CharField(max_length=8, choices=Kind.choices)
     text = models.CharField(max_length=32)  # "un-"
     meaning_vi = models.CharField(max_length=128)
-    group_vi = models.CharField(max_length=64, blank=True)  # "Phủ định"
+    group_vi = models.CharField(max_length=64, blank=True)  # "Phủ định & Đối nghịch"
+    group_order = models.PositiveSmallIntegerField(default=0)
+    order = models.PositiveSmallIntegerField(default=0)
+    effect_vi = models.CharField(
+        max_length=128, blank=True
+    )  # "Biến đổi nghĩa sang đối lập tức thì"
     mnemonic_vi = models.TextField(blank=True)
+    # Từ mẫu độc lập với kho từ vựng: [{"word":"unhappy","base":"happy","meaning_vi":"không vui vẻ","ipa":"/ʌnˈhæp.i/"}]
+    samples = models.JSONField(default=list, blank=True)
     examples = models.ManyToManyField(Vocabulary, blank=True, related_name="roots")
 
     class Meta:
@@ -463,7 +470,9 @@ class IPASound(models.Model):
     tip_vi = models.CharField(max_length=255, blank=True)  # Mẹo từ Bé Rồng
     mouth_image_path = models.CharField(max_length=255, blank=True)
     sample_words = models.JSONField(default=list)  # ["sheep","see","tea"] (từ mẫu ngắn cho ô bảng)
-    examples = models.JSONField(default=list)  # [{"word":"sheep","ipa":"/ʃiːp/","meaning_vi":"con cừu"}]
+    examples = models.JSONField(
+        default=list
+    )  # [{"word":"sheep","ipa":"/ʃiːp/","meaning_vi":"con cừu"}]
     minimal_pair = models.JSONField(
         default=dict, blank=True
     )  # {"other":"ɪ","words":["sheep","ship"]}
@@ -489,7 +498,9 @@ class ShadowingDeck(models.Model):
     background_url = models.CharField(
         max_length=255, blank=True
     )  # ảnh nền card; URL đầy đủ hoặc path tương đối trên R2
-    color = models.CharField(max_length=9, blank=True)  # màu hex "#22C55E" cho thẻ; rỗng = app tự chọn
+    color = models.CharField(
+        max_length=9, blank=True
+    )  # màu hex "#22C55E" cho thẻ; rỗng = app tự chọn
     is_free = models.BooleanField(default=True)
 
     class Meta:
@@ -528,7 +539,9 @@ class ListeningTopic(models.Model):
     order = models.PositiveSmallIntegerField()
     title_vi = models.CharField(max_length=128)
     icon = models.CharField(max_length=48, blank=True)  # token icon dự phòng
-    icon_url = models.CharField(max_length=255, blank=True)  # ảnh icon (URL/path) — app render trực tiếp
+    icon_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh icon (URL/path) — app render trực tiếp
     color = models.CharField(max_length=9, blank=True)  # màu hex "#RRGGBB" cho thẻ
     est_seconds = models.PositiveIntegerField(default=0)
     is_free = models.BooleanField(default=True)
@@ -637,9 +650,7 @@ class VocabularyDeckItem(models.Model):
     """1 thẻ trong bộ — thứ tự học do `order` quyết định."""
 
     deck = models.ForeignKey(VocabularyDeck, on_delete=models.CASCADE, related_name="items")
-    vocabulary = models.ForeignKey(
-        Vocabulary, on_delete=models.CASCADE, related_name="deck_items"
-    )
+    vocabulary = models.ForeignKey(Vocabulary, on_delete=models.CASCADE, related_name="deck_items")
     order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
