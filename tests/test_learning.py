@@ -103,7 +103,7 @@ def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
         "hearing",
         "progress",
     ]
-    assert tools[0]["is_premium"] is True
+    assert tools[0]["action"] == "coming_soon"  # AI_ENABLED=False trong test
     assert tools[2]["title_vi"] == "Bảng 1 âm IPA chuẩn"
     assert tools[2]["item_count"] == 1
     assert tools[3]["action"] == "grammar"

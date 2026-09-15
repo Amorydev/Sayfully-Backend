@@ -16,7 +16,7 @@ from django.utils import timezone as djtz
 
 from apps.accounts.models import User
 from apps.accounts.services import ensure_profile
-from apps.ai.models import RoleplayScenario
+from apps.ai.management.commands.seed_scenarios import seed_roleplay_scenarios
 from apps.billing.models import GiftCode, Product
 from apps.common.models import LearningGoal
 from apps.content.management.commands.seed_grammar import seed_grammar_points
@@ -1799,30 +1799,8 @@ class Command(BaseCommand):
                 },
             )
 
-        # Hội thoại AI (hero Trung tâm luyện tập C19)
-        RoleplayScenario.objects.update_or_create(
-            title_vi="Phỏng vấn xin việc",
-            defaults={
-                "level": "B1",
-                "topic": "Công việc",
-                "description_vi": "Phỏng vấn xin việc & thuyết trình chuyên nghiệp",
-                "goals": ["Giới thiệu bản thân", "Nói điểm mạnh", "Đặt câu hỏi cho nhà tuyển dụng"],
-                "system_prompt": "You are a friendly job interviewer. Ask common interview "
-                "questions and give short, encouraging feedback.",
-                "is_premium": False,
-            },
-        )
-        RoleplayScenario.objects.update_or_create(
-            title_vi="Gọi món tại quán cà phê",
-            defaults={
-                "level": "A1",
-                "topic": "Du lịch",
-                "description_vi": "Tập gọi đồ uống và trả tiền tự nhiên",
-                "goals": ["Chào hỏi", "Gọi món", "Hỏi giá"],
-                "system_prompt": "You are a barista. Help the user order politely in English.",
-                "is_premium": False,
-            },
-        )
+        # Kịch bản đóng vai Gia sư AI (C44)
+        seed_roleplay_scenarios()
 
         # Tài khoản demo có sẵn tiến độ để preview Home (demo@sayfully.app / demo1234)
         demo, created = User.objects.get_or_create(

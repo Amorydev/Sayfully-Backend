@@ -12,6 +12,9 @@ env = environ.Env(
     ACCESS_TOKEN_MINUTES=(int, 30),
     REFRESH_TOKEN_DAYS=(int, 60),
     AI_ENABLED=(bool, False),
+    AI_FREE_TURNS=(int, 20),
+    AI_PREMIUM_TURNS=(int, 200),
+    AI_TIMEOUT=(int, 30),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -150,6 +153,15 @@ PASSWORD_RESET_URL = env("PASSWORD_RESET_URL", default="http://localhost:3000/re
 GOOGLE_TRANSLATE_API_KEY = env("GOOGLE_TRANSLATE_API_KEY", default="")
 
 AI_ENABLED = env("AI_ENABLED")
+# Gia sư AI: provider `openai_compat` gọi endpoint chat/completions tương thích OpenAI
+# (DeepSeek trực tiếp hoặc qua OpenRouter); `mock` trả lời mẫu để dựng UI không cần key.
+AI_PROVIDER = env("AI_PROVIDER", default="mock")
+AI_BASE_URL = env("AI_BASE_URL", default="https://openrouter.ai/api/v1")
+AI_MODEL = env("AI_MODEL", default="deepseek/deepseek-v4-flash")
+AI_API_KEY = env("AI_API_KEY", default="")
+AI_TIMEOUT = env("AI_TIMEOUT")
+AI_FREE_TURNS = env("AI_FREE_TURNS")
+AI_PREMIUM_TURNS = env("AI_PREMIUM_TURNS")
 
 LANGUAGE_CODE = "vi"
 TIME_ZONE = "UTC"                      # DB lưu UTC; đổi sang giờ user khi tính streak

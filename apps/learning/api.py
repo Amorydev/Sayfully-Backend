@@ -327,9 +327,9 @@ def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
         s.HomeLearningToolOut(
             code="ai_tutor",
             title_vi="Gia sư AI 1:1",
-            description_vi="Trò chuyện theo kịch bản mở, sửa lỗi tức thì",
-            action="coming_soon",
-            is_premium=True,
+            description_vi="Trò chuyện tự do hoặc đóng vai, Long sửa lỗi tức thì",
+            action="ai_tutor" if settings.AI_ENABLED else "coming_soon",
+            is_premium=False,
         ),
         s.HomeLearningToolOut(
             code="exam_prep",
