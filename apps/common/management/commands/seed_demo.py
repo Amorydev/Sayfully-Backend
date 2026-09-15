@@ -19,6 +19,7 @@ from apps.accounts.services import ensure_profile
 from apps.ai.models import RoleplayScenario
 from apps.billing.models import GiftCode, Product
 from apps.common.models import LearningGoal
+from apps.content.management.commands.seed_grammar import seed_grammar_points
 from apps.content.management.commands.seed_ipa import seed_ipa_sounds
 from apps.content.management.commands.seed_roots import seed_word_roots
 from apps.content.models import (
@@ -1094,6 +1095,7 @@ class Command(BaseCommand):
             )
 
         seed_word_roots()  # 40 gốc từ (C40)
+        seed_grammar_points()  # điểm ngữ pháp C42 (ghi đè order 1 của A1 bằng bản đầy đủ)
         PhrasalVerb.objects.update_or_create(
             text="get up",
             defaults={

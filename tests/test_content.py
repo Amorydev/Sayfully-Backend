@@ -4,7 +4,6 @@ import pytest
 
 from apps.content.models import (
     Collocation,
-    GrammarExample,
     GrammarPoint,
     Lesson,
     LessonStep,
@@ -248,30 +247,64 @@ def test_topics_word_count(api, token, levels, vocab):
 
 
 # --------------------------------------------------------------- ngữ pháp
-def test_grammar_list_va_detail(api, token, levels):
-    a1, _ = levels
-    gp = GrammarPoint.objects.create(
-        level=a1,
-        order=1,
-        category="Thì",
-        title_vi="to be",
-        formula="I + am",
-        explanation_vi="Động từ to be",
-        conjugation=[{"subject": "I", "form": "am"}],
+def test_grammar_list_va_detail(api, token, levels, user):
+    from apps.content.management.commands.seed_grammar import seed_grammar_points
+
+    assert seed_grammar_points() == 8
+    page = api.get("/content/grammar?level=A1", token=token).json()
+    assert page["count"] == 6 and page["completed"] == 0
+    assert page["categories"] == ["Thì", "Mạo từ", "Đại từ", "Câu hỏi", "Cấu trúc"]
+    assert page["tip_vi"].startswith("Nắm chắc bản chất")
+    first = page["items"][0]
+    assert (
+        first["title_vi"] == "Động từ to be (am/is/are)"
+        and first["subtitle_vi"] == "Khái niệm cốt lõi · 3 quy tắc"
     )
-    GrammarExample.objects.create(
-        grammar_point=gp, order=0, text_en="I am a student.", text_vi="Tôi là học sinh."
+    assert (
+        first["exercise_count"] == 8 and first["completed"] is False and first["is_locked"] is False
     )
-    assert api.get("/content/grammar?level=A1", token=token).json()["count"] == 1
-    body = api.get(f"/content/grammar/{gp.id}", token=token).json()
+    assert api.get("/content/grammar?level=A1&category=Mạo từ", token=token).json()["count"] == 1
+
+    body = api.get(f"/content/grammar/{first['id']}", token=token).json()
+    assert body["position"] == 1 and body["total_in_level"] == 6
+    assert body["formula"] == "S + be + N/Adj"
+    assert body["formula_parts"][1] == {"token": "be", "label_vi": "am / is / are"}
+    assert (
+        body["mistake_wrong"] == "She very beautiful"
+        and body["mistake_right"] == "She is very beautiful"
+    )
     assert body["conjugation"][0] == {"subject": "I", "form": "am"}
-    assert body["examples"][0]["text_en"] == "I am a student."
+    assert body["examples"][0]["text_en"] == "I am a student." and body["xp_reward"] == 30
+
+    ex = api.get(f"/content/grammar/{first['id']}/exercises", token=token).json()
+    assert len(ex) == 8 and ex[0]["options"] == ["am", "is", "are"] and ex[0]["answer_index"] == 0
+
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 5, "total": 10}, token=token
+    ).json()
+    assert r["percent"] == 50 and r["completed"] is False and r["xp_earned"] == 0
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 8, "total": 10}, token=token
+    ).json()
+    assert r["completed"] is True and r["newly_completed"] is True and r["xp_earned"] == 30
+    assert r["streak_days"] == 1
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 10, "total": 10}, token=token
+    ).json()
+    assert r["newly_completed"] is False and r["xp_earned"] == 0 and r["best_percent"] == 100
+    user.profile.refresh_from_db()
+    assert user.profile.xp_total == 30
+    page = api.get("/content/grammar?level=A1", token=token).json()
+    assert page["completed"] == 1 and page["items"][0]["completed"] is True
+    assert page["tip_vi"] != first["title_vi"] and page["tip_vi"].startswith("Nghe âm đầu")
 
 
 def test_grammar_a2_premium(api, token, levels):
     _, a2 = levels
     gp = GrammarPoint.objects.create(level=a2, order=1, title_vi="X", explanation_vi="Y")
     assert api.get(f"/content/grammar/{gp.id}", token=token).status_code == 403
+    assert api.get(f"/content/grammar/{gp.id}/exercises", token=token).status_code == 403
+    assert api.get("/content/grammar?level=A2", token=token).json()["items"][0]["is_locked"] is True
 
 
 # --------------------------------------------------------------- đọc / truyện

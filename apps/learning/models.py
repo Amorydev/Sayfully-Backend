@@ -4,6 +4,7 @@ from django.db.models import Q
 from apps.accounts.models import User
 from apps.common.models import CEFR
 from apps.content.models import (
+    GrammarPoint,
     IPASound,
     Lesson,
     ListeningTopic,
@@ -222,6 +223,30 @@ class WordRootProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.root.text} · {self.best_percent}%"
+
+
+class GrammarProgress(models.Model):
+    COMPLETE_PERCENT = 70
+    XP_REWARD = 30
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="grammar_progress")
+    grammar_point = models.ForeignKey(
+        GrammarPoint, on_delete=models.CASCADE, related_name="progress"
+    )
+    best_percent = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "grammar_point"], name="uniq_user_grammar_point"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.grammar_point_id} · {self.best_percent}%"
 
 
 class PlacementQuestion(models.Model):

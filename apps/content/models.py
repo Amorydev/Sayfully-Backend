@@ -182,10 +182,17 @@ class GrammarPoint(models.Model):
     category = models.CharField(max_length=48, blank=True)  # Thì / Mạo từ / Đại từ...
     title_vi = models.CharField(max_length=160)
     title_en = models.CharField(max_length=160, blank=True)
-    formula = models.CharField(max_length=160, blank=True)  # "I + am + [tên]"
+    subtitle_vi = models.CharField(max_length=160, blank=True)  # "Khái niệm cốt lõi · 3 quy tắc"
+    form_vi = models.CharField(max_length=96, blank=True)  # "Thể khẳng định · Hiện tại đơn"
+    formula = models.CharField(max_length=160, blank=True)  # "S + be + N/Adj"
+    formula_parts = models.JSONField(
+        default=list, blank=True
+    )  # [{"token": "S", "label_vi": "Chủ ngữ"}, {"token": "be", "label_vi": "am / is / are"}]
     note_vi = models.TextField(blank=True)  # ghi nhớ nhanh cạnh công thức
     explanation_vi = models.TextField()
     common_mistake_vi = models.TextField(blank=True)  # card amber trong UI
+    mistake_wrong = models.CharField(max_length=160, blank=True)  # "She very beautiful"
+    mistake_right = models.CharField(max_length=160, blank=True)  # "She is very beautiful"
     conjugation = models.JSONField(
         default=list, blank=True
     )  # bảng chia: [{"subject": "I", "form": "am"}, ...]
@@ -211,6 +218,26 @@ class GrammarExample(models.Model):
 
     def __str__(self) -> str:
         return str(self.text_en)
+
+
+class GrammarExercise(models.Model):
+    """Câu thực hành trắc nghiệm điền chỗ trống cho một điểm ngữ pháp (C42)."""
+
+    grammar_point = models.ForeignKey(
+        GrammarPoint, on_delete=models.CASCADE, related_name="exercises"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    prompt_en = models.CharField(max_length=255)  # "She ___ a teacher."
+    prompt_vi = models.CharField(max_length=255, blank=True)
+    options = models.JSONField(default=list)  # ["am", "is", "are"]
+    answer_index = models.PositiveSmallIntegerField(default=0)
+    explanation_vi = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self) -> str:
+        return str(self.prompt_en)
 
 
 class Dialogue(models.Model):

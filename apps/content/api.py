@@ -12,7 +12,8 @@ from ninja import Query, Router
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
-from apps.learning.models import IPASoundProgress, WordRootProgress
+from apps.learning import services as learn_services
+from apps.learning.models import GrammarProgress, IPASoundProgress, WordRootProgress
 
 from . import models as m
 from . import schemas as s
@@ -494,45 +495,70 @@ def list_topics(request):
 
 
 # =============================================================== 2.3 Ngữ pháp
+def _grammar_completed_ids(user) -> set[int]:
+    return set(
+        GrammarProgress.objects.filter(user=user, completed_at__isnull=False).values_list(
+            "grammar_point_id", flat=True
+        )
+    )
+
+
 @router.get(
     "/grammar",
-    response={200: s.Page[s.GrammarListOut], 401: ErrorOut, 422: ErrorOut},
+    response={200: s.GrammarPageOut, 401: ErrorOut, 422: ErrorOut},
     summary="Danh sách điểm ngữ pháp",
-    description="Lọc theo `level`, `category`; `q` tìm theo tiêu đề.",
+    description=(
+        "Lọc theo `level` (mặc định cấp của người dùng), `category`; `q` tìm theo tiêu đề. Kèm chip "
+        "danh mục của cấp, số điểm đã hoàn thành và mẹo vàng."
+    ),
 )
 def list_grammar(
     request,
     level: str | None = None,
     category: str | None = None,
     q: str | None = None,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    qs = m.GrammarPoint.objects.all()
-    if level:
-        qs = qs.filter(level_id=level.upper())
+    profile = ensure_profile(request.auth)
+    level_code = (level or profile.cefr_level or "A1").upper()
+    base = m.GrammarPoint.objects.filter(level_id=level_code).select_related("level")
+    categories = [
+        c for c in base.order_by("order").values_list("category", flat=True).distinct() if c
+    ]
+    qs = base
     if category:
         qs = qs.filter(category=category)
     if q:
         qs = qs.filter(Q(title_vi__icontains=q) | Q(title_en__icontains=q))
-    qs = qs.order_by("level__order", "order")
+    qs = qs.annotate(n_ex=Count("exercises")).order_by("order")
     count = qs.count()
-    items = qs[offset : offset + limit]
-    return s.Page(
+    items = list(qs[offset : offset + limit])
+    done = _grammar_completed_ids(request.auth)
+    tip = next((g.note_vi for g in base.order_by("order") if g.id not in done and g.note_vi), "")
+    return s.GrammarPageOut(
         items=[
             s.GrammarListOut(
                 id=g.id,
                 level=g.level_id,
+                order=g.order,
                 category=g.category,
                 title_vi=g.title_vi,
                 title_en=g.title_en,
+                subtitle_vi=g.subtitle_vi,
                 formula=g.formula,
+                exercise_count=g.n_ex,
+                completed=g.id in done,
+                is_locked=not g.level.is_free and not profile.is_premium,
             )
             for g in items
         ],
         count=count,
         limit=limit,
         offset=offset,
+        categories=list(dict.fromkeys(categories)),
+        completed=sum(1 for gid in base.values_list("id", flat=True) if gid in done),
+        tip_vi=tip,
     )
 
 
@@ -540,7 +566,7 @@ def list_grammar(
     "/grammar/{id}",
     response={200: s.GrammarDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết điểm ngữ pháp",
-    description="Công thức, bảng chia, ví dụ. Cấp có `is_free=False` cần Premium.",
+    description="Công thức (kèm từng thành phần), bảng chia, ví dụ, lỗi hay gặp, tiến độ. Cấp có `is_free=False` cần Premium.",
 )
 def get_grammar(request, id: int):
     profile = ensure_profile(request.auth)
@@ -553,17 +579,99 @@ def get_grammar(request, id: int):
     if g is None:
         raise NotFound(_NOTFOUND)
     _gate(profile, g.level)
+    siblings = list(
+        m.GrammarPoint.objects.filter(level=g.level).order_by("order").values_list("id", flat=True)
+    )
+    prog = GrammarProgress.objects.filter(user=request.auth, grammar_point=g).first()
     return s.GrammarDetailOut(
         id=g.id,
         level=g.level_id,
+        order=g.order,
+        position=siblings.index(g.id) + 1 if g.id in siblings else 1,
+        total_in_level=len(siblings),
         category=g.category,
         title_vi=g.title_vi,
         title_en=g.title_en,
+        subtitle_vi=g.subtitle_vi,
+        form_vi=g.form_vi,
         formula=g.formula,
+        formula_parts=[
+            s.FormulaPartOut(token=p.get("token", ""), label_vi=p.get("label_vi", ""))
+            for p in (g.formula_parts or [])
+        ],
+        note_vi=g.note_vi,
         explanation_vi=g.explanation_vi,
         common_mistake_vi=g.common_mistake_vi,
+        mistake_wrong=g.mistake_wrong,
+        mistake_right=g.mistake_right,
         conjugation=_conjugation(g),
         examples=_grammar_examples(g),
+        exercise_count=g.exercises.count(),
+        xp_reward=GrammarProgress.XP_REWARD,
+        completed=bool(prog and prog.completed_at),
+        best_percent=prog.best_percent if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+@router.get(
+    "/grammar/{id}/exercises",
+    response={200: list[s.GrammarExerciseOut], 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Câu thực hành của điểm ngữ pháp",
+    description="Trắc nghiệm điền chỗ trống (`___` trong prompt_en). App chấm tại chỗ rồi gửi kết quả qua /practice.",
+)
+def list_grammar_exercises(request, id: int):
+    profile = ensure_profile(request.auth)
+    g = m.GrammarPoint.objects.filter(id=id).select_related("level").first()
+    if g is None:
+        raise NotFound(_NOTFOUND)
+    _gate(profile, g.level)
+    return [
+        s.GrammarExerciseOut(
+            id=e.id,
+            order=e.order,
+            prompt_en=e.prompt_en,
+            prompt_vi=e.prompt_vi,
+            options=e.options or [],
+            answer_index=e.answer_index,
+            explanation_vi=e.explanation_vi,
+        )
+        for e in g.exercises.all()
+    ]
+
+
+@router.post(
+    "/grammar/{id}/practice",
+    response={200: s.GrammarPracticeOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Ghi kết quả thực hành ngữ pháp",
+    description="≥ 70% lần đầu → hoàn thành điểm ngữ pháp, +30 XP và tính hoạt động trong ngày (giữ streak).",
+)
+def practice_grammar(request, id: int, data: s.GrammarPracticeIn):
+    profile = ensure_profile(request.auth)
+    g = m.GrammarPoint.objects.filter(id=id).select_related("level").first()
+    if g is None:
+        raise NotFound(_NOTFOUND)
+    _gate(profile, g.level)
+    percent = min(100, round(100 * min(data.correct, data.total) / data.total))
+    prog, _ = GrammarProgress.objects.get_or_create(user=request.auth, grammar_point=g)
+    prog.attempts += 1
+    prog.best_percent = max(prog.best_percent, percent)
+    newly = False
+    xp = 0
+    if prog.best_percent >= GrammarProgress.COMPLETE_PERCENT and prog.completed_at is None:
+        prog.completed_at = timezone.now()
+        newly = True
+        xp = GrammarProgress.XP_REWARD
+    prog.save()
+    reward = learn_services.record(profile, xp=xp, ref_type="grammar", ref_id=str(g.id), minutes=1)
+    return s.GrammarPracticeOut(
+        percent=percent,
+        best_percent=prog.best_percent,
+        attempts=prog.attempts,
+        completed=prog.completed_at is not None,
+        newly_completed=newly,
+        xp_earned=reward.xp_earned,
+        streak_days=reward.streak_days,
     )
 
 

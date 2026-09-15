@@ -263,23 +263,82 @@ class TopicOut(Schema):
 class GrammarListOut(Schema):
     id: int
     level: str
+    order: int
     category: str
     title_vi: str
     title_en: str
+    subtitle_vi: str
     formula: str
+    exercise_count: int
+    completed: bool
+    is_locked: bool  # cấp cần Premium mà tài khoản chưa có
+
+
+class GrammarPageOut(Schema):
+    items: list[GrammarListOut]
+    count: int
+    limit: int
+    offset: int
+    categories: list[str]  # chip lọc theo cấp đang xem
+    completed: int  # số điểm đã hoàn thành trong cấp
+    tip_vi: str  # "Mẹo vàng" — note của điểm chưa hoàn thành đầu tiên
+
+
+class FormulaPartOut(Schema):
+    token: str
+    label_vi: str
 
 
 class GrammarDetailOut(Schema):
     id: int
     level: str
+    order: int
+    position: int  # thứ tự trong cấp (1-based) → "Bài 04 / 12"
+    total_in_level: int
     category: str
     title_vi: str
     title_en: str
+    subtitle_vi: str
+    form_vi: str
     formula: str
+    formula_parts: list[FormulaPartOut]
+    note_vi: str
     explanation_vi: str
     common_mistake_vi: str
+    mistake_wrong: str
+    mistake_right: str
     conjugation: list[ConjugationRowOut]
     examples: list[SentenceOut]
+    exercise_count: int
+    xp_reward: int
+    completed: bool
+    best_percent: int
+    attempts: int
+
+
+class GrammarExerciseOut(Schema):
+    id: int
+    order: int
+    prompt_en: str
+    prompt_vi: str
+    options: list[str]
+    answer_index: int
+    explanation_vi: str
+
+
+class GrammarPracticeIn(Schema):
+    correct: int = Field(..., ge=0)
+    total: int = Field(..., ge=1)
+
+
+class GrammarPracticeOut(Schema):
+    percent: int
+    best_percent: int
+    attempts: int
+    completed: bool
+    newly_completed: bool
+    xp_earned: int
+    streak_days: int
 
 
 # --------------------------------------------------------------- 2.4 Đọc & truyện
