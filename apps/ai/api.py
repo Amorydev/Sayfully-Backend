@@ -319,7 +319,7 @@ def _summary_out(conv: AIConversation, user) -> s.SummaryOut:
     "/conversations/{id}/end",
     response={200: s.SummaryOut, 401: ErrorOut, 404: ErrorOut, 502: ErrorOut, 503: ErrorOut},
     summary="Kết thúc hội thoại: tổng kết, 3 lỗi cần nhớ, thưởng XP/xu",
-    description=f"Thưởng khi ≥ {svc.MIN_TURNS_FOR_REWARD} lượt; đóng vai đạt đủ mục tiêu được +{svc.ROLEPLAY_BONUS_XP} XP. "
+    description=f"Thưởng khi ≥ {svc.MIN_TURNS_FOR_REWARD} lượt hoặc đóng vai đạt đủ mục tiêu (+{svc.ROLEPLAY_BONUS_XP} XP). "
     "Gọi lại trên hội thoại đã kết thúc trả lại tổng kết cũ (idempotent).",
 )
 def end_conversation(request, id: int):

@@ -505,7 +505,8 @@ def _normalise_summary(raw: dict, conv: AIConversation) -> dict:
 
 
 def _reward(profile: UserProfile, conv: AIConversation) -> dict:
-    if conv.turn_count < MIN_TURNS_FOR_REWARD:
+    goals_done = bool(conv.scenario and conv.goals_state and all(conv.goals_state))
+    if conv.turn_count < MIN_TURNS_FOR_REWARD and not goals_done:
         return {
             "xp": 0,
             "coins": 0,
@@ -516,7 +517,7 @@ def _reward(profile: UserProfile, conv: AIConversation) -> dict:
     xp, coins, bonus = TUTOR_XP, TUTOR_COINS, 0
     if conv.scenario:
         xp, coins = conv.scenario.xp_reward, conv.scenario.coin_reward
-        if conv.goals_state and all(conv.goals_state):
+        if goals_done:
             bonus = ROLEPLAY_BONUS_XP
     res = learn.record(
         profile,

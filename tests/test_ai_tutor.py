@@ -288,7 +288,6 @@ def test_dong_vai_muc_tieu_va_thuong_bonus(api, token, user, scenarios, settings
         "Large please",
         "How much is it?",
         "Thank you!",
-        "Bye",
     ]
     for i, line in enumerate(lines):
         t = api.post(
@@ -298,6 +297,7 @@ def test_dong_vai_muc_tieu_va_thuong_bonus(api, token, user, scenarios, settings
         ).json()
     assert t["goals_state"] == [True] * 5
     assert t["suggested_end"] is True
+    assert t["turns"] == 5  # đủ mục tiêu → thưởng dù chưa đủ 6 lượt
 
     s = api.post(f"/ai/conversations/{body['id']}/end", token=token).json()
     assert s["goals_all_done"] is True
