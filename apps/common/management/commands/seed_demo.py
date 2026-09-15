@@ -1116,6 +1116,7 @@ class Command(BaseCommand):
             ("daily_xp", "daily", "xp", "Kiếm 100 XP hôm nay", 100, 0, 20),
             ("daily_words", "daily", "words", "Ôn 20 từ vựng", 20, 0, 15),
             ("daily_speak", "daily", "speaking", "Phát âm chuẩn 15 câu", 15, 0, 25),
+            ("daily_ai_talk", "daily", "ai_turns", "Nói 5 câu với Long", 5, 0, 20),
             ("weekly_lessons", "weekly", "lessons", "Học 10 bài trong tuần", 10, 100, 50),
         ]:
             Challenge.objects.update_or_create(

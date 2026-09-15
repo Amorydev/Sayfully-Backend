@@ -19,6 +19,7 @@ class Challenge(models.Model):
         DAYS = "days", "Ngày học"
         SPEAKING = "speaking", "Câu đã nói"
         EXAMS = "exams", "Đề thi"
+        AI_TURNS = "ai_turns", "Lượt nói với Long"
 
     code = models.SlugField(max_length=48, unique=True)
     scope = models.CharField(max_length=10, choices=Scope.choices)
@@ -383,7 +384,9 @@ class MatchPairsProgress(models.Model):
         EXPERT = "expert", "Siêu cấp"
 
     _PAIRS = {"easy": 6, "medium": 8, "hard": 10, "expert": 12}
-    MAX_MOVES = 32767  # trần của PositiveSmallIntegerField `best_moves`; vượt là 422, không phải 500
+    MAX_MOVES = (
+        32767  # trần của PositiveSmallIntegerField `best_moves`; vượt là 422, không phải 500
+    )
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="match_pairs_progress")
     stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="progress")

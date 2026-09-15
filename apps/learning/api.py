@@ -19,6 +19,7 @@ from ninja import File, Query, Router
 from ninja.files import UploadedFile
 
 from apps.accounts.services import ensure_profile
+from apps.ai.models import AIQuota
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
@@ -316,6 +317,35 @@ def _key_vocab(lesson: Lesson, accent: str) -> list[s.KeyVocabOut]:
     return out
 
 
+def _home_rank(user) -> s.HomeRankOut | None:
+    from apps.gamification.api import _league_ranking  # noqa: PLC0415 — tránh import vòng
+
+    if not LeagueMembership.objects.filter(user=user).exists():
+        return None
+    group, _, _, my_rank, my_xp, _ = _league_ranking(user)
+    if my_rank == 0:
+        return None
+    return s.HomeRankOut(league_tier=group.get_tier_display(), rank=my_rank, xp_week=my_xp)
+
+
+def _home_ai_tutor(profile, today) -> s.HomeAiTutorOut:
+    from apps.ai import services as ai_services  # noqa: PLC0415
+
+    limit = ai_services.quota_limit(profile)
+    used = (
+        AIQuota.objects.filter(user=profile.user, date=today)
+        .values_list("messages_used", flat=True)
+        .first()
+        or 0
+    )
+    return s.HomeAiTutorOut(
+        enabled=settings.AI_ENABLED,
+        quota_left=max(0, limit - used),
+        quota_limit=limit,
+        resets_at=(today + timedelta(days=1)).isoformat(),
+    )
+
+
 def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
     notebook_total = NotebookEntry.objects.filter(user=user).count()
     ipa_sounds = IPASound.objects.count()
@@ -453,16 +483,12 @@ def home(request):
     daily_challenges = list(
         Challenge.objects.filter(scope=Challenge.Scope.DAILY, is_active=True).order_by("tier", "id")
     )
-    progress_by_id = dict(
-        UserChallenge.objects.filter(
-            user=user, period_key=today.isoformat(), challenge__in=daily_challenges
-        ).values_list("challenge_id", "progress")
-    )
+    dailies_today = [daily] if daily else []
     challenge_items = []
     challenges_done = 0
     challenges_reward = 0
     for ch in daily_challenges:
-        cur = progress_by_id.get(ch.id, 0)
+        cur = gami_services.challenge_progress(ch, dailies_today)
         if cur >= ch.target:
             challenges_done += 1
         challenges_reward += ch.reward_coins
@@ -510,7 +536,7 @@ def home(request):
             reward_coins=challenges_reward,
             items=challenge_items,
         ),
-        rank=None,
+        rank=_home_rank(user),
         games=[
             s.HomeGameOut(
                 id=game.id,
@@ -527,6 +553,7 @@ def home(request):
             for game in home_games
         ],
         learning_tools=_home_learning_tools(user),
+        ai_tutor=_home_ai_tutor(profile, today),
     )
 
 

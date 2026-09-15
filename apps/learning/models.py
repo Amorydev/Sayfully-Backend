@@ -133,6 +133,7 @@ class DailyActivity(models.Model):
     words_reviewed = models.PositiveIntegerField(default=0)
     speaking_count = models.PositiveSmallIntegerField(default=0)
     listening_count = models.PositiveSmallIntegerField(default=0)
+    ai_turns = models.PositiveSmallIntegerField(default=0)  # lượt nói với Gia sư AI
     minutes = models.PositiveSmallIntegerField(default=0)
 
     class Meta:

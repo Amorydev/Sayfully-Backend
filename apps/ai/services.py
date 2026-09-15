@@ -505,8 +505,17 @@ def _normalise_summary(raw: dict, conv: AIConversation) -> dict:
 
 
 def _reward(profile: UserProfile, conv: AIConversation) -> dict:
+    """Ghi hoạt động (lượt nói, phút) cho mọi phiên có nói; XP/xu chỉ khi đủ điều kiện."""
     goals_done = bool(conv.scenario and conv.goals_state and all(conv.goals_state))
-    if conv.turn_count < MIN_TURNS_FOR_REWARD and not goals_done:
+    rewarded = conv.turn_count >= MIN_TURNS_FOR_REWARD or goals_done
+    xp, coins, bonus = 0, 0, 0
+    if rewarded:
+        xp, coins = TUTOR_XP, TUTOR_COINS
+        if conv.scenario:
+            xp, coins = conv.scenario.xp_reward, conv.scenario.coin_reward
+            if goals_done:
+                bonus = ROLEPLAY_BONUS_XP
+    if conv.turn_count == 0:
         return {
             "xp": 0,
             "coins": 0,
@@ -514,26 +523,21 @@ def _reward(profile: UserProfile, conv: AIConversation) -> dict:
             "rewarded": False,
             "streak_days": profile.streak_current,
         }
-    xp, coins, bonus = TUTOR_XP, TUTOR_COINS, 0
-    if conv.scenario:
-        xp, coins = conv.scenario.xp_reward, conv.scenario.coin_reward
-        if goals_done:
-            bonus = ROLEPLAY_BONUS_XP
     res = learn.record(
         profile,
         xp=xp + bonus,
         coins=coins,
-        coin_reason="ai_tutor",
+        coin_reason="ai_tutor" if coins else "",
         ref_type="ai_conversation",
         ref_id=str(conv.id),
-        speaking=conv.turn_count,
+        ai_turns=conv.turn_count,
         minutes=max(1, round((djtz.now() - conv.created_at).total_seconds() / 60)),
     )
     return {
         "xp": res.xp_earned,
         "coins": res.coins_earned,
         "bonus_xp": bonus,
-        "rewarded": True,
+        "rewarded": rewarded,
         "streak_days": res.streak_days,
     }
 

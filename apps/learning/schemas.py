@@ -95,6 +95,13 @@ class StreakStatusOut(Schema):
     frozen_yesterday: bool  # hôm qua đã được băng che (băng đã tiêu)
 
 
+class HomeAiTutorOut(Schema):
+    enabled: bool
+    quota_left: int
+    quota_limit: int
+    resets_at: str  # ISO date (giờ hồ sơ)
+
+
 class HomeOut(Schema):
     checkin_done: bool = False  # đã điểm danh hôm nay → app không hiện dialog điểm danh
     streak: StreakStatusOut | None = None
@@ -107,6 +114,7 @@ class HomeOut(Schema):
     rank: HomeRankOut | None
     games: list[HomeGameOut]
     learning_tools: list[HomeLearningToolOut]
+    ai_tutor: HomeAiTutorOut
 
 
 # --------------------------------------------------------------- learn path (C2)

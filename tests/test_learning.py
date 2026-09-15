@@ -78,7 +78,8 @@ def test_home_bao_da_diem_danh(api, token, user):
     assert api.get("/home", token=token).json()["checkin_done"] is True
 
 
-def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
+def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user, settings):
+    settings.AI_ENABLED = False
     NotebookEntry.objects.create(user=user, custom_word="hello", custom_meaning="xin chào")
     IPASound.objects.create(
         symbol="iː",
@@ -103,7 +104,9 @@ def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
         "hearing",
         "progress",
     ]
-    assert tools[0]["action"] == "coming_soon"  # AI_ENABLED=False trong test
+    assert tools[0]["action"] == "coming_soon"  # AI_ENABLED=False
+    ai = response.json()["ai_tutor"]
+    assert ai["enabled"] is False and ai["quota_left"] == 20 and ai["quota_limit"] == 20
     assert tools[2]["title_vi"] == "Bảng 1 âm IPA chuẩn"
     assert tools[2]["item_count"] == 1
     assert tools[3]["action"] == "grammar"

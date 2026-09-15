@@ -318,3 +318,37 @@ def test_tiep_tuc_phien_do(api, token, user):
     hub = api.get("/ai/home", token=token).json()
     assert hub["continue_session"]["conversation_id"] == conv["id"]
     assert hub["continue_session"]["title_vi"] == "Nói chuyện tự do: Ẩm thực"
+
+
+def test_home_quota_va_thu_thach_noi_voi_long(api, token, user, settings):
+    from apps.gamification.models import Challenge
+
+    settings.AI_FREE_TURNS = 20
+    Challenge.objects.create(
+        code="daily_ai_talk",
+        scope="daily",
+        metric="ai_turns",
+        title_vi="Nói 5 câu với Long",
+        target=5,
+        reward_coins=20,
+    )
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
+    for i in range(3):
+        api.post(
+            f"/ai/conversations/{conv['id']}/messages",
+            {"text": f"Hi {i}", "client_msg_id": f"h{i}"},
+            token=token,
+        )
+    # phiên ngắn: không thưởng nhưng vẫn ghi lượt nói cho thử thách
+    end = api.post(f"/ai/conversations/{conv['id']}/end", token=token).json()
+    assert end["rewarded"] is False
+    home = api.get("/home", token=token).json()
+    assert home["ai_tutor"] == {
+        "enabled": True,
+        "quota_left": 17,
+        "quota_limit": 20,
+        "resets_at": home["ai_tutor"]["resets_at"],
+    }
+    task = next(c for c in home["challenges"]["items"] if c["title"] == "Nói 5 câu với Long")
+    assert task["current"] == 3 and task["target"] == 5 and task["reward_coins"] == 20
+    assert ensure_profile(user).streak_current == 1  # có hoạt động trong ngày

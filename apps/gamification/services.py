@@ -16,6 +16,7 @@ _DAILY_FIELD = {
     "words": "words_reviewed",
     "lessons": "lessons_completed",
     "speaking": "speaking_count",
+    "ai_turns": "ai_turns",
 }
 
 
