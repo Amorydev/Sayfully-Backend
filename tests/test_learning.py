@@ -94,6 +94,7 @@ def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user):
         "ai_tutor",
         "exam_prep",
         "ipa",
+        "roots",
         "video",
         "notebook",
         "dictionary",

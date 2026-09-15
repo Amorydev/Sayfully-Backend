@@ -36,6 +36,7 @@ from apps.content.models import (
     Unit,
     Vocabulary,
     VocabularyDeck,
+    WordRoot,
 )
 from apps.gamification import services as gami_services
 from apps.gamification import shop
@@ -317,6 +318,7 @@ def _key_vocab(lesson: Lesson, accent: str) -> list[s.KeyVocabOut]:
 def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
     notebook_total = NotebookEntry.objects.filter(user=user).count()
     ipa_sounds = IPASound.objects.count()
+    word_roots = WordRoot.objects.count()
     return [
         s.HomeLearningToolOut(
             code="ai_tutor",
@@ -337,6 +339,13 @@ def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
             description_vi="Khẩu hình miệng 3D và sóng âm mẫu",
             action="ipa",
             item_count=ipa_sounds,
+        ),
+        s.HomeLearningToolOut(
+            code="roots",
+            title_vi=f"{word_roots} gốc từ vựng",
+            description_vi="Nắm gốc từ, đoán nghĩa 1.000+ từ",
+            action="roots",
+            item_count=word_roots,
         ),
         s.HomeLearningToolOut(
             code="video",
