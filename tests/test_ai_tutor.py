@@ -351,4 +351,5 @@ def test_home_quota_va_thu_thach_noi_voi_long(api, token, user, settings):
     }
     task = next(c for c in home["challenges"]["items"] if c["title"] == "Nói 5 câu với Long")
     assert task["current"] == 3 and task["target"] == 5 and task["reward_coins"] == 20
+    assert task["metric"] == "ai_turns"
     assert ensure_profile(user).streak_current == 1  # có hoạt động trong ngày

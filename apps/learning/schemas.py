@@ -46,6 +46,7 @@ class CurrentLessonOut(Schema):
 class HomeChallengeOut(Schema):
     id: int
     title: str
+    metric: str = ""  # xp | words | lessons | days | speaking | exams | ai_turns
     current: int
     target: int
     reward_coins: int

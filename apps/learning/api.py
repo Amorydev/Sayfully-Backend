@@ -496,6 +496,7 @@ def home(request):
             s.HomeChallengeOut(
                 id=ch.id,
                 title=ch.title_vi,
+                metric=ch.metric,
                 current=min(cur, ch.target),
                 target=ch.target,
                 reward_coins=ch.reward_coins,
