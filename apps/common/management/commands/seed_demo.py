@@ -51,7 +51,6 @@ from apps.content.models import (
     VocabularyDeckCollection,
     VocabularyDeckItem,
     VocabularyExample,
-    WordRoot,
 )
 from apps.content.video_transcript import load_subtitle_source, replace_video_subtitles
 from apps.gamification.models import (
@@ -1095,7 +1094,6 @@ class Command(BaseCommand):
             )
 
         seed_word_roots()  # 40 gốc từ (C40)
-        WordRoot.objects.get(kind="prefix", text="un-").examples.add(understand)
         PhrasalVerb.objects.update_or_create(
             text="get up",
             defaults={
