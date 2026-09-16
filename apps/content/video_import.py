@@ -27,6 +27,7 @@ from apps.ai import llm
 from apps.common.exceptions import AppError, Forbidden, RateLimited
 from apps.content.models import Level, UserVideoLibrary, Video
 from apps.content.video_transcript import (
+    _NON_SPEECH_RE,
     CaptionCue,
     SubtitleDraft,
     enrich_ipa,
@@ -40,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 _YT_ID_RE = re.compile(r"(?:v=|youtu\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})")
 _YT_BARE_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# Dòng credit của cộng đồng dịch (TED…) và tiếng động — không phải lời thoại.
+_CREDIT_RE = re.compile(
+    r"^\s*(?:translator|reviewer|transcriber|subtitles?\s+by|captions?\s+by)\s*:", re.I
+)
 _LLM_BATCH = 40
 
 
@@ -127,17 +132,22 @@ def fetch_captions(youtube_id: str) -> list[CaptionCue] | None:
     except yt_errors.YouTubeTranscriptApiException as exc:
         logger.info("no english captions for %s: %s", youtube_id, type(exc).__name__)
         return None
+    return snippets_to_cues(fetched) or None
+
+
+def snippets_to_cues(snippets) -> list[CaptionCue]:
+    """Snippet (text/start/duration giây) → cue ms; bỏ dòng credit và tiếng động."""
     cues: list[CaptionCue] = []
-    for snippet in fetched:
+    for snippet in snippets:
         text = re.sub(r"\s+", " ", snippet.text.replace("\n", " ")).strip()
-        if not text:
+        if not text or _NON_SPEECH_RE.match(text) or _CREDIT_RE.match(text):
             continue
         start_ms = int(round(snippet.start * 1000))
         end_ms = int(round((snippet.start + snippet.duration) * 1000))
         if end_ms <= start_ms:
             end_ms = start_ms + 500
         cues.append(CaptionCue(start_ms=start_ms, end_ms=end_ms, text=text))
-    return cues or None
+    return cues
 
 
 def preview(youtube_id: str, *, cues: list[CaptionCue] | None = None) -> Preview:

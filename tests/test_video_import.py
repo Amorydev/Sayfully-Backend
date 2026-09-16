@@ -213,3 +213,18 @@ def test_parse_youtube_id():
     assert video_import.parse_youtube_id("https://www.youtube.com/shorts/UF8uR6Z6KLc") == YT
     assert video_import.parse_youtube_id("UF8uR6Z6KLc") == YT
     assert video_import.parse_youtube_id("https://vimeo.com/123") is None
+
+
+def test_snippets_to_cues_bo_credit_va_tieng_dong():
+    class Snippet:
+        def __init__(self, text, start, duration):
+            self.text, self.start, self.duration = text, start, duration
+
+    cues = video_import.snippets_to_cues(
+        [
+            Snippet("Translator: Gustavo Rocha\nReviewer: Ariana Lugo", 0.0, 3.0),
+            Snippet("[Music]", 3.0, 1.0),
+            Snippet("Hear  that?\nThat's nothing.", 4.0, 1.5),
+        ]
+    )
+    assert cues == [CaptionCue(4000, 5500, "Hear that? That's nothing.")]
