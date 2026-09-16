@@ -83,6 +83,7 @@ _TARGET_CHOICES = [
     "story",
     "shadowing",
     "listening",
+    "root_sample",
     "all",
 ]
 
@@ -98,8 +99,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--target",
             default="vocab",
-            help="vocab | vocab_example | grammar_example | dialogue | reading | story | shadowing | listening | all; "
-            "phân cách bằng dấu phẩy.",
+            help="vocab | vocab_example | grammar_example | dialogue | reading | story | shadowing | listening "
+            "| root_sample | all; phân cách bằng dấu phẩy.",
         )
         parser.add_argument(
             "--limit", type=int, help="Chỉ xử lý N bản ghi mỗi bảng (nghe thử mẻ nhỏ)."
@@ -128,6 +129,8 @@ class Command(BaseCommand):
             for key, (model, prefix) in _sentence_targets().items():
                 if key in targets:
                     total += self._sentences(model, prefix, accent, field, opts, dry)
+            if "root_sample" in targets:
+                total += self._root_samples(accent, field, opts, dry)
 
         tag = "[DRY-RUN] " if dry else ""
         self.stdout.write(self.style.SUCCESS(f"{tag}Tổng {total} audio."))
@@ -151,6 +154,36 @@ class Command(BaseCommand):
                 vocab.save(update_fields=[field])
             n += 1
         self.stdout.write(f"{accent} vocab: {n}")
+        return n
+
+    def _root_samples(self, accent, field, opts, dry) -> int:
+        """Từ mẫu JSON của WordRoot. Cùng key với từ vựng (audio/<accent>/<word>.mp3) nên
+        từ đã có trong kho Vocabulary chỉ chép lại đường dẫn, không tổng hợp lại."""
+        from apps.content.models import WordRoot
+
+        n = 0
+        for root in WordRoot.objects.order_by("id"):
+            changed = False
+            for sample in root.samples or []:
+                word = str(sample.get("word", "")).strip()
+                if not word or (sample.get(field) and not opts["force"]):
+                    continue
+                vocab = Vocabulary.objects.filter(headword__iexact=word).only(field).first()
+                existing = getattr(vocab, field, "") if vocab else ""
+                path = existing or f"audio/{accent.lower()}/{word.lower()}.mp3"
+                if not dry:
+                    if not existing:
+                        upload_r2(path, synthesize(word, accent))
+                    sample[field] = path
+                    changed = True
+                n += 1
+                if opts["limit"] and n >= opts["limit"]:
+                    break
+            if changed:
+                root.save(update_fields=["samples"])
+            if opts["limit"] and n >= opts["limit"]:
+                break
+        self.stdout.write(f"{accent} root_sample: {n}")
         return n
 
     def _sentences(self, model, prefix, accent, field, opts, dry) -> int:

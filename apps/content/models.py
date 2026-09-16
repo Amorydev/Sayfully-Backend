@@ -505,7 +505,10 @@ class WordRoot(models.Model):
         max_length=128, blank=True
     )  # "Biến đổi nghĩa sang đối lập tức thì"
     mnemonic_vi = models.TextField(blank=True)
-    # Từ mẫu độc lập với kho từ vựng: [{"word":"unhappy","base":"happy","meaning_vi":"không vui vẻ","ipa":"/ʌnˈhæp.i/"}]
+    # Từ mẫu độc lập với kho từ vựng:
+    # [{"word":"unhappy","base":"happy","meaning_vi":"không vui vẻ","ipa":"/ʌnˈhæp.i/",
+    #   "audio_us_path":"audio/us/unhappy.mp3","audio_uk_path":"audio/uk/unhappy.mp3"}]
+    # Nếu từ có trong kho Vocabulary thì API ưu tiên audio của Vocabulary.
     samples = models.JSONField(default=list, blank=True)
     examples = models.ManyToManyField(Vocabulary, blank=True, related_name="roots")
 

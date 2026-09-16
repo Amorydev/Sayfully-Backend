@@ -361,7 +361,7 @@ def test_shadowing_list_detail(api, token, levels):
 
 
 # --------------------------------------------------------------- tra cứu
-def test_roots_va_phrasal_ipa(api, token, levels, vocab):
+def test_roots_va_phrasal_ipa(api, token, levels, vocab, settings):
     from apps.content.management.commands.seed_roots import seed_word_roots
 
     assert seed_word_roots() == 40
@@ -392,7 +392,24 @@ def test_roots_va_phrasal_ipa(api, token, levels, vocab):
         "split": "un·happy",
         "ipa": "/ʌnˈhæp.i/",
         "meaning_vi": "không vui vẻ",
+        "audio_url": None,
+        "audio_us_url": None,
+        "audio_uk_url": None,
     }
+    # từ liên kết lấy audio của Vocabulary; từ mẫu JSON lấy từ khoá audio_*_path (fallback giọng)
+    settings.R2_PUBLIC_BASE = "https://media.test"
+    vocab.audio_us_path = "audio/us/beautiful.mp3"
+    vocab.save(update_fields=["audio_us_path"])
+    linked = api.get(f"/content/roots/{un.id}", token=token).json()["examples"][0]
+    assert linked["audio_us_url"] == "https://media.test/audio/us/beautiful.mp3"
+    un.samples = [
+        {**x, "audio_uk_path": "audio/uk/unhappy.mp3"} if x["word"] == "unhappy" else x
+        for x in un.samples
+    ]
+    un.save(update_fields=["samples"])
+    unhappy = api.get(f"/content/roots/{un.id}", token=token).json()["examples"][1]
+    assert unhappy["audio_us_url"] is None
+    assert unhappy["audio_url"] == unhappy["audio_uk_url"] == "https://media.test/audio/uk/unhappy.mp3"
     assert len(detail["distractors"]) >= 4 and "không vui vẻ" not in detail["distractors"]
 
     r = api.post(

@@ -1187,6 +1187,7 @@ def _root_examples(root: m.WordRoot, accent: str) -> list[s.RootExampleOut]:
                 split=split,
                 ipa=_ipa(v, accent),
                 meaning_vi=v.meaning_vi,
+                **_accent_audio(v, accent),
             )
         )
         seen.add(v.headword.lower())
@@ -1199,9 +1200,12 @@ def _root_examples(root: m.WordRoot, accent: str) -> list[s.RootExampleOut]:
         base = sample.get("base") or base
         vocab = (
             m.Vocabulary.objects.filter(headword__iexact=word)
-            .only("id", "ipa_uk", "ipa_us")
+            .only("id", "ipa_uk", "ipa_us", "audio_us_path", "audio_uk_path")
             .first()
         )
+        audio = _accent_audio(vocab, accent) if vocab else {}
+        if not audio.get("audio_url"):
+            audio = _accent_audio(sample, accent)
         out.append(
             s.RootExampleOut(
                 id=vocab.id if vocab else None,
@@ -1210,6 +1214,7 @@ def _root_examples(root: m.WordRoot, accent: str) -> list[s.RootExampleOut]:
                 split=split,
                 ipa=sample.get("ipa") or (_ipa(vocab, accent) if vocab else ""),
                 meaning_vi=sample.get("meaning_vi", ""),
+                **audio,
             )
         )
     return out

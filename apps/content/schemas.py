@@ -594,7 +594,7 @@ class WordRootBoardOut(Schema):
     groups: list[WordRootGroupOut]
 
 
-class RootExampleOut(Schema):
+class RootExampleOut(AccentAudioOut):
     id: int | None  # Vocabulary id nếu có trong kho (mở từ điển)
     headword: str
     base: str  # phần còn lại sau khi bỏ tiền tố / hậu tố
