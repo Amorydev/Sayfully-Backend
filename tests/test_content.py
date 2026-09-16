@@ -516,3 +516,25 @@ def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, voca
     ex.save(update_fields=["audio_uk_path"])
     e = next(x for x in api.get(f"/content/vocabulary/{v.id}", token=token).json()["examples"] if x["text_en"] == ex.text_en)
     assert e["audio_url"] == "https://cdn.test/audio/uk/example/1.mp3"
+
+
+def test_audio_sample_uu_tien_tu_quen_co_du_hai_giong(api, token, levels, vocab, settings):
+    settings.R2_PUBLIC_BASE = "https://cdn.test"
+    from apps.content.models import Vocabulary
+
+    # chỉ có "beautiful" (đủ hai giọng) → lấy nó
+    body = api.get("/content/audio/sample", token=token).json()
+    assert body == {
+        "word": "beautiful",
+        "audio_us_url": "https://cdn.test/audio/us/beautiful.mp3",
+        "audio_uk_url": "https://cdn.test/audio/uk/beautiful.mp3",
+    }
+    # "hello" xuất hiện với đủ hai giọng → được ưu tiên hơn
+    Vocabulary.objects.create(
+        headword="hello", pos="interj", level=vocab.level, meaning_vi="xin chào", ipa_uk="/həˈləʊ/", ipa_us="/həˈloʊ/",
+        audio_uk_path="audio/uk/hello.mp3", audio_us_path="audio/us/hello.mp3", frequency_rank=1,
+    )
+    assert api.get("/content/audio/sample", token=token).json()["word"] == "hello"
+    # không từ nào có audio → 404
+    Vocabulary.objects.update(audio_uk_path="", audio_us_path="")
+    assert api.get("/content/audio/sample", token=token).status_code == 404

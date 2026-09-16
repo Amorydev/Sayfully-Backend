@@ -204,6 +204,14 @@ class LessonDetailOut(Schema):
 
 
 # --------------------------------------------------------------- 2.2 Từ vựng
+class AudioSampleOut(Schema):
+    """Từ mẫu để nghe thử giọng thật (Cài đặt › Giọng phát âm) — có cả hai giọng khi kho đã sinh đủ."""
+
+    word: str
+    audio_us_url: str | None
+    audio_uk_url: str | None
+
+
 class VocabListOut(AccentAudioOut):
     id: int
     headword: str

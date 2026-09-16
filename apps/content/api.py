@@ -392,6 +392,39 @@ def get_lesson(request, code: str):
 
 
 # =============================================================== 2.2 Từ vựng
+_AUDIO_SAMPLE_WORDS = ("hello", "beautiful", "water", "thank")
+
+
+@router.get(
+    "/audio/sample",
+    response={200: s.AudioSampleOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Từ mẫu nghe thử giọng US/UK",
+    description="Ưu tiên từ quen thuộc có đủ hai giọng; kho chưa có audio nào → 404.",
+)
+def audio_sample(request):
+    ensure_profile(request.auth)
+    both = ~Q(audio_us_path="") & ~Q(audio_uk_path="")
+    v = None
+    for word in _AUDIO_SAMPLE_WORDS:
+        v = m.Vocabulary.objects.filter(both, headword__iexact=word).first()
+        if v:
+            break
+    if v is None:
+        v = (
+            m.Vocabulary.objects.filter(both).order_by("frequency_rank", "id").first()
+            or m.Vocabulary.objects.exclude(audio_us_path="", audio_uk_path="")
+            .order_by("frequency_rank", "id")
+            .first()
+        )
+    if v is None:
+        raise NotFound("Kho từ vựng chưa có bản ghi âm nào")
+    return s.AudioSampleOut(
+        word=v.headword,
+        audio_us_url=_media(v.audio_us_path),
+        audio_uk_url=_media(v.audio_uk_path),
+    )
+
+
 @router.get(
     "/vocabulary",
     response={200: s.Page[s.VocabListOut], 401: ErrorOut, 422: ErrorOut},
