@@ -129,14 +129,13 @@ class GrammarStepOut(Schema):
     examples: list[SentenceOut]
 
 
-class DialogueLineOut(Schema):
+class DialogueLineOut(AccentAudioOut):
     order: int
     speaker: str
     is_native: bool
     text_en: str
     ipa: str | None
     text_vi: str
-    audio_url: str | None
 
 
 class DialogueStepOut(Schema):
@@ -406,11 +405,10 @@ class StoryListOut(Schema):
     scene_count: int
 
 
-class StorySentenceOut(Schema):
+class StorySentenceOut(AccentAudioOut):
     order: int
     text_en: str
     text_vi: str
-    audio_url: str | None
 
 
 class StorySceneOut(Schema):
