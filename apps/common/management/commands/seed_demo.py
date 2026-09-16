@@ -1817,6 +1817,7 @@ class Command(BaseCommand):
         p.learning_goal = LearningGoal.DAILY
         p.onboarding_completed = True
         p.onboarding_completed_at = djtz.now()
+        p.is_premium = True  # tài khoản demo có mọi quyền để preview tính năng Premium
         p.level = 4
         p.xp_total = 1240
         p.coins = 520
