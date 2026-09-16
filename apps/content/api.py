@@ -13,6 +13,7 @@ from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
 from apps.learning import services as learn_services
+from apps.learning import video_practice
 from apps.learning.models import GrammarProgress, IPASoundProgress, WordRootProgress
 
 from . import models as m
@@ -889,9 +890,12 @@ def list_videos(
         qs = qs.filter(category=category)
     if featured is not None:
         qs = qs.filter(is_featured=featured)
-    qs = qs.order_by("-is_featured", "featured_order", "level__order", "id")
+    qs = qs.annotate(sentence_count=Count("subtitles")).order_by(
+        "-is_featured", "featured_order", "level__order", "id"
+    )
     count = qs.count()
-    items = qs[offset : offset + limit]
+    items = list(qs[offset : offset + limit])
+    practice = video_practice.summaries(request.auth, [vd.id for vd in items])
     return s.Page(
         items=[
             s.VideoListOut(
@@ -905,6 +909,8 @@ def list_videos(
                 thumbnail_url=_media(vd.thumbnail_path),
                 is_free=vd.is_free,
                 is_featured=vd.is_featured,
+                sentence_count=vd.sentence_count,
+                practice=_practice_summary_out(practice[vd.id]),
             )
             for vd in items
         ],
@@ -965,8 +971,10 @@ def import_video(request, payload: s.VideoImportIn):
 def list_my_videos(request):
     profile = ensure_profile(request.auth)
     left, limit = video_import.quota(profile)
+    videos = video_import.library(profile)
+    practice = video_practice.summaries(request.auth, [vd.id for vd in videos])
     return s.UserVideoListOut(
-        items=[_user_video_out(vd, profile) for vd in video_import.library(profile)],
+        items=[_user_video_out(vd, profile, practice[vd.id]) for vd in videos],
         quota=s.VideoQuotaOut(left=left, limit=limit),
         can_import=settings.VIDEO_IMPORT_ENABLED and profile.is_premium,
     )
@@ -1003,6 +1011,7 @@ def get_video(request, id: int):
             raise NotFound(_NOTFOUND)
     elif vd.level is not None:
         _gate(profile, vd.level)
+    practice = video_practice.detail(request.auth, vd.id)
     return s.VideoDetailOut(
         id=vd.id,
         youtube_id=vd.youtube_id,
@@ -1014,6 +1023,13 @@ def get_video(request, id: int):
         source=vd.source,
         status=vd.status,
         error_code=vd.error_code,
+        practice=s.VideoPracticeOut(
+            shadowing_done=practice.summary.shadowing_done,
+            dictation_done=practice.summary.dictation_done,
+            last_mode=practice.summary.last_mode,
+            shadowing=[s.VideoSentenceResultOut(order=o, percent=p) for o, p in sorted(practice.shadowing.items())],
+            dictation=[s.VideoSentenceResultOut(order=o, percent=p) for o, p in sorted(practice.dictation.items())],
+        ),
         subtitles=[
             s.VideoSubtitleOut(
                 order=sub.order,
@@ -1032,7 +1048,15 @@ def _yt_thumb(youtube_id: str) -> str:
     return f"https://img.youtube.com/vi/{youtube_id}/hqdefault.jpg"
 
 
-def _user_video_out(vd: m.Video, profile) -> s.UserVideoOut:
+def _practice_summary_out(summary) -> s.VideoPracticeSummaryOut:
+    return s.VideoPracticeSummaryOut(
+        shadowing_done=summary.shadowing_done,
+        dictation_done=summary.dictation_done,
+        last_mode=summary.last_mode,
+    )
+
+
+def _user_video_out(vd: m.Video, profile, practice=None) -> s.UserVideoOut:
     return s.UserVideoOut(
         id=vd.id,
         youtube_id=vd.youtube_id,
@@ -1045,6 +1069,8 @@ def _user_video_out(vd: m.Video, profile) -> s.UserVideoOut:
         error_message=video_import.reject_message(vd.error_code) if vd.error_code else "",
         thumbnail_url=_yt_thumb(vd.youtube_id),
         added_label=video_import.added_label(vd, profile),
+        sentence_count=vd.subtitles.count(),
+        practice=_practice_summary_out(practice) if practice else s.VideoPracticeSummaryOut(),
     )
 
 

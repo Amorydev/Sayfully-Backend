@@ -434,6 +434,26 @@ class StoryDetailOut(Schema):
 
 
 # --------------------------------------------------------------- 2.5 Video & shadowing
+class VideoPracticeSummaryOut(Schema):
+    """Cho sheet "Chọn cách học": số câu đã luyện theo mode + mode dùng gần nhất."""
+
+    shadowing_done: int = 0
+    dictation_done: int = 0
+    last_mode: Literal["shadowing", "dictation"] | None = None
+
+
+class VideoSentenceResultOut(Schema):
+    order: int
+    percent: int
+
+
+class VideoPracticeOut(VideoPracticeSummaryOut):
+    """Cho màn xem: kết quả tốt nhất từng câu theo mode."""
+
+    shadowing: list[VideoSentenceResultOut] = []
+    dictation: list[VideoSentenceResultOut] = []
+
+
 class VideoListOut(Schema):
     id: int
     youtube_id: str
@@ -445,6 +465,8 @@ class VideoListOut(Schema):
     thumbnail_url: str | None
     is_free: bool
     is_featured: bool = False
+    sentence_count: int = 0
+    practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
 
 
 class VideoSubtitleOut(Schema):
@@ -468,6 +490,7 @@ class VideoDetailOut(Schema):
     source: Literal["curated", "user"] = "curated"
     status: Literal["pending", "processing", "ready", "failed"] = "ready"
     error_code: str = ""
+    practice: VideoPracticeOut = VideoPracticeOut()
 
 
 class VideoImportIn(Schema):
@@ -499,6 +522,8 @@ class UserVideoOut(Schema):
     error_message: str = ""
     thumbnail_url: str
     added_label: str = ""
+    sentence_count: int = 0
+    practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
 
 
 class VideoQuotaOut(Schema):

@@ -11,6 +11,7 @@ from apps.content.models import (
     Reading,
     ShadowingDeck,
     Unit,
+    Video,
     Vocabulary,
     VocabularyDeck,
     WordRoot,
@@ -397,3 +398,32 @@ class VocabularyDeckProgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.deck_id}"
+
+
+class VideoPracticeResult(models.Model):
+    """Kết quả tốt nhất của một câu video theo mode (Luyện đọc / Chép chính tả) — để card ghi
+    "Đã luyện x/N" và mở lại video thấy câu đã chấm. Upsert từ `POST /learn/practice`
+    khi `ref_id = video:<id>:<order>`."""
+
+    class Mode(models.TextChoices):
+        SHADOWING = "shadowing", "Luyện đọc"
+        DICTATION = "dictation", "Chép chính tả"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="video_practice_results")
+    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="practice_results")
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    order = models.PositiveIntegerField()  # VideoSubtitle.order
+    percent = models.PositiveSmallIntegerField(default=0)  # điểm tốt nhất 0..100
+    attempts = models.PositiveSmallIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "video", "mode", "order"], name="uniq_video_practice_result"
+            )
+        ]
+        indexes = [models.Index(fields=["user", "video", "mode"], name="vpr_user_video_mode_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · video{self.video_id} · {self.mode} #{self.order} = {self.percent}%"

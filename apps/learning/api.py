@@ -57,6 +57,7 @@ from apps.notifications.models import Notification
 
 from . import schemas as s
 from . import services
+from . import video_practice
 from .models import (
     DailyActivity,
     LessonProgress,
@@ -1569,6 +1570,9 @@ def practice(request, payload: s.PracticeIn):
             _bump_speaking_topic(user, payload.deck_id)
         if payload.listening_topic_id and payload.kind in ("listening", "dictation"):
             _bump_listening_topic(user, payload.listening_topic_id, payload.kind)
+        video_ref = video_practice.parse_ref(payload.ref_id)
+        if video_ref and payload.kind in ("shadowing", "dictation"):
+            video_practice.record_result(user, video_ref[0], payload.kind, video_ref[1], payload.score)
     return s.PracticeResultOut(
         xp_earned=xp,
         skill=skill.kind if skill else None,
