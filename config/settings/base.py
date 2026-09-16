@@ -14,6 +14,10 @@ env = environ.Env(
     AI_ENABLED=(bool, False),
     AI_FREE_TURNS=(int, 20),
     AI_PREMIUM_TURNS=(int, 200),
+    VIDEO_IMPORT_ENABLED=(bool, True),
+    VIDEO_IMPORT_MAX_SEC=(int, 1200),
+    VIDEO_IMPORT_DAILY_LIMIT=(int, 5),
+    VIDEO_IMPORT_SYNC=(bool, False),
     AI_TIMEOUT=(int, 30),
 )
 environ.Env.read_env(BASE_DIR / ".env")
@@ -162,6 +166,12 @@ AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT = env("AI_TIMEOUT")
 AI_FREE_TURNS = env("AI_FREE_TURNS")
 AI_PREMIUM_TURNS = env("AI_PREMIUM_TURNS")
+
+# Người dùng Premium dán link YouTube → tạo video học (apps.content.video_import).
+VIDEO_IMPORT_ENABLED = env("VIDEO_IMPORT_ENABLED")
+VIDEO_IMPORT_MAX_SEC = env("VIDEO_IMPORT_MAX_SEC")        # từ chối video dài hơn (mặc định 20 phút)
+VIDEO_IMPORT_DAILY_LIMIT = env("VIDEO_IMPORT_DAILY_LIMIT")  # số video mỗi người mỗi ngày
+VIDEO_IMPORT_SYNC = env("VIDEO_IMPORT_SYNC")              # True: xử lý ngay trong request (dev/test)
 
 LANGUAGE_CODE = "vi"
 TIME_ZONE = "UTC"                      # DB lưu UTC; đổi sang giờ user khi tính streak

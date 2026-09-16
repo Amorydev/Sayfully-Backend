@@ -5,6 +5,8 @@ Quy ước: `audio_url` là URL đầy đủ (ghép R2_PUBLIC_BASE ở tầng bu
 người dùng thuộc G4.
 """
 
+from typing import Literal
+
 from ninja import Field, Schema
 
 
@@ -462,6 +464,51 @@ class VideoDetailOut(Schema):
     category: str
     duration_sec: int
     subtitles: list[VideoSubtitleOut]
+    source: Literal["curated", "user"] = "curated"
+    status: Literal["pending", "processing", "ready", "failed"] = "ready"
+    error_code: str = ""
+
+
+class VideoImportIn(Schema):
+    url: str = Field(..., min_length=5, max_length=300)
+
+
+class VideoPreviewOut(Schema):
+    """Xem trước link trước khi tạo: client bật nút khi `reject_code` rỗng."""
+
+    youtube_id: str
+    title: str
+    channel: str
+    duration_sec: int
+    has_english_captions: bool
+    thumbnail_url: str
+    reject_code: str = ""
+    reject_message: str = ""
+
+
+class UserVideoOut(Schema):
+    id: int
+    youtube_id: str
+    title: str
+    channel: str
+    duration_sec: int
+    level: str | None
+    status: Literal["pending", "processing", "ready", "failed"]
+    error_code: str = ""
+    error_message: str = ""
+    thumbnail_url: str
+    added_label: str = ""
+
+
+class VideoQuotaOut(Schema):
+    left: int
+    limit: int
+
+
+class UserVideoListOut(Schema):
+    items: list[UserVideoOut]
+    quota: VideoQuotaOut
+    can_import: bool
 
 
 class ShadowingDeckOut(Schema):

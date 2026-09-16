@@ -1,6 +1,7 @@
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.utils import timezone
 
 from apps.common.models import CEFR, TimeStampedModel
 
@@ -400,7 +401,23 @@ class StoryQuestion(models.Model):
 
 
 class Video(models.Model):
-    level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="videos")
+    """Video học. `source=curated` do admin nạp; `source=user` do người dùng Premium dán link
+    YouTube — dedupe theo `youtube_id`, ai cũng có thể thêm cùng một video vào thư viện của mình."""
+
+    class Source(models.TextChoices):
+        CURATED = "curated", "Sayfully tuyển chọn"
+        USER = "user", "Người dùng thêm"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Chờ xử lý"
+        PROCESSING = "processing", "Đang xử lý"
+        READY = "ready", "Sẵn sàng"
+        FAILED = "failed", "Lỗi"
+
+    # Null với video người dùng cho tới khi LLM ước lượng xong.
+    level = models.ForeignKey(
+        Level, on_delete=models.PROTECT, related_name="videos", null=True, blank=True
+    )
     youtube_id = models.CharField(max_length=24, unique=True)
     title_vi = models.CharField(max_length=160)
     title_en = models.CharField(max_length=160)
@@ -409,8 +426,32 @@ class Video(models.Model):
     thumbnail_path = models.CharField(max_length=255, blank=True)
     is_free = models.BooleanField(default=True)
 
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.CURATED)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.READY)
+    error_code = models.CharField(max_length=32, blank=True)  # no_captions / too_long / ...
+    channel = models.CharField(max_length=120, blank=True)
+    created_by = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
     def __str__(self) -> str:
         return str(self.title_vi)
+
+
+class UserVideoLibrary(models.Model):
+    """Video người dùng đã thêm (Premium). Đếm theo ngày để giới hạn lượt import."""
+
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="video_library")
+    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="library_entries")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "video"], name="uniq_user_video")]
+        ordering = ["-added_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.video_id}"
 
 
 class VideoSubtitle(models.Model):

@@ -110,6 +110,8 @@ _MOCK_FIXES = {
 
 
 def _mock(system: str, messages: list[dict]) -> Completion:
+    if "VIDEO_TRANSLATE" in system:
+        return Completion(text=json.dumps(_mock_video_translate(messages)), tokens_in=0, tokens_out=0)
     user_turns = [m for m in messages if m["role"] == "user" and not m["content"].startswith("(")]
     if "SUMMARY" in system:
         return Completion(text=json.dumps(_mock_summary(user_turns)), tokens_in=0, tokens_out=0)
@@ -174,4 +176,18 @@ def _mock_summary(user_turns: list[dict]) -> dict:
             "chuyện. Mai mình nói tiếp về chuyến đi của bạn nhé?"
         ),
         "top_mistakes": mistakes,
+    }
+
+
+def _mock_video_translate(messages: list[dict]) -> dict:
+    """Dịch giả cho import video: `[vi] <câu gốc>`, cấp B1, tiêu đề giữ nguyên."""
+    try:
+        payload = json.loads(messages[-1]["content"])
+    except (ValueError, KeyError, IndexError):
+        payload = {}
+    sentences = payload.get("sentences") or []
+    return {
+        "items": [{"i": i, "vi": f"[vi] {text}"} for i, text in enumerate(sentences)],
+        "title_vi": payload.get("title") or "",
+        "level": "B1",
     }

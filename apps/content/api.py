@@ -17,6 +17,7 @@ from apps.learning.models import GrammarProgress, IPASoundProgress, WordRootProg
 
 from . import models as m
 from . import schemas as s
+from . import video_import
 
 router = Router()
 
@@ -880,7 +881,7 @@ def list_videos(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    qs = m.Video.objects.all()
+    qs = m.Video.objects.filter(source=m.Video.Source.CURATED)
     if level:
         qs = qs.filter(level_id=level.upper())
     if category:
@@ -893,7 +894,7 @@ def list_videos(
             s.VideoListOut(
                 id=vd.id,
                 youtube_id=vd.youtube_id,
-                level=vd.level_id,
+                level=vd.level_id or "",
                 title_vi=vd.title_vi,
                 title_en=vd.title_en,
                 category=vd.category,
@@ -910,25 +911,105 @@ def list_videos(
 
 
 @router.get(
+    "/videos/preview",
+    response={200: s.VideoPreviewOut, 401: ErrorOut, 403: ErrorOut, 422: ErrorOut},
+    summary="Xem trước link YouTube trước khi thêm (Premium)",
+    description="Tiêu đề, kênh, thời lượng và có phụ đề EN hay không. `reject_code` rỗng = thêm được.",
+)
+def preview_video_import(request, url: str = Query(..., min_length=5, max_length=300)):
+    profile = ensure_profile(request.auth)
+    video_import.ensure_can_import(profile)
+    youtube_id = video_import.parse_youtube_id(url)
+    if youtube_id is None:
+        raise video_import.VideoImportError(video_import.reject_message("invalid_url"), code="invalid_url")
+    info = video_import.preview(youtube_id)
+    return s.VideoPreviewOut(
+        youtube_id=info.youtube_id,
+        title=info.title,
+        channel=info.channel,
+        duration_sec=info.duration_sec,
+        has_english_captions=info.has_english_captions,
+        thumbnail_url=_yt_thumb(info.youtube_id),
+        reject_code=info.reject_code,
+        reject_message=video_import.reject_message(info.reject_code) if info.reject_code else "",
+    )
+
+
+@router.post(
+    "/videos/import",
+    response={202: s.UserVideoOut, 401: ErrorOut, 403: ErrorOut, 422: ErrorOut, 429: ErrorOut},
+    summary="Thêm video YouTube của bạn (Premium)",
+    description=(
+        "Tạo video học từ link YouTube có phụ đề EN. Trả `status=pending|processing`; client poll "
+        "`GET /content/videos/mine` tới khi `ready`. Video đã có sẵn thì trả `ready` ngay, không tốn quota. "
+        "Lỗi: `premium_required` 403, `invalid_url|no_captions|too_long|not_embeddable` 422, "
+        "`video_quota_exceeded` 429."
+    ),
+)
+def import_video(request, payload: s.VideoImportIn):
+    profile = ensure_profile(request.auth)
+    video = video_import.request_import(profile, payload.url)
+    video.refresh_from_db()
+    return 202, _user_video_out(video, profile)
+
+
+@router.get(
+    "/videos/mine",
+    response={200: s.UserVideoListOut, 401: ErrorOut},
+    summary="Video của tôi (Premium) + quota hôm nay",
+)
+def list_my_videos(request):
+    profile = ensure_profile(request.auth)
+    left, limit = video_import.quota(profile)
+    return s.UserVideoListOut(
+        items=[_user_video_out(vd, profile) for vd in video_import.library(profile)],
+        quota=s.VideoQuotaOut(left=left, limit=limit),
+        can_import=settings.VIDEO_IMPORT_ENABLED and profile.is_premium,
+    )
+
+
+@router.delete(
+    "/videos/{id}",
+    response={204: None, 401: ErrorOut, 404: ErrorOut},
+    summary="Bỏ video khỏi 'Video của tôi'",
+)
+def remove_my_video(request, id: int):
+    profile = ensure_profile(request.auth)
+    if not video_import.remove_from_library(profile, id):
+        raise NotFound(_NOTFOUND)
+    return 204, None
+
+
+@router.get(
     "/videos/{id}",
     response={200: s.VideoDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết video kèm phụ đề",
-    description="Phụ đề song ngữ có timestamp + IPA. Cấp có `is_free=False` cần Premium.",
+    description=(
+        "Phụ đề song ngữ có timestamp + IPA. Cấp có `is_free=False` cần Premium. "
+        "Video người dùng thêm: chỉ người đã thêm mới xem được; chưa `ready` thì `subtitles` rỗng."
+    ),
 )
 def get_video(request, id: int):
     profile = ensure_profile(request.auth)
     vd = m.Video.objects.filter(id=id).select_related("level").prefetch_related("subtitles").first()
     if vd is None:
         raise NotFound(_NOTFOUND)
-    _gate(profile, vd.level)
+    if vd.source == m.Video.Source.USER:
+        if not video_import.can_view(profile, vd):
+            raise NotFound(_NOTFOUND)
+    elif vd.level is not None:
+        _gate(profile, vd.level)
     return s.VideoDetailOut(
         id=vd.id,
         youtube_id=vd.youtube_id,
-        level=vd.level_id,
+        level=vd.level_id or "",
         title_vi=vd.title_vi,
         title_en=vd.title_en,
         category=vd.category,
         duration_sec=vd.duration_sec,
+        source=vd.source,
+        status=vd.status,
+        error_code=vd.error_code,
         subtitles=[
             s.VideoSubtitleOut(
                 order=sub.order,
@@ -938,8 +1019,28 @@ def get_video(request, id: int):
                 ipa=sub.ipa,
                 text_vi=sub.text_vi,
             )
-            for sub in vd.subtitles.all()
+            for sub in (vd.subtitles.all() if vd.status == m.Video.Status.READY else [])
         ],
+    )
+
+
+def _yt_thumb(youtube_id: str) -> str:
+    return f"https://img.youtube.com/vi/{youtube_id}/hqdefault.jpg"
+
+
+def _user_video_out(vd: m.Video, profile) -> s.UserVideoOut:
+    return s.UserVideoOut(
+        id=vd.id,
+        youtube_id=vd.youtube_id,
+        title=vd.title_vi or vd.title_en,
+        channel=vd.channel,
+        duration_sec=vd.duration_sec,
+        level=vd.level_id,
+        status=vd.status,
+        error_code=vd.error_code,
+        error_message=video_import.reject_message(vd.error_code) if vd.error_code else "",
+        thumbnail_url=_yt_thumb(vd.youtube_id),
+        added_label=video_import.added_label(vd, profile),
     )
 
 
