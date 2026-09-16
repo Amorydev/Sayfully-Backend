@@ -53,14 +53,30 @@ def _gate(profile, level: m.Level) -> None:
         raise Forbidden(_PREMIUM, code="premium_required")
 
 
-def _sentence(text_en: str, ipa: str, text_vi: str, audio_path: str) -> s.SentenceOut:
+def _accent_audio(obj, accent: str) -> dict:
+    """Ba URL audio cho schema kế thừa `AccentAudioOut`; `obj` là model có `AccentAudio`
+    hoặc dict JSON có `audio_us_path`/`audio_uk_path` (payload bước bài học, cụm động từ)."""
+    if isinstance(obj, dict):
+        us, uk = obj.get("audio_us_path") or obj.get("audio_path") or "", obj.get("audio_uk_path") or ""
+    else:
+        us, uk = obj.audio_us_path, obj.audio_uk_path
+    chosen = (us or uk) if accent == "US" else (uk or us)
+    return {"audio_url": _media(chosen), "audio_us_url": _media(us), "audio_uk_url": _media(uk)}
+
+
+def _sentence(obj, accent: str, *, text_en=None, ipa=None, text_vi=None) -> s.SentenceOut:
+    """`obj` model (AccentAudio) hay dict payload; text lấy từ obj nếu không truyền."""
+    get = (lambda k, d="": obj.get(k, d)) if isinstance(obj, dict) else (lambda k, d="": getattr(obj, k, d))
     return s.SentenceOut(
-        text_en=text_en, ipa=ipa or None, text_vi=text_vi, audio_url=_media(audio_path)
+        text_en=text_en if text_en is not None else get("text_en"),
+        ipa=(ipa if ipa is not None else get("ipa")) or None,
+        text_vi=text_vi if text_vi is not None else get("text_vi"),
+        **_accent_audio(obj, accent),
     )
 
 
-def _example(e: m.VocabularyExample) -> s.ExampleOut:
-    return s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path))
+def _example(e: m.VocabularyExample, accent: str) -> s.ExampleOut:
+    return s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, **_accent_audio(e, accent))
 
 
 # --------------------------------------------------------------- builders: vocab
@@ -95,7 +111,7 @@ def _vocab_card(v: m.Vocabulary, accent: str) -> s.VocabCardOut:
         meaning_vi=v.meaning_vi,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
-        examples=[_example(e) for e in v.examples.all()],
+        examples=[_example(e, accent) for e in v.examples.all()],
     )
 
 
@@ -143,7 +159,7 @@ def _vocab_detail(
         word_family_items=[_related_word(word) for word in v.word_family.all()],
         is_saved=notebook_entry_id is not None,
         notebook_entry_id=notebook_entry_id,
-        examples=[_example(e) for e in v.examples.all()],
+        examples=[_example(e, accent) for e in v.examples.all()],
         collocations=[
             s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
             for c in v.collocations.all()
@@ -159,8 +175,8 @@ def _conjugation(gp: m.GrammarPoint) -> list[s.ConjugationRowOut]:
     ]
 
 
-def _grammar_examples(gp: m.GrammarPoint) -> list[s.SentenceOut]:
-    return [_sentence(e.text_en, e.ipa, e.text_vi, e.audio_path) for e in gp.examples.all()]
+def _grammar_examples(gp: m.GrammarPoint, accent: str) -> list[s.SentenceOut]:
+    return [_sentence(e, accent) for e in gp.examples.all()]
 
 
 # --------------------------------------------------------------- builders: lesson steps
@@ -170,15 +186,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         p = step.payload or {}
         out.intro = s.IntroStepOut(
             highlight_vi=p.get("highlight_vi", ""),
-            preview=[
-                _sentence(
-                    x.get("text_en", ""),
-                    x.get("ipa", ""),
-                    x.get("text_vi", ""),
-                    x.get("audio_path", ""),
-                )
-                for x in p.get("preview", [])
-            ],
+            preview=[_sentence(x, accent) for x in p.get("preview", [])],
         )
     elif step.kind == m.LessonStep.Kind.VOCAB and step.vocabulary_id:
         out.vocab = _vocab_card(step.vocabulary, accent)
@@ -193,7 +201,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             explanation_vi=gp.explanation_vi,
             common_mistake_vi=gp.common_mistake_vi,
             conjugation=_conjugation(gp),
-            examples=_grammar_examples(gp),
+            examples=_grammar_examples(gp, accent),
         )
     elif step.kind == m.LessonStep.Kind.DIALOGUE and step.dialogue_id:
         d = step.dialogue
@@ -210,7 +218,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
                     text_en=ln.text_en,
                     ipa=ln.ipa or None,
                     text_vi=ln.text_vi,
-                    audio_url=_media(ln.audio_path),
+                    **_accent_audio(ln, accent),
                 )
                 for ln in d.lines.all()
             ],
@@ -218,18 +226,13 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
     elif step.kind == m.LessonStep.Kind.SPELLING:
         p = step.payload or {}
         v = step.vocabulary
-        audio_path = (
-            (v.audio_us_path if accent == "US" else v.audio_uk_path)
-            if v
-            else p.get("audio_path", "")
-        )
         out.spelling = s.SpellingStepOut(
             vocab_id=step.vocabulary_id,
             word=v.headword if v else p.get("word", ""),
             meaning_vi=v.meaning_vi if v else p.get("meaning_vi", ""),
             ipa=_ipa(v, accent) if v else p.get("ipa"),
-            audio_url=_media(audio_path),
             hint_vi=p.get("hint_vi", ""),
+            **_accent_audio(v if v else p, accent),
         )
     elif step.kind == m.LessonStep.Kind.WRITING:
         p = step.payload or {}
@@ -246,7 +249,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             prompt_vi=p.get("prompt_vi", ""),
             question_word=v.headword if v else p.get("question_word", ""),
             question_ipa=_ipa(v, accent) if v else p.get("question_ipa"),
-            audio_url=_media(p.get("audio_path", "")),
+            **_accent_audio(v if v else p, accent),
             options=[s.QuizOptionOut(text=o) for o in p.get("options", [])],
             correct_index=p.get("correct_index", 0),
             explanation_vi=p.get("explanation_vi", ""),
@@ -607,7 +610,7 @@ def get_grammar(request, id: int):
         mistake_wrong=g.mistake_wrong,
         mistake_right=g.mistake_right,
         conjugation=_conjugation(g),
-        examples=_grammar_examples(g),
+        examples=_grammar_examples(g, profile.accent),
         exercise_count=g.exercises.count(),
         xp_reward=GrammarProgress.XP_REWARD,
         completed=bool(prog and prog.completed_at),
@@ -725,6 +728,7 @@ def list_readings(
 )
 def get_reading(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     r = (
         m.Reading.objects.filter(id=id)
         .select_related("level")
@@ -743,7 +747,7 @@ def get_reading(request, id: int):
         est_minutes=r.est_minutes,
         cover_url=_media(r.cover_path),
         sentences=[
-            _sentence(sen.text_en, sen.ipa, sen.text_vi, sen.audio_path)
+            _sentence(sen, accent)
             for sen in r.sentences.all()
         ],
         keywords=[
@@ -823,6 +827,7 @@ def list_stories(
 )
 def get_story(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     st = (
         m.Story.objects.filter(id=id)
         .select_related("level")
@@ -847,7 +852,7 @@ def get_story(request, id: int):
                         order=sen.order,
                         text_en=sen.text_en,
                         text_vi=sen.text_vi,
-                        audio_url=_media(sen.audio_path),
+                        **_accent_audio(sen, accent),
                     )
                     for sen in sc.sentences.all()
                 ],
@@ -1121,6 +1126,7 @@ def list_shadowing(
 )
 def get_shadowing(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     dk = (
         m.ShadowingDeck.objects.filter(id=id)
         .select_related("level")
@@ -1142,8 +1148,8 @@ def get_shadowing(request, id: int):
                 text_en=sen.text_en,
                 ipa=sen.ipa,
                 text_vi=sen.text_vi,
-                audio_url=_media(sen.audio_path),
                 speaking_goal_vi=sen.speaking_goal_vi,
+                **_accent_audio(sen, accent),
                 highlights=sen.highlights or [],
             )
             for sen in dk.sentences.all()

@@ -23,17 +23,24 @@ class SyllableOut(Schema):
     is_secondary: bool
 
 
-class ExampleOut(Schema):
+class AccentAudioOut(Schema):
+    """`audio_url` = giọng theo hồ sơ (thiếu thì giọng còn lại); `audio_us_url`/`audio_uk_url`
+    để client đổi giọng tại chỗ không cần gọi lại."""
+
+    audio_url: str | None
+    audio_us_url: str | None = None
+    audio_uk_url: str | None = None
+
+
+class ExampleOut(AccentAudioOut):
     text_en: str
     text_vi: str
-    audio_url: str | None
 
 
-class SentenceOut(Schema):
+class SentenceOut(AccentAudioOut):
     text_en: str
     ipa: str | None
     text_vi: str
-    audio_url: str | None
 
 
 # --------------------------------------------------------------- 2.1 Lộ trình
@@ -140,12 +147,11 @@ class DialogueStepOut(Schema):
     lines: list[DialogueLineOut]
 
 
-class SpellingStepOut(Schema):
+class SpellingStepOut(AccentAudioOut):
     vocab_id: int | None
     word: str
     meaning_vi: str
     ipa: str | None
-    audio_url: str | None
     hint_vi: str
 
 
@@ -153,11 +159,10 @@ class QuizOptionOut(Schema):
     text: str
 
 
-class QuizStepOut(Schema):
+class QuizStepOut(AccentAudioOut):
     prompt_vi: str
     question_word: str
     question_ipa: str | None
-    audio_url: str | None
     options: list[QuizOptionOut]
     correct_index: int
     explanation_vi: str
@@ -549,12 +554,11 @@ class ShadowingDeckOut(Schema):
     is_free: bool
 
 
-class ShadowingSentenceOut(Schema):
+class ShadowingSentenceOut(AccentAudioOut):
     order: int
     text_en: str
     ipa: str
     text_vi: str
-    audio_url: str | None
     speaking_goal_vi: str
     highlights: list[dict]
 

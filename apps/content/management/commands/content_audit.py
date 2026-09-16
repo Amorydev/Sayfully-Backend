@@ -24,7 +24,7 @@ class Command(BaseCommand):
             no_audio_uk=Count("id", filter=Q(audio_uk_path="")),
         )
         no_example = vq.annotate(n=Count("examples")).filter(n=0).count()
-        dl_no_audio = DialogueLine.objects.filter(audio_path="").count()
+        dl_no_audio = DialogueLine.objects.filter(audio_us_path="", audio_uk_path="").count()
         lq = Lesson.objects.all()
         if opts["level"]:
             lq = lq.filter(unit__level_id=opts["level"].upper())

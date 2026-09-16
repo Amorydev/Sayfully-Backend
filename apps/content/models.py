@@ -6,6 +6,25 @@ from django.utils import timezone
 from apps.common.models import CEFR, TimeStampedModel
 
 
+class AccentAudio(models.Model):
+    """Audio hai giọng cho một câu/đoạn. `audio_for(accent)` chọn theo `UserProfile.accent`,
+    thiếu giọng nào thì lấy giọng còn lại để không "câm"."""
+
+    audio_us_path = models.CharField(max_length=255, blank=True)
+    audio_uk_path = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def audio_for(self, accent: str) -> str:
+        primary, other = (
+            (self.audio_us_path, self.audio_uk_path)
+            if accent == "US"
+            else (self.audio_uk_path, self.audio_us_path)
+        )
+        return primary or other
+
+
 class Level(models.Model):
     code = models.CharField(max_length=2, primary_key=True, choices=CEFR.choices)
     name_vi = models.CharField(max_length=64)
@@ -152,12 +171,11 @@ class Vocabulary(TimeStampedModel):
         return f"{self.headword} ({self.pos})"
 
 
-class VocabularyExample(models.Model):
+class VocabularyExample(AccentAudio):
     vocabulary = models.ForeignKey(Vocabulary, on_delete=models.CASCADE, related_name="examples")
     order = models.PositiveSmallIntegerField(default=0)
     text_en = models.CharField(max_length=255)
     text_vi = models.CharField(max_length=255)
-    audio_path = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["order"]
@@ -207,7 +225,7 @@ class GrammarPoint(models.Model):
         return str(self.title_vi)
 
 
-class GrammarExample(models.Model):
+class GrammarExample(AccentAudio):
     grammar_point = models.ForeignKey(
         GrammarPoint, on_delete=models.CASCADE, related_name="examples"
     )
@@ -215,7 +233,6 @@ class GrammarExample(models.Model):
     text_en = models.CharField(max_length=255)
     ipa = models.CharField(max_length=255, blank=True)  # IPA cả câu (G3 sinh)
     text_vi = models.CharField(max_length=255)
-    audio_path = models.CharField(max_length=255, blank=True)
 
     def __str__(self) -> str:
         return str(self.text_en)
@@ -253,7 +270,7 @@ class Dialogue(models.Model):
         return str(self.title_en)
 
 
-class DialogueLine(models.Model):
+class DialogueLine(AccentAudio):
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name="lines")
     order = models.PositiveSmallIntegerField()
     speaker = models.CharField(max_length=32)
@@ -261,7 +278,6 @@ class DialogueLine(models.Model):
     text_en = models.CharField(max_length=255)
     ipa = models.CharField(max_length=255, blank=True)  # IPA cả câu (G3 sinh)
     text_vi = models.CharField(max_length=255)
-    audio_path = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["order"]
@@ -319,13 +335,12 @@ class Reading(models.Model):
         return str(self.title_en)
 
 
-class ReadingSentence(models.Model):
+class ReadingSentence(AccentAudio):
     reading = models.ForeignKey(Reading, on_delete=models.CASCADE, related_name="sentences")
     order = models.PositiveSmallIntegerField()
     text_en = models.CharField(max_length=512)
     text_vi = models.CharField(max_length=512)
     ipa = models.CharField(max_length=512, blank=True)
-    audio_path = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["order"]
@@ -374,12 +389,11 @@ class StoryScene(models.Model):
         return f"{self.story_id} · cảnh {self.order}"
 
 
-class StorySentence(models.Model):
+class StorySentence(AccentAudio):
     scene = models.ForeignKey(StoryScene, on_delete=models.CASCADE, related_name="sentences")
     order = models.PositiveSmallIntegerField()
     text_en = models.CharField(max_length=512)
     text_vi = models.CharField(max_length=512)
-    audio_path = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["order"]
@@ -508,7 +522,7 @@ class PhrasalVerb(models.Model):
     ipa = models.CharField(max_length=64, blank=True)
     meaning_vi = models.CharField(max_length=160)
     explanation_vi = models.TextField(blank=True)
-    examples = models.JSONField(default=list, blank=True)  # [{en, vi, audio_path}]
+    examples = models.JSONField(default=list, blank=True)  # [{en, vi, audio_us_path, audio_uk_path}]
     level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="phrasal_verbs")
 
     class Meta:
@@ -584,13 +598,12 @@ class ShadowingDeck(models.Model):
         return str(self.title_en)
 
 
-class ShadowingSentence(models.Model):
+class ShadowingSentence(AccentAudio):
     deck = models.ForeignKey(ShadowingDeck, on_delete=models.CASCADE, related_name="sentences")
     order = models.PositiveSmallIntegerField()
     text_en = models.CharField(max_length=512)
     ipa = models.CharField(max_length=512, blank=True)
     text_vi = models.CharField(max_length=512)
-    audio_path = models.CharField(max_length=255, blank=True)
     speaking_goal_vi = models.CharField(max_length=255, blank=True)
     highlights = models.JSONField(
         default=list,
@@ -628,7 +641,7 @@ class ListeningTopic(models.Model):
         return str(self.title_vi)
 
 
-class ListeningItem(models.Model):
+class ListeningItem(AccentAudio):
     """1 câu nghe. Mode 'choose' dùng blank_index + options + answer_index (điền chỗ trống);
     mode 'dictation' chỉ cần text_en + audio."""
 
@@ -636,7 +649,6 @@ class ListeningItem(models.Model):
     order = models.PositiveSmallIntegerField()
     text_en = models.CharField(max_length=512)  # câu đầy đủ (đáp án của chỗ trống nằm trong câu)
     text_vi = models.CharField(max_length=512, blank=True)
-    audio_path = models.CharField(max_length=255, blank=True)
     blank_index = models.PositiveSmallIntegerField(
         null=True, blank=True
     )  # vị trí từ bị khuyết trong text_en.split() cho mode 'choose'

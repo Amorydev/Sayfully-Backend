@@ -1108,7 +1108,7 @@ class Command(BaseCommand):
                 "explanation_vi": "Rời giường sau khi ngủ.",
                 "level": a1,
                 "examples": [
-                    {"en": "I get up at 6.", "vi": "Tôi dậy lúc 6 giờ.", "audio_path": ""}
+                    {"en": "I get up at 6.", "vi": "Tôi dậy lúc 6 giờ.", "audio_us_path": "", "audio_uk_path": ""}
                 ],
             },
         )
@@ -1671,7 +1671,7 @@ class Command(BaseCommand):
                     order=j,
                     text_en=en,
                     text_vi=vi,
-                    audio_path=f"audio/listen/{icon}_{j}.mp3",
+                    audio_us_path=f"audio/listen/{icon}_{j}.mp3",
                     blank_index=bi,
                     options=opts,
                     answer_index=ans,

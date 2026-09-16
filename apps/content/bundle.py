@@ -29,7 +29,7 @@ def _vocab(v) -> dict:
         "audio_uk_url": _media(v.audio_uk_path),
         "audio_us_url": _media(v.audio_us_path),
         "examples": [
-            {"text_en": e.text_en, "text_vi": e.text_vi, "audio_url": _media(e.audio_path)}
+            {"text_en": e.text_en, "text_vi": e.text_vi, "audio_url": _media(e.audio_us_path or e.audio_uk_path), "audio_us_url": _media(e.audio_us_path), "audio_uk_url": _media(e.audio_uk_path)}
             for e in v.examples.all()
         ],
         "collocations": [
@@ -48,7 +48,7 @@ def _grammar(g) -> dict:
         "common_mistake_vi": g.common_mistake_vi,
         "conjugation": g.conjugation,
         "examples": [
-            {"text_en": e.text_en, "ipa": e.ipa, "text_vi": e.text_vi, "audio_url": _media(e.audio_path)}
+            {"text_en": e.text_en, "ipa": e.ipa, "text_vi": e.text_vi, "audio_url": _media(e.audio_us_path or e.audio_uk_path), "audio_us_url": _media(e.audio_us_path), "audio_uk_url": _media(e.audio_uk_path)}
             for e in g.examples.all()
         ],
     }
@@ -68,7 +68,9 @@ def _dialogue(d) -> dict:
                 "text_en": ln.text_en,
                 "ipa": ln.ipa,
                 "text_vi": ln.text_vi,
-                "audio_url": _media(ln.audio_path),
+                "audio_url": _media(ln.audio_us_path or ln.audio_uk_path),
+                "audio_us_url": _media(ln.audio_us_path),
+                "audio_uk_url": _media(ln.audio_uk_path),
             }
             for ln in d.lines.all()
         ],

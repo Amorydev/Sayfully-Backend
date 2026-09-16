@@ -237,7 +237,7 @@ def test_listening_topics_va_2_mode(api, user, password):
     for j in range(3):
         ListeningItem.objects.create(
             topic=topic, order=j, text_en="Hello, nice to meet you.", text_vi="Xin chào.",
-            audio_path=f"audio/listen/greet_{j}.mp3",
+            audio_us_path=f"audio/listen/greet_{j}.mp3",
             blank_index=3, options=["meet", "meat", "mit", "meal"], answer_index=0,
         )
     premium = ListeningTopic.objects.create(

@@ -217,7 +217,7 @@ class VideoAdmin(admin.ModelAdmin):
 class ShadowingSentenceInline(admin.TabularInline):
     model = m.ShadowingSentence
     extra = 0
-    fields = ("order", "text_en", "ipa", "text_vi", "audio_path")
+    fields = ("order", "text_en", "ipa", "text_vi", "audio_us_path", "audio_uk_path")
 
 
 @admin.register(m.ShadowingDeck)

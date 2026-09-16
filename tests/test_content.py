@@ -473,3 +473,29 @@ def test_videos_featured_len_dau_va_loc_duoc(api, token, levels):
     assert ids[:2] == [hot.id, plain.id]
     only = api.get("/content/videos?featured=true", token=token).json()["items"]
     assert [v["id"] for v in only] == [hot.id] and only[0]["is_featured"] is True
+
+
+def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, vocab, settings):
+    """`audio_url` chọn theo UserProfile.accent, thiếu giọng nào thì lấy giọng còn lại; luôn kèm us/uk."""
+    from apps.accounts.services import ensure_profile
+    from apps.content.models import VocabularyExample
+
+    settings.R2_PUBLIC_BASE = "https://cdn.test"
+    v = vocab[0] if isinstance(vocab, (list, tuple)) else vocab
+    ex = VocabularyExample.objects.create(
+        vocabulary=v, text_en="I grow tomatoes.", text_vi="Tôi trồng cà chua.",
+        audio_us_path="audio/us/example/1.mp3", audio_uk_path="",
+    )
+    profile = ensure_profile(user)
+    profile.accent = "UK"
+    profile.save(update_fields=["accent"])
+
+    body = api.get(f"/content/vocabulary/{v.id}", token=token).json()
+    e = next(x for x in body["examples"] if x["text_en"] == ex.text_en)
+    assert e["audio_url"] == "https://cdn.test/audio/us/example/1.mp3"  # UK thiếu → dùng US
+    assert e["audio_us_url"] == "https://cdn.test/audio/us/example/1.mp3" and e["audio_uk_url"] is None
+
+    ex.audio_uk_path = "audio/uk/example/1.mp3"
+    ex.save(update_fields=["audio_uk_path"])
+    e = next(x for x in api.get(f"/content/vocabulary/{v.id}", token=token).json()["examples"] if x["text_en"] == ex.text_en)
+    assert e["audio_url"] == "https://cdn.test/audio/uk/example/1.mp3"

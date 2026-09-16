@@ -23,6 +23,7 @@ from apps.ai.models import AIQuota
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
+from apps.content import api as content_api
 from apps.content.models import (
     GrammarPoint,
     IPASound,
@@ -287,10 +288,7 @@ def _review_card(card: SRSCard, accent: str) -> s.ReviewCardOut:
         definition_en=v.definition_en,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
-        examples=[
-            s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path))
-            for e in v.examples.all()
-        ],
+        examples=[content_api._example(e, accent) for e in v.examples.all()],
         collocations=[
             s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
             for c in v.collocations.all()
@@ -1802,7 +1800,7 @@ def listening_items(request, topic_id: int, mode: str = Query("choose")):
             "order": it.order,
             "text_en": it.text_en,
             "text_vi": it.text_vi,
-            "audio_url": _media(it.audio_path),
+            **content_api._accent_audio(it, profile.accent),
         }
         if is_choose:
             base.update(
@@ -2323,12 +2321,7 @@ def flashcard_deck_detail(request, deck_id: int):
                 definition_en=v.definition_en,
                 audio_uk_url=_media(v.audio_uk_path),
                 audio_us_url=_media(v.audio_us_path),
-                examples=[
-                    s.ExampleOut(
-                        text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path)
-                    )
-                    for e in v.examples.all()
-                ],
+                examples=[content_api._example(e, accent) for e in v.examples.all()],
                 collocations=[
                     s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
                     for c in v.collocations.all()

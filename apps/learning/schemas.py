@@ -499,6 +499,8 @@ class ListeningItemOut(Schema):
     text_en: str  # câu đầy đủ (client tự che từ ở blank_index cho mode choose)
     text_vi: str
     audio_url: str | None
+    audio_us_url: str | None = None
+    audio_uk_url: str | None = None
     blank_index: int | None = None  # chỉ có ở mode "choose"
     options: list[str] = []  # chỉ có ở mode "choose"
     answer_index: int | None = None  # chỉ có ở mode "choose" (chấm tại máy)
