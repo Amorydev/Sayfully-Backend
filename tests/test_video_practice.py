@@ -71,3 +71,27 @@ def test_ref_id_khac_hoac_kind_khac_khong_ghi(api, token, user, video):
 def test_video_chua_luyen_tra_mac_dinh(api, token, video):
     item = api.get("/content/videos", token=token).json()["items"][0]
     assert item["practice"] == {"shadowing_done": 0, "dictation_done": 0, "last_mode": None}
+
+
+def test_home_videos_xep_noi_bat_nguoi_hoc_moi(api, token, video, password):
+    from apps.accounts.models import User
+    from apps.content.models import Video, VideoSubtitle
+
+    a1 = video.level
+    popular = Video.objects.create(level=a1, youtube_id="bbbbbbbbbbb", title_vi="Hot", title_en="Hot")
+    VideoSubtitle.objects.create(video=popular, order=1, start_ms=0, end_ms=900, text_en="Hi.", text_vi="…")
+    hot = Video.objects.create(
+        level=a1, youtube_id="ccccccccccc", title_vi="Ghim", title_en="Pinned", is_featured=True, featured_order=1
+    )
+    VideoSubtitle.objects.create(video=hot, order=1, start_ms=0, end_ms=900, text_en="Hey.", text_vi="…")
+    Video.objects.create(level=a1, youtube_id="ddddddddddd", title_vi="Rỗng", title_en="Empty")  # không có phụ đề
+
+    for i in range(5):
+        u = User.objects.create_user(email=f"u{i}@example.com", password=password, full_name=f"U{i}")
+        t = api.post("/auth/token", {"email": u.email, "password": password}).json()["access"]
+        api.post("/learn/practice", {"kind": "dictation", "score": 80, "ref_id": f"video:{popular.id}:1"}, token=t)
+
+    videos = api.get("/home", token=token).json()["videos"]
+    assert [v["id"] for v in videos] == [hot.id, popular.id, video.id]
+    assert [v["badge"] for v in videos] == ["featured", "popular", "new"]
+    assert videos[1]["learner_count"] == 5 and videos[2]["sentence_count"] == 3

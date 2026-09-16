@@ -36,6 +36,7 @@ from apps.content.models import (
     ShadowingSentence,
     Topic,
     Unit,
+    Video,
     Vocabulary,
     VocabularyDeck,
     WordRoot,
@@ -328,6 +329,49 @@ def _home_rank(user) -> s.HomeRankOut | None:
     return s.HomeRankOut(league_tier=group.get_tier_display(), rank=my_rank, xp_week=my_xp)
 
 
+HOME_VIDEO_LIMIT = 6
+HOME_VIDEO_NEW_DAYS = 14
+HOME_VIDEO_POPULAR_MIN = 5
+
+
+def _home_videos() -> list[s.HomeVideoOut]:
+    """Nổi bật (admin ghim) → nhiều người đã luyện → mới tạo; chỉ video tuyển chọn đã sẵn sàng."""
+    now = djtz.now()
+    qs = (
+        Video.objects.filter(source=Video.Source.CURATED, status=Video.Status.READY)
+        .annotate(
+            sentence_count=Count("subtitles", distinct=True),
+            learner_count=Count("practice_results__user", distinct=True),
+        )
+        .filter(sentence_count__gt=0)
+        .order_by("-is_featured", "featured_order", "-learner_count", "-created_at", "id")[:HOME_VIDEO_LIMIT]
+    )
+    out = []
+    for vd in qs:
+        badge = None
+        if vd.is_featured:
+            badge = "featured"
+        elif vd.learner_count >= HOME_VIDEO_POPULAR_MIN:
+            badge = "popular"
+        elif now - vd.created_at <= timedelta(days=HOME_VIDEO_NEW_DAYS):
+            badge = "new"
+        out.append(
+            s.HomeVideoOut(
+                id=vd.id,
+                youtube_id=vd.youtube_id,
+                title_vi=vd.title_vi,
+                level=vd.level_id or "",
+                category=vd.category,
+                duration_sec=vd.duration_sec,
+                sentence_count=vd.sentence_count,
+                thumbnail_url=_media(vd.thumbnail_path),
+                learner_count=vd.learner_count,
+                badge=badge,
+            )
+        )
+    return out
+
+
 def _home_ai_tutor(profile, today) -> s.HomeAiTutorOut:
     from apps.ai import services as ai_services  # noqa: PLC0415
 
@@ -555,6 +599,7 @@ def home(request):
         ],
         learning_tools=_home_learning_tools(user),
         ai_tutor=_home_ai_tutor(profile, today),
+        videos=_home_videos(),
     )
 
 

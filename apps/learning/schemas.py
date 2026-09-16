@@ -103,6 +103,22 @@ class HomeAiTutorOut(Schema):
     resets_at: str  # ISO date (giờ hồ sơ)
 
 
+class HomeVideoOut(Schema):
+    """Thẻ trong block "Video nổi bật" ở Trang chủ."""
+
+    id: int
+    youtube_id: str
+    title_vi: str
+    level: str
+    category: str
+    duration_sec: int
+    sentence_count: int
+    thumbnail_url: str | None
+    learner_count: int
+    # featured: admin ghim · new: tạo ≤ 14 ngày · popular: ≥ HOME_VIDEO_POPULAR_MIN người đã luyện
+    badge: Literal["featured", "new", "popular"] | None = None
+
+
 class HomeOut(Schema):
     checkin_done: bool = False  # đã điểm danh hôm nay → app không hiện dialog điểm danh
     streak: StreakStatusOut | None = None
@@ -116,6 +132,7 @@ class HomeOut(Schema):
     games: list[HomeGameOut]
     learning_tools: list[HomeLearningToolOut]
     ai_tutor: HomeAiTutorOut
+    videos: list[HomeVideoOut] = []
 
 
 # --------------------------------------------------------------- learn path (C2)
