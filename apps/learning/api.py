@@ -56,8 +56,7 @@ from apps.gamification.models import (
 from apps.notifications.models import Notification
 
 from . import schemas as s
-from . import services
-from . import video_practice
+from . import services, video_practice
 from .models import (
     DailyActivity,
     LessonProgress,
