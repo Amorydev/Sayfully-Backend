@@ -204,7 +204,7 @@ class LessonDetailOut(Schema):
 
 
 # --------------------------------------------------------------- 2.2 Từ vựng
-class VocabListOut(Schema):
+class VocabListOut(AccentAudioOut):
     id: int
     headword: str
     pos: str
@@ -212,7 +212,6 @@ class VocabListOut(Schema):
     meaning_vi: str
     ipa: str
     syllables: list[SyllableOut]
-    audio_url: str | None
     is_saved: bool = False
     notebook_entry_id: int | None = None
 
@@ -369,12 +368,11 @@ class ReadingQuestionOut(Schema):
     explanation_vi: str
 
 
-class ReadingKeywordOut(Schema):
+class ReadingKeywordOut(AccentAudioOut):
     id: int
     headword: str
     level: str
     ipa: str
-    audio_url: str | None
     pos: str
     meaning_vi: str
     synonyms: list[str]

@@ -7,7 +7,7 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import Field
 
-from apps.content.schemas import CollocationOut, ExampleOut, SyllableOut
+from apps.content.schemas import AccentAudioOut, CollocationOut, ExampleOut, SyllableOut
 
 
 # --------------------------------------------------------------- home (C1, §5.7)
@@ -369,13 +369,12 @@ class VocabStatusOut(Schema):
 
 
 # --------------------------------------------------------------- notebook (C47)
-class NotebookEntryOut(Schema):
+class NotebookEntryOut(AccentAudioOut):
     id: int
     vocab_id: int | None
     headword: str
     ipa: str
     meaning_vi: str
-    audio_url: str | None
     note: str
     tags: list[str]
     srs_state: int | None

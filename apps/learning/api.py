@@ -1079,7 +1079,6 @@ def _notebook_out(entry: NotebookEntry, accent: str, srs: dict[int, SRSCard]) ->
             headword=v.headword,
             ipa=v.ipa_us if accent == "US" else v.ipa_uk,
             meaning_vi=v.meaning_vi,
-            audio_url=_media(v.audio_us_path if accent == "US" else v.audio_uk_path),
             note=entry.note,
             tags=entry.tags or [],
             srs_state=card.state if card is not None else None,
@@ -1088,6 +1087,7 @@ def _notebook_out(entry: NotebookEntry, accent: str, srs: dict[int, SRSCard]) ->
             lapses=card.lapses if card is not None else 0,
             due_at=card.due_at if card is not None else None,
             created_at=entry.created_at,
+            **content_api._accent_audio(v, accent),
         )
     return s.NotebookEntryOut(
         id=entry.id,

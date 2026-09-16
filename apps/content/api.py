@@ -85,7 +85,6 @@ def _vocab_list(
     accent: str,
     notebook_entry_id: int | None = None,
 ) -> s.VocabListOut:
-    audio = v.audio_us_path if accent == "US" else v.audio_uk_path
     return s.VocabListOut(
         id=v.id,
         headword=v.headword,
@@ -94,7 +93,7 @@ def _vocab_list(
         meaning_vi=v.meaning_vi,
         ipa=_ipa(v, accent),
         syllables=_syllables(v),
-        audio_url=_media(audio),
+        **_accent_audio(v, accent),
         is_saved=notebook_entry_id is not None,
         notebook_entry_id=notebook_entry_id,
     )
@@ -756,10 +755,10 @@ def get_reading(request, id: int):
                 headword=k.headword,
                 level=k.level_id,
                 ipa=_ipa(k, profile.accent),
-                audio_url=_media(k.audio_us_path if profile.accent == "US" else k.audio_uk_path),
                 pos=k.pos,
                 meaning_vi=k.meaning_vi,
                 synonyms=k.synonyms or [],
+                **_accent_audio(k, profile.accent),
             )
             for k in r.keywords.all()
         ],
