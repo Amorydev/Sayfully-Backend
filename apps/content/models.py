@@ -426,6 +426,10 @@ class Video(models.Model):
     thumbnail_path = models.CharField(max_length=255, blank=True)
     is_free = models.BooleanField(default=True)
 
+    # Hàng "Nổi bật" ở đầu màn Video (cuộn ngang); sắp theo featured_order rồi id.
+    is_featured = models.BooleanField(default=False)
+    featured_order = models.PositiveSmallIntegerField(default=0)
+
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.CURATED)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.READY)
     error_code = models.CharField(max_length=32, blank=True)  # no_captions / too_long / ...

@@ -206,8 +206,9 @@ class VideoSubtitleInline(admin.TabularInline):
 
 @admin.register(m.Video)
 class VideoAdmin(admin.ModelAdmin):
-    list_display = ("title_vi", "level", "source", "status", "youtube_id", "duration_sec", "is_free")
-    list_filter = ("source", "status", "level", "category", "is_free")
+    list_display = ("title_vi", "level", "source", "status", "is_featured", "featured_order", "youtube_id", "duration_sec", "is_free")
+    list_editable = ("is_featured", "featured_order")
+    list_filter = ("source", "status", "is_featured", "level", "category", "is_free")
     search_fields = ("title_vi", "title_en", "youtube_id", "channel")
     readonly_fields = ("created_by", "created_at")
     inlines = [VideoSubtitleInline]

@@ -444,6 +444,7 @@ class VideoListOut(Schema):
     duration_sec: int
     thumbnail_url: str | None
     is_free: bool
+    is_featured: bool = False
 
 
 class VideoSubtitleOut(Schema):

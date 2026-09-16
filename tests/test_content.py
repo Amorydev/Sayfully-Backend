@@ -459,3 +459,17 @@ def test_ipa_sounds(api, token):
     body = api.get("/content/ipa-sounds", token=token).json()
     assert body["mastered"] == 1 and body["groups"][0]["sounds"][0]["mastered"] is True
     assert api.get("/content/ipa-sounds/999999", token=token).status_code == 404
+
+
+def test_videos_featured_len_dau_va_loc_duoc(api, token, levels):
+    from apps.content.models import Video
+
+    a1 = levels[0]
+    plain = Video.objects.create(level=a1, youtube_id="aaaaaaaaaaa", title_vi="Thường", title_en="Plain")
+    hot = Video.objects.create(
+        level=a1, youtube_id="bbbbbbbbbbb", title_vi="Nổi bật", title_en="Hot", is_featured=True, featured_order=1
+    )
+    ids = [v["id"] for v in api.get("/content/videos", token=token).json()["items"]]
+    assert ids[:2] == [hot.id, plain.id]
+    only = api.get("/content/videos?featured=true", token=token).json()["items"]
+    assert [v["id"] for v in only] == [hot.id] and only[0]["is_featured"] is True

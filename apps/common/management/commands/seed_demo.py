@@ -956,6 +956,9 @@ class Command(BaseCommand):
                 },
             )
         Video.objects.filter(youtube_id="demo_vid_1").delete()
+        # Hàng "Nổi bật" trên màn Video.
+        for order, yid in enumerate(["EGFdtq8lk0c", "7cTumvjrm3g", "t6-fT0hjTvc"], start=1):
+            Video.objects.filter(youtube_id=yid).update(is_featured=True, featured_order=order)
 
         _subs = {
             # Video thật từ Parroto/YouTube. Không giữ transcript demo cũ vì nội dung

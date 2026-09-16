@@ -872,12 +872,13 @@ def get_story(request, id: int):
     "/videos",
     response={200: s.Page[s.VideoListOut], 401: ErrorOut},
     summary="Danh sách video học",
-    description="Lọc theo `level`, `category`.",
+    description="Lọc theo `level`, `category`, `featured=true` (hàng Nổi bật, sắp theo `featured_order`).",
 )
 def list_videos(
     request,
     level: str | None = None,
     category: str | None = None,
+    featured: bool | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -886,7 +887,9 @@ def list_videos(
         qs = qs.filter(level_id=level.upper())
     if category:
         qs = qs.filter(category=category)
-    qs = qs.order_by("level__order", "id")
+    if featured is not None:
+        qs = qs.filter(is_featured=featured)
+    qs = qs.order_by("-is_featured", "featured_order", "level__order", "id")
     count = qs.count()
     items = qs[offset : offset + limit]
     return s.Page(
@@ -901,6 +904,7 @@ def list_videos(
                 duration_sec=vd.duration_sec,
                 thumbnail_url=_media(vd.thumbnail_path),
                 is_free=vd.is_free,
+                is_featured=vd.is_featured,
             )
             for vd in items
         ],
