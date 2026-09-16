@@ -208,6 +208,8 @@ class AudioSampleOut(Schema):
     """Từ mẫu để nghe thử giọng thật (Cài đặt › Giọng phát âm) — có cả hai giọng khi kho đã sinh đủ."""
 
     word: str
+    ipa_us: str
+    ipa_uk: str
     audio_us_url: str | None
     audio_uk_url: str | None
 

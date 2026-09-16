@@ -526,6 +526,8 @@ def test_audio_sample_uu_tien_tu_quen_co_du_hai_giong(api, token, levels, vocab,
     body = api.get("/content/audio/sample", token=token).json()
     assert body == {
         "word": "beautiful",
+        "ipa_us": vocab.ipa_us,
+        "ipa_uk": vocab.ipa_uk,
         "audio_us_url": "https://cdn.test/audio/us/beautiful.mp3",
         "audio_uk_url": "https://cdn.test/audio/uk/beautiful.mp3",
     }

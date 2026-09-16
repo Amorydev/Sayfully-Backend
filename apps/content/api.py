@@ -420,6 +420,8 @@ def audio_sample(request):
         raise NotFound("Kho từ vựng chưa có bản ghi âm nào")
     return s.AudioSampleOut(
         word=v.headword,
+        ipa_us=v.ipa_us,
+        ipa_uk=v.ipa_uk,
         audio_us_url=_media(v.audio_us_path),
         audio_uk_url=_media(v.audio_uk_path),
     )
