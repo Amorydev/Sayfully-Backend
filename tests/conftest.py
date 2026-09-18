@@ -40,10 +40,10 @@ class ApiClient:
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
-    def post(self, path, data=None, token=None):
+    def post(self, path, data=None, token=None, headers=None):
         return self.client.post(
             f"/api/v1{path}", data=data or {}, content_type="application/json",
-            headers=self._headers(token),
+            headers={**self._headers(token), **(headers or {})},
         )
 
     def get(self, path, token=None):

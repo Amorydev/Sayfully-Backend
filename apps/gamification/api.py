@@ -26,8 +26,8 @@ from apps.learning import services as learn
 from apps.learning.models import DailyActivity, WeeklyStat
 from apps.notifications.models import Device, Notification
 
+from . import integrity, services, shop
 from . import schemas as s
-from . import services, shop
 from .models import (
     Badge,
     Challenge,
@@ -637,10 +637,15 @@ def games(request):
 
 @router.post(
     "/games/{code}/scores",
-    response={200: s.GameScoreResultOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    response={
+        200: s.GameScoreResultOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+    },
     summary="Nộp điểm ván chơi",
     description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile. "
-    "`cleared=false` (thua ván) trừ 1 tim hồ sơ — Premium được miễn; trả `hearts` sau ván.",
+    "`cleared=false` (thua ván) trừ 1 tim hồ sơ — Premium được miễn; trả `hearts` sau ván. "
+    "Android gửi kèm `X-Integrity-Token` (Play Integrity, requestHash = "
+    "`code|score|duration_sec|level|stage_index|cleared`); 403 `integrity_failed` khi máy chủ "
+    "bật enforce và token thiếu/không đạt.",
 )
 def submit_score(request, code: str, payload: s.GameScoreIn):
 
@@ -649,6 +654,13 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
     game = Game.objects.filter(code=code, is_active=True).first()
     if game is None:
         raise NotFound("Không tìm thấy trò chơi")
+    verdict = integrity.check(
+        request,
+        integrity.score_request_hash(
+            code, payload.score, payload.duration_sec, payload.level, payload.stage_index,
+            payload.cleared,
+        ),
+    )
 
     prev_best = GameScore.objects.filter(user=user, game=game).aggregate(m=Max("score"))["m"] or 0
     coins = min(15, payload.score // 80)
@@ -664,6 +676,7 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
             score=payload.score,
             accuracy=payload.accuracy,
             coins_earned=coins,
+            integrity=verdict,
         )
         if payload.level and payload.stage_index is not None:
             _record_stage(
@@ -967,12 +980,20 @@ def match_pairs_round(request, stage_id: int, difficulty: str = Query(...)):
     },
     summary="Nộp kết quả một ván Ghép cặp",
     description="Máy chủ tự chấm sao từ số lượt lật, cộng xu/XP và mở chặng kế. "
-    "Kỷ lục chỉ nâng: chơi lại tệ hơn không xoá sao cũ.",
+    "Kỷ lục chỉ nâng: chơi lại tệ hơn không xoá sao cũ. "
+    "Android gửi kèm `X-Integrity-Token` (requestHash = "
+    "`match_pairs|stage_id|difficulty|moves|duration_sec`); 403 `integrity_failed` khi enforce.",
 )
 def match_pairs_result(request, stage_id: int, payload: s.MatchPairsResultIn):
     user = request.auth
     profile = ensure_profile(user)
     difficulty = _check_difficulty(payload.difficulty)
+    verdict = integrity.check(
+        request,
+        integrity.match_pairs_request_hash(
+            stage_id, payload.difficulty, payload.moves, payload.duration_sec
+        ),
+    )
     stage, stages, played = _open_stage(user, stage_id)
     # Chặng đã có dòng tiến độ trước ván này chưa — quyết định có báo "vừa mở khoá" hay không.
     was_played = stage.id in played
@@ -1011,6 +1032,7 @@ def match_pairs_result(request, stage_id: int, payload: s.MatchPairsResultIn):
                 score=score,
                 accuracy=pairs / payload.moves,
                 coins_earned=coins,
+                integrity=verdict,
             )
 
     # Chỉ báo chặng kế ở lần đầu hoàn thành chặng này; chơi lại không "mở khoá" lần nữa,

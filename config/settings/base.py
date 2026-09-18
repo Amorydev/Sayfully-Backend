@@ -19,6 +19,7 @@ env = environ.Env(
     VIDEO_IMPORT_DAILY_LIMIT=(int, 5),
     VIDEO_IMPORT_SYNC=(bool, False),
     AI_TIMEOUT=(int, 30),
+    PLAY_INTEGRITY_MAX_AGE_SEC=(int, 600),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -166,6 +167,17 @@ AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT = env("AI_TIMEOUT")
 AI_FREE_TURNS = env("AI_FREE_TURNS")
 AI_PREMIUM_TURNS = env("AI_PREMIUM_TURNS")
+
+# Play Integrity cho điểm game (chống sửa điểm / app repack). Client Android gửi
+# `X-Integrity-Token`; máy chủ giải mã qua Play Integrity API bằng service account.
+#   off     → bỏ qua header
+#   log     → giải mã và ghi verdict vào GameScore.integrity, không chặn (mặc định:
+#             iOS chưa có App Attest, build dev/sideload không được Play nhận diện)
+#   enforce → từ chối 403 nếu token thiếu hoặc verdict không đạt
+PLAY_INTEGRITY_MODE = env("PLAY_INTEGRITY_MODE", default="log")
+PLAY_INTEGRITY_PACKAGE_NAME = env("PLAY_INTEGRITY_PACKAGE_NAME", default="amoryzenith.sayfully.app")
+PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE = env("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE", default="")
+PLAY_INTEGRITY_MAX_AGE_SEC = env("PLAY_INTEGRITY_MAX_AGE_SEC")
 
 # Người dùng Premium dán link YouTube → tạo video học (apps.content.video_import).
 VIDEO_IMPORT_ENABLED = env("VIDEO_IMPORT_ENABLED")

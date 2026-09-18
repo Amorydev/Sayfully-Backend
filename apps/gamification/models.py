@@ -255,6 +255,9 @@ class GameScore(models.Model):
     score = models.PositiveIntegerField()
     accuracy = models.FloatField(default=0)  # 0..1
     coins_earned = models.PositiveSmallIntegerField(default=0)
+    # Verdict Play Integrity lúc nộp (apps.gamification.integrity). Rỗng = ván ghi trước
+    # khi có kiểm tra.
+    integrity = models.CharField(max_length=16, blank=True, default="")
     played_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
