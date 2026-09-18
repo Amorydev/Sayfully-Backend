@@ -15,6 +15,7 @@ class HomeProfileOut(Schema):
     name: str
     avatar_url: str | None
     avatar_frame_colors: list[str] = []  # khung avatar đang trang bị (C50)
+    avatar_frame: str | None = None
     cefr_level: str
     level: int
     level_label: str
@@ -620,6 +621,7 @@ class ProfileOverviewOut(Schema):
     member_id: str
     avatar_url: str | None
     avatar_frame_colors: list[str] = []
+    avatar_frame: str | None = None
     date_joined: datetime
     is_active: bool
     is_premium: bool

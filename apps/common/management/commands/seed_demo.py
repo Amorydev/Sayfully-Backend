@@ -54,6 +54,7 @@ from apps.content.models import (
     VocabularyExample,
 )
 from apps.content.video_transcript import load_subtitle_source, replace_video_subtitles
+from apps.gamification.avatar_frames import seed_avatar_frames
 from apps.gamification.models import (
     Badge,
     Challenge,
@@ -1295,6 +1296,7 @@ class Command(BaseCommand):
                     "meta": meta,
                 },
             )
+        seed_avatar_frames()
         for code, title, desc, kind, featured, order in [
             ("word_rain", "Mưa từ vựng", "Hứng bóng chữ rơi đúng nghĩa", "reflex", True, 1),
             ("match_pairs", "Ghép cặp", "Nối từ tiếng Anh và nghĩa Việt", "memory", False, 2),
