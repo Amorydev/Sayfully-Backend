@@ -81,6 +81,69 @@ def app_level(label: str) -> str | None:
     }.get(label)
 
 
+def _toks(t: str) -> list[str]:
+    t = (t or "").lower().replace("’", "'").replace("—", " ").replace("…", " ")
+    t = re.sub(r"\([^)]*\)", " ", t)  # (Mia)
+    t = re.sub(r"^[a-z. ]{2,12}:\s", "", t)  # "Name: "
+    return re.sub(r"[^a-z0-9' ]+", " ", t).split()
+
+
+def match_line(text: str, lines: list) -> tuple:
+    """Tìm lượt thoại chứa/khớp `text` (giải thích quiz = câu trong hội thoại). Trả (line, điểm 0–1)."""
+    e = _toks(text)
+    if not e:
+        return None, 0.0
+    best = (None, 0.0)
+    for ln in lines:
+        lt = _toks(ln["en"])
+        if not lt:
+            continue
+        if " ".join(e) in " ".join(lt) or (" ".join(lt) in " ".join(e) and len(lt) >= 3):
+            return ln, 1.0
+        es, ls = set(e), set(lt)
+        j = len(es & ls) / len(es | ls)
+        if j > best[1]:
+            best = (ln, j)
+    return best
+
+
+STOP = {
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "i",
+    "am",
+    "it",
+    "to",
+    "of",
+    "and",
+    "in",
+    "she",
+    "he",
+    "says",
+    "say",
+    "that",
+    "you",
+    "my",
+    "her",
+    "his",
+    "at",
+}
+
+
+def answer_matches(answer: str, sentence: str) -> bool:
+    """Đáp án quiz có nói về đúng câu nghe không (Jaccard token, bỏ từ chức năng và 'Anna says,')."""
+    a = set(_toks(re.sub(r"^[A-Za-z. ]{2,12} says,?\s*", "", answer or ""))) - STOP
+    b = set(_toks(re.sub(r"^[A-Za-z. ]{2,12} says,?\s*", "", sentence or ""))) - STOP
+    return bool(a and b) and len(a & b) / len(a | b) >= 0.3
+
+
+VOCAB_Q = re.compile(r"^'([^']+)'")
+MIN_LINE_SCORE = 0.25
+
+
 def read_csv(path: Path) -> list[dict]:
     with open(path, encoding="utf-8-sig", newline="") as f:
         first = f.readline()
@@ -604,14 +667,22 @@ class Command(BaseCommand):
             lesson.quiz_questions.all().delete()
             qs = []
             # VOA: quiz là bài nghe "What does Anna say?" — câu nghe thứ i (listening_sentences[i]) là audio phát trước câu hỏi i
-            voa_listen = [self.VL.get(sid) for sid in L["listening_sentences"]]
-            if len(voa_listen) != len(
-                L["quiz_questions"]
-            ):  # số câu nghe ≠ số quiz → không ghép theo index (28/82 bài VOA)
-                voa_listen = []
+            voa_listen = [
+                self.VL.get(sid) for sid in L["listening_sentences"]
+            ]  # câu nghe i ↔ quiz i chỉ khi đáp án khớp nội dung
+            dlines = src["lines"] if src else []
+            self.quiz_line = getattr(self, "quiz_line", {})
             for i, qid in enumerate(L["quiz_questions"], 1):
                 if qid in self.GENQ:
                     q = self.GENQ[qid]
+                    aud = {}
+                    if (
+                        q["kind"] == "listening"
+                    ):  # giải thích = câu trong hội thoại → phát audio lượt đó (bài nghe thật)
+                        ln, sc = match_line(q.get("explanation_vi", ""), dlines)
+                        if ln and sc >= MIN_LINE_SCORE:
+                            aud = self.audio(f"{did}#{ln['n']}")
+                            self.quiz_line[qid] = ln["n"]
                     qs.append(
                         m.QuizQuestion(
                             lesson=lesson,
@@ -623,6 +694,7 @@ class Command(BaseCommand):
                             answer_index=q["answer_index"],
                             explanation_vi=q.get("explanation_vi", "")[:512],
                             source_ref=qid,
+                            **aud,
                         )
                     )
                 elif qid in self.VQ:
@@ -631,7 +703,18 @@ class Command(BaseCommand):
                     keys = [o["key"] for o in q["options"]]
                     if q["answer_key"] not in keys:
                         continue
+                    ans = opts[keys.index(q["answer_key"])]
                     ls = voa_listen[i - 1] if i - 1 < len(voa_listen) else None
+                    aud = {}
+                    if ls and answer_matches(ans, ls["en"]):  # bài nghe VOA: phát câu nghe rồi hỏi
+                        aud = self.audio(ls["id"])
+                        self.quiz_heard = getattr(self, "quiz_heard", {})
+                        self.quiz_heard[qid] = ls["en"]
+                    else:  # đọc-hiểu hội thoại → phát lượt thoại chứa đáp án nếu khớp
+                        ln, sc = match_line(ans, dlines)
+                        if ln and sc >= 0.5:
+                            aud = self.audio(f"{did}#{ln['n']}")
+                            self.quiz_line[qid] = ln["n"]
                     qs.append(
                         m.QuizQuestion(
                             lesson=lesson,
@@ -642,7 +725,7 @@ class Command(BaseCommand):
                             options=opts,
                             answer_index=keys.index(q["answer_key"]),
                             source_ref=qid,
-                            **(self.audio(ls["id"]) if ls else {}),
+                            **aud,
                         )
                     )
             m.QuizQuestion.objects.bulk_create(qs)
@@ -707,18 +790,36 @@ class Command(BaseCommand):
                     payload={"hint_vi": v.meaning_vi},
                 )
             )
+        by_head = {v.headword.lower(): v for v in vocabs}
         for q in qs:
+            vq = None
+            if (
+                q.kind == "vocab"
+            ):  # "'Argue' means:" → màn quiz từ vựng của app: từ to + IPA + loa, chọn nghĩa VI
+                mm = VOCAB_Q.match(q.question_en)
+                vq = by_head.get(mm.group(1).lower()) if mm else None
+            prompt = q.question_vi or "Chọn đáp án đúng"
+            if vq:
+                prompt = "Nghĩa của từ này là gì?"
+            elif q.audio_us_path or q.audio_uk_path:
+                prompt = (
+                    f"Nghe rồi trả lời · {q.question_vi}"
+                    if q.question_vi
+                    else "Nghe rồi chọn câu đúng"
+                )
             steps.append(
                 m.LessonStep(
                     lesson=lesson,
                     order=len(steps) + 1,
                     kind=K.QUIZ,
+                    vocabulary=vq,
                     payload={
                         "question_id": q.id,
                         "kind": q.kind,
-                        "prompt_vi": q.question_vi
-                        or ("Nghe rồi chọn câu đúng" if q.audio_us_path else "Chọn đáp án đúng"),
+                        "prompt_vi": prompt,
                         "question_word": q.question_en,
+                        "source_line": self.quiz_line.get(q.source_ref),
+                        "audio_text": getattr(self, "quiz_heard", {}).get(q.source_ref, ""),
                         "options": q.options,
                         "correct_index": q.answer_index,
                         "explanation_vi": q.explanation_vi,
