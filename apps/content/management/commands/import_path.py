@@ -553,8 +553,13 @@ class Command(BaseCommand):
                     objs.append(topics[code])
                 obj.topics.set(objs)
             self.VOCAB[vid] = obj
+        stale = (
+            m.Vocabulary.objects.filter(is_path_core=True)
+            .exclude(source_ref__in=ids)
+            .update(is_path_core=False)
+        )  # từ bị thay khỏi lộ trình → về từ điển
         self.log(
-            f"Vocabulary (lộ trình): {len(self.VOCAB)} (+{n_new} mới, {n_adopt} nhận lại demo) · VocabularyExample: {m.VocabularyExample.objects.filter(vocabulary__is_path_core=True).count()}"
+            f"Vocabulary (lộ trình): {len(self.VOCAB)} (bỏ khỏi lộ trình {stale}) (+{n_new} mới, {n_adopt} nhận lại demo) · VocabularyExample: {m.VocabularyExample.objects.filter(vocabulary__is_path_core=True).count()}"
         )
 
     # ------------------------------------------------------------------ 4. unit / bài
