@@ -187,11 +187,14 @@ def _week_left(now, profile) -> int:
     return int((next_monday - local).total_seconds())
 
 
-def _entry(rank, user, profile, xp_week, me_id) -> s.LeaderboardEntryOut:
+def _entry(rank, user, profile, xp_week, me_id, frame_colors=None) -> s.LeaderboardEntryOut:
+    frame = (profile.avatar_frame if profile else "") or None
     return s.LeaderboardEntryOut(
         rank=rank,
         name=user.full_name,
         avatar_url=_media(user.avatar_path),
+        avatar_frame=frame,
+        avatar_frame_colors=(frame_colors or {}).get(frame, []) if frame else [],
         xp_week=xp_week,
         streak_days=profile.streak_current if profile else 0,
         movement=0,
@@ -238,8 +241,9 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
             .order_by("-xp_total", "user_id")[:50]
         )
         entries, my_rank = [], 0
+        colors = shop.frame_colors_map(prof.avatar_frame for prof in rows)
         for i, prof in enumerate(rows):
-            entries.append(_entry(i + 1, prof.user, prof, prof.xp_total, user.id))
+            entries.append(_entry(i + 1, prof.user, prof, prof.xp_total, user.id, colors))
             if prof.user_id == user.id:
                 my_rank = i + 1
         return s.LeaderboardOut(
@@ -262,9 +266,12 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
             .order_by("-xp")[:50]
         )
         entries, my_rank = [], 0
+        colors = shop.frame_colors_map(
+            getattr(getattr(ws.user, "profile", None), "avatar_frame", "") for ws in rows
+        )
         for i, ws in enumerate(rows):
             prof = getattr(ws.user, "profile", None)
-            entries.append(_entry(i + 1, ws.user, prof, ws.xp, user.id))
+            entries.append(_entry(i + 1, ws.user, prof, ws.xp, user.id, colors))
             if ws.user_id == user.id:
                 my_rank = i + 1
         my_xp = (
@@ -286,9 +293,17 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
         )
 
     group, ranked, xp_map, my_rank, my_xp, xp_to_promote = _league_ranking(user)
+    colors = shop.frame_colors_map(
+        getattr(getattr(mm.user, "profile", None), "avatar_frame", "") for mm in ranked
+    )
     entries = [
         _entry(
-            i + 1, mm.user, getattr(mm.user, "profile", None), xp_map.get(mm.user_id, 0), user.id
+            i + 1,
+            mm.user,
+            getattr(mm.user, "profile", None),
+            xp_map.get(mm.user_id, 0),
+            user.id,
+            colors,
         )
         for i, mm in enumerate(ranked)
     ]

@@ -64,3 +64,33 @@ def test_catalog_rejects_code_collision_without_partial_writes():
     with pytest.raises(ValueError, match="non-cosmetic"):
         seed_avatar_frames()
     assert ShopItem.objects.count() == 1
+
+
+def test_leaderboard_entries_carry_each_players_equipped_frame(api, user, password):
+    from apps.accounts.models import User
+    from apps.gamification.services import current_week, ensure_league_membership
+    from apps.learning.models import WeeklyStat
+
+    seed_avatar_frames()
+    dragon = ShopItem.objects.get(code="frame_dragon")
+    rival = User.objects.create_user(
+        email="rival@example.com", password=password, full_name="Đối Thủ"
+    )
+    UserCosmetic.objects.create(user=rival, item=dragon)
+    rival.profile.avatar_frame = dragon.code
+    rival.profile.xp_total = 900
+    rival.profile.save()
+    user.profile.xp_total = 100
+    user.profile.save()
+    y, w = current_week()
+    WeeklyStat.objects.create(user=rival, iso_year=y, iso_week=w, xp=900)
+    WeeklyStat.objects.create(user=user, iso_year=y, iso_week=w, xp=100)
+    ensure_league_membership(rival)
+    token = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+    for query in ("scope=league", "scope=global", "scope=global&period=all"):
+        entries = api.get(f"/leaderboard?{query}", token=token).json()["entries"]
+        by_name = {e["name"]: e for e in entries}
+        assert by_name["Đối Thủ"]["avatar_frame"] == "frame_dragon"
+        assert by_name["Đối Thủ"]["avatar_frame_colors"] == dragon.meta["colors"]
+        assert by_name["Học Viên"]["avatar_frame"] is None
+        assert by_name["Học Viên"]["avatar_frame_colors"] == []

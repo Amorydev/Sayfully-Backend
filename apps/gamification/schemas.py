@@ -39,6 +39,9 @@ class LeaderboardEntryOut(Schema):
     rank: int
     name: str
     avatar_url: str | None
+    # Khung avatar đang trang bị của người chơi đó (ShopItem.code + màu), để bảng xếp hạng vẽ đúng khung.
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
     xp_week: int
     streak_days: int
     movement: int

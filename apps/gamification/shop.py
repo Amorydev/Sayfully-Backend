@@ -252,6 +252,17 @@ def frame_colors(code: str) -> list[str]:
     return list((item.meta or {}).get("colors", [])) if item else []
 
 
+def frame_colors_map(codes) -> dict[str, list[str]]:
+    """Một query cho cả danh sách (bảng xếp hạng); code lạ/rỗng → []."""
+    wanted = {c for c in codes if c}
+    if not wanted:
+        return {}
+    return {
+        code: list((meta or {}).get("colors", []))
+        for code, meta in ShopItem.objects.filter(code__in=wanted).values_list("code", "meta")
+    }
+
+
 # ---------------------------------------------------------------- wishlist
 def notify_wishlist(profile) -> int:
     """Gọi sau khi cộng xu: báo 1 lần cho mỗi vật phẩm wishlist mà số dư đã đủ mua."""
