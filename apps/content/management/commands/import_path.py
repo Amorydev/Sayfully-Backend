@@ -603,6 +603,12 @@ class Command(BaseCommand):
             # quiz bank
             lesson.quiz_questions.all().delete()
             qs = []
+            # VOA: quiz là bài nghe "What does Anna say?" — câu nghe thứ i (listening_sentences[i]) là audio phát trước câu hỏi i
+            voa_listen = [self.VL.get(sid) for sid in L["listening_sentences"]]
+            if len(voa_listen) != len(
+                L["quiz_questions"]
+            ):  # số câu nghe ≠ số quiz → không ghép theo index (28/82 bài VOA)
+                voa_listen = []
             for i, qid in enumerate(L["quiz_questions"], 1):
                 if qid in self.GENQ:
                     q = self.GENQ[qid]
@@ -625,6 +631,7 @@ class Command(BaseCommand):
                     keys = [o["key"] for o in q["options"]]
                     if q["answer_key"] not in keys:
                         continue
+                    ls = voa_listen[i - 1] if i - 1 < len(voa_listen) else None
                     qs.append(
                         m.QuizQuestion(
                             lesson=lesson,
@@ -635,6 +642,7 @@ class Command(BaseCommand):
                             options=opts,
                             answer_index=keys.index(q["answer_key"]),
                             source_ref=qid,
+                            **(self.audio(ls["id"]) if ls else {}),
                         )
                     )
             m.QuizQuestion.objects.bulk_create(qs)
@@ -708,11 +716,14 @@ class Command(BaseCommand):
                     payload={
                         "question_id": q.id,
                         "kind": q.kind,
-                        "prompt_vi": q.question_vi or "Chọn đáp án đúng",
+                        "prompt_vi": q.question_vi
+                        or ("Nghe rồi chọn câu đúng" if q.audio_us_path else "Chọn đáp án đúng"),
                         "question_word": q.question_en,
                         "options": q.options,
                         "correct_index": q.answer_index,
                         "explanation_vi": q.explanation_vi,
+                        "audio_us_path": q.audio_us_path,
+                        "audio_uk_path": q.audio_uk_path,
                         "xp": 10,
                     },
                 )
