@@ -681,7 +681,9 @@ class Command(BaseCommand):
                 if qid in self.GENQ:
                     q = self.GENQ[qid]
                     aud = {}
-                    if (
+                    if q.get("audio_ref"):  # build_quiz.py đã chốt nguồn audio (thoại/ví dụ)
+                        aud = self.audio(q["audio_ref"])
+                    elif (
                         q["kind"] == "listening"
                     ):  # giải thích = câu trong hội thoại → phát audio lượt đó (bài nghe thật)
                         ln, sc = match_line(q.get("explanation_vi", ""), dlines)
@@ -696,8 +698,13 @@ class Command(BaseCommand):
                             question_en=q["question_en"][:512],
                             question_vi=q["question_vi"][:512],
                             options=q["options"],
-                            answer_index=q["answer_index"],
+                            answer_index=max(q["answer_index"], 0),
                             explanation_vi=q.get("explanation_vi", "")[:512],
+                            sentence_en=q.get("sentence_en", "")[:512],
+                            sentence_vi=q.get("sentence_vi", "")[:512],
+                            speaker=q.get("speaker", "")[:32],
+                            hint_vi=q.get("hint_vi", "")[:256],
+                            formula=q.get("formula", "")[:128],
                             source_ref=qid,
                             **aud,
                         )
@@ -803,15 +810,13 @@ class Command(BaseCommand):
             ):  # "'Argue' means:" → màn quiz từ vựng của app: từ to + IPA + loa, chọn nghĩa VI
                 mm = VOCAB_Q.match(q.question_en)
                 vq = by_head.get(mm.group(1).lower()) if mm else None
-            prompt = q.question_vi or "Chọn đáp án đúng"
-            if vq:
-                prompt = "Nghĩa của từ này là gì?"
-            elif q.audio_us_path or q.audio_uk_path:
-                prompt = (
-                    f"Nghe rồi trả lời · {q.question_vi}"
-                    if q.question_vi
-                    else "Nghe rồi chọn câu đúng"
-                )
+            prompt = {  # nhãn nhỏ đầu màn (app hiện in hoa); mỗi kind một màn riêng
+                "vocab": "Nghĩa của từ này là gì?",
+                "cloze": "Nghe và điền từ còn thiếu",
+                "reorder": "Sắp xếp thành câu đúng",
+                "grammar": "Chọn câu đúng ngữ pháp",
+                "listening": "Nghe rồi trả lời",
+            }.get(q.kind, q.question_vi or "Chọn đáp án đúng")
             steps.append(
                 m.LessonStep(
                     lesson=lesson,
@@ -823,8 +828,15 @@ class Command(BaseCommand):
                         "kind": q.kind,
                         "prompt_vi": prompt,
                         "question_word": q.question_en,
+                        "question_vi": q.question_vi,
                         "source_line": self.quiz_line.get(q.source_ref),
-                        "audio_text": getattr(self, "quiz_heard", {}).get(q.source_ref, ""),
+                        "audio_text": q.sentence_en
+                        or getattr(self, "quiz_heard", {}).get(q.source_ref, ""),
+                        "sentence_en": q.sentence_en,
+                        "sentence_vi": q.sentence_vi,
+                        "speaker": q.speaker,
+                        "hint_vi": q.hint_vi,
+                        "formula": q.formula,
                         "options": q.options,
                         "correct_index": q.answer_index,
                         "explanation_vi": q.explanation_vi,

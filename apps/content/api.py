@@ -245,13 +245,20 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         p = step.payload or {}
         v = step.vocabulary
         out.quiz = s.QuizStepOut(
+            kind=p.get("kind") or "listening",
             prompt_vi=p.get("prompt_vi", ""),
             question_word=v.headword if v else p.get("question_word", ""),
+            question_vi=p.get("question_vi", ""),
             question_ipa=_ipa(v, accent) if v else p.get("question_ipa"),
             **_accent_audio(v if v else p, accent),
             options=[s.QuizOptionOut(text=o) for o in p.get("options", [])],
             correct_index=p.get("correct_index", 0),
             explanation_vi=p.get("explanation_vi", ""),
+            sentence_en=p.get("sentence_en", ""),
+            sentence_vi=p.get("sentence_vi", ""),
+            speaker=p.get("speaker", ""),
+            hint_vi=p.get("hint_vi", ""),
+            formula=p.get("formula", ""),
             xp=p.get("xp", 10),
         )
     return out

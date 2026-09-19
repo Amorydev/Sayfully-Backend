@@ -547,13 +547,15 @@ class LessonStep(models.Model):
 
 
 class QuizQuestion(models.Model):
-    """Ngân hàng câu hỏi trắc nghiệm của bài (VOA 407 + sinh 1.390). Bước QUIZ trỏ tới đây qua payload."""
+    """Ngân hàng câu hỏi của bài (6 câu/bài, sinh từ crawl/path/build_quiz.py). Bước QUIZ trỏ tới đây qua payload."""
 
     class Kind(models.TextChoices):
-        LISTENING = "listening", "Nghe"
+        LISTENING = "listening", "Nghe rồi chọn"  # audio lượt thoại → 4 đáp án
         READING = "reading", "Đọc"
-        VOCAB = "vocab", "Từ vựng"
-        GRAMMAR = "grammar", "Ngữ pháp"
+        VOCAB = "vocab", "Nghĩa của từ"  # từ + IPA + loa → 4 nghĩa VI
+        CLOZE = "cloze", "Điền từ theo audio"  # sentence_en có ____ → 4 từ
+        GRAMMAR = "grammar", "Chọn câu đúng ngữ pháp"  # formula + 4 câu
+        REORDER = "reorder", "Sắp xếp từ"  # options = token xáo; đúng khi ghép = sentence_en
 
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="quiz_questions")
     order = models.PositiveSmallIntegerField()
@@ -568,6 +570,12 @@ class QuizQuestion(models.Model):
     )  # "voa-l1:lesson-01#q1" | "genq:…#1"
     audio_us_path = models.CharField(max_length=255, blank=True)
     audio_uk_path = models.CharField(max_length=255, blank=True)
+    # Ngữ liệu theo loại: listening = lượt thoại được phát; cloze = câu có ____; reorder = câu đúng; grammar = câu ngữ cảnh (nếu có)
+    sentence_en = models.CharField(max_length=512, blank=True, default="")
+    sentence_vi = models.CharField(max_length=512, blank=True, default="")
+    speaker = models.CharField(max_length=32, blank=True, default="")  # listening: người nói
+    hint_vi = models.CharField(max_length=256, blank=True, default="")  # cloze: nghĩa; khác: tên NP
+    formula = models.CharField(max_length=128, blank=True, default="")  # công thức điểm ngữ pháp
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["lesson", "order"], name="uniq_quiz_order")]

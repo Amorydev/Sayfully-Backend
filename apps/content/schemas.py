@@ -159,12 +159,26 @@ class QuizOptionOut(Schema):
 
 
 class QuizStepOut(AccentAudioOut):
+    """`kind` quyết định màn quiz của app:
+    listening — phát audio lượt thoại (`sentence_en`/`speaker`), hỏi `question_word`, chọn 1/4;
+    vocab — `question_word` là từ (+`question_ipa`, loa), chọn nghĩa VI;
+    cloze — `sentence_en` có ____ (audio câu đầy đủ), chọn 1/4 từ; `sentence_vi` dịch, `hint_vi` nghĩa từ;
+    grammar — `hint_vi` tên điểm ngữ pháp + `formula`, chọn 1/4 câu; `sentence_en` ngữ cảnh (nếu có);
+    reorder — `options` là token đã xáo, đúng khi ghép lại = `sentence_en` (`correct_index` bỏ qua)."""
+
+    kind: str = "listening"
     prompt_vi: str
     question_word: str
+    question_vi: str = ""  # listening/grammar: câu hỏi dịch VI hiện dưới câu hỏi EN
     question_ipa: str | None
     options: list[QuizOptionOut]
     correct_index: int
     explanation_vi: str
+    sentence_en: str = ""
+    sentence_vi: str = ""
+    speaker: str = ""
+    hint_vi: str = ""
+    formula: str = ""
     xp: int
 
 
