@@ -204,6 +204,12 @@ class VideoSubtitleInline(admin.TabularInline):
     extra = 0
 
 
+@admin.register(m.VideoCategory)
+class VideoCategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "subtitle", "order")
+    list_editable = ("subtitle", "order")
+
+
 @admin.register(m.Video)
 class VideoAdmin(admin.ModelAdmin):
     list_display = (

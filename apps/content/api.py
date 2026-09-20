@@ -942,6 +942,7 @@ def list_videos(
     count = qs.count()
     items = list(qs[offset : offset + limit])
     practice = video_practice.summaries(request.auth, [vd.id for vd in items])
+    subtitles = dict(m.VideoCategory.objects.values_list("name", "subtitle"))
     return s.Page(
         items=[
             s.VideoListOut(
@@ -951,6 +952,7 @@ def list_videos(
                 title_vi=vd.title_vi,
                 title_en=vd.title_en,
                 category=vd.category,
+                category_subtitle=subtitles.get(vd.category, ""),
                 duration_sec=vd.duration_sec,
                 thumbnail_url=_media(vd.thumbnail_path),
                 is_free=vd.is_free,

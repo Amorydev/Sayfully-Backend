@@ -492,6 +492,17 @@ def test_videos_featured_len_dau_va_loc_duoc(api, token, levels):
     assert [v["id"] for v in only] == [hot.id] and only[0]["is_featured"] is True
 
 
+def test_videos_tra_mo_ta_the_loai(api, token, levels):
+    from apps.content.models import Video, VideoCategory
+
+    VideoCategory.objects.create(name="Hội thoại", subtitle="Giao tiếp hàng ngày", order=1)
+    Video.objects.create(level=levels[0], youtube_id="ccccccccccc", title_vi="A", title_en="A", category="Hội thoại")
+    Video.objects.create(level=levels[0], youtube_id="ddddddddddd", title_vi="B", title_en="B", category="Khác")
+    items = {v["youtube_id"]: v for v in api.get("/content/videos", token=token).json()["items"]}
+    assert items["ccccccccccc"]["category_subtitle"] == "Giao tiếp hàng ngày"
+    assert items["ddddddddddd"]["category_subtitle"] == ""
+
+
 def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, vocab, settings):
     """`audio_url` chọn theo UserProfile.accent, thiếu giọng nào thì lấy giọng còn lại; luôn kèm us/uk."""
     from apps.accounts.services import ensure_profile

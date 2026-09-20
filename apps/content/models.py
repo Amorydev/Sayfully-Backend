@@ -726,6 +726,21 @@ class Video(models.Model):
         return str(self.title_vi)
 
 
+class VideoCategory(models.Model):
+    """Thể loại video (khớp `Video.category` theo tên): mô tả hiện dưới tiêu đề section ở màn Video."""
+
+    name = models.CharField(max_length=48, unique=True)
+    subtitle = models.CharField(max_length=120, blank=True)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "name"]
+        verbose_name_plural = "video categories"
+
+    def __str__(self) -> str:
+        return str(self.name)
+
+
 class UserVideoLibrary(models.Model):
     """Video người dùng đã thêm (Premium). Đếm theo ngày để giới hạn lượt import."""
 

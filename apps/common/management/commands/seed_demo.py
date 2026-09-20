@@ -46,6 +46,7 @@ from apps.content.models import (
     Topic,
     Unit,
     Video,
+    VideoCategory,
     VideoSubtitle,
     Vocabulary,
     VocabularyDeck,
@@ -900,6 +901,17 @@ class Command(BaseCommand):
             text_en="Every morning, Tom brings a shiny red apple.",
             text_vi="Mỗi sáng, Tom mang một quả táo đỏ bóng.",
         )
+
+        for order, (name, subtitle) in enumerate(
+            [
+                ("Hội thoại", "Tình huống giao tiếp hàng ngày thông dụng"),
+                ("Công sở", "Giao tiếp nơi làm việc, phỏng vấn và họp"),
+                ("Vlog", "Ngôn ngữ tự nhiên từ các vlogger"),
+                ("Phim", "Học qua trích đoạn điện ảnh giàu cảm xúc"),
+            ],
+            start=1,
+        ):
+            VideoCategory.objects.update_or_create(name=name, defaults={"subtitle": subtitle, "order": order})
 
         b1 = Level.objects.get(code="B1")
         _videos = [

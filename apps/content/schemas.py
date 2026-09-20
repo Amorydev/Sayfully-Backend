@@ -486,6 +486,8 @@ class VideoListOut(Schema):
     title_vi: str
     title_en: str
     category: str
+    # Mô tả thể loại (từ VideoCategory), rỗng nếu thể loại chưa khai báo.
+    category_subtitle: str = ""
     duration_sec: int
     thumbnail_url: str | None
     is_free: bool
