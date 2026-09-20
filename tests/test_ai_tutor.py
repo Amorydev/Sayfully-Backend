@@ -213,6 +213,70 @@ def test_free_talk_ngau_nhien_khong_rang_buoc(api, token, user, monkeypatch):
     assert r.json()["message"]["suggested_replies"][0]["en"] == "I went home."
 
 
+# --------------------------------------------------------------- llm fallback
+class _Resp:
+    def __init__(self, status, body=None, text=""):
+        self.status_code, self._body, self.text = status, body, text
+
+    def json(self):
+        return self._body
+
+
+def _ok(model):
+    return _Resp(200, {"choices": [{"message": {"content": "{\"reply_en\": \"Hi\"}"}}], "usage": {"prompt_tokens": 10, "completion_tokens": 2}, "model": model})
+
+
+def _post_openai(settings, monkeypatch, responses):
+    settings.AI_PROVIDER = "openai_compat"
+    settings.AI_API_KEY = "k"
+    settings.AI_MODEL = "main"
+    settings.AI_FALLBACK_MODEL = "backup"
+    calls = []
+
+    def post(url, json, headers, timeout):
+        calls.append(json["model"])
+        r = responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(llm.requests, "post", post)
+    return calls
+
+
+def test_llm_loi_mang_thu_lai_model_du_phong(settings, monkeypatch):
+    calls = _post_openai(settings, monkeypatch, [llm.requests.ConnectionError("boom"), _ok("backup")])
+    comp = llm.complete("sys", [{"role": "user", "content": "hi"}])
+    assert calls == ["main", "backup"]
+    assert comp.model == "backup" and comp.tokens_in == 10 and comp.latency_ms >= 0
+
+
+def test_llm_429_va_5xx_thu_lai_4xx_khac_thi_khong(settings, monkeypatch):
+    calls = _post_openai(settings, monkeypatch, [_Resp(429, text="rate"), _ok("backup")])
+    assert llm.complete("sys", [{"role": "user", "content": "hi"}]).model == "backup"
+    assert calls == ["main", "backup"]
+
+    calls = _post_openai(settings, monkeypatch, [_Resp(400, text="bad payload")])
+    with pytest.raises(llm.AIUpstreamError):
+        llm.complete("sys", [{"role": "user", "content": "hi"}])
+    assert calls == ["main"]
+
+
+def test_llm_ca_hai_model_loi_tra_502(settings, monkeypatch):
+    calls = _post_openai(settings, monkeypatch, [_Resp(503, text="down"), _Resp(503, text="down")])
+    with pytest.raises(llm.AIUpstreamError) as err:
+        llm.complete("sys", [{"role": "user", "content": "hi"}])
+    assert err.value.status_code == 502 and calls == ["main", "backup"]
+
+
+def test_llm_khong_co_model_du_phong_chi_goi_mot_lan(settings, monkeypatch):
+    calls = _post_openai(settings, monkeypatch, [_Resp(500, text="down")])
+    settings.AI_FALLBACK_MODEL = ""
+    with pytest.raises(llm.AIUpstreamError):
+        llm.complete("sys", [{"role": "user", "content": "hi"}])
+    assert calls == ["main"]
+
+
 def test_het_quota_tra_429(api, token, user):
     conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
     for i in range(3):

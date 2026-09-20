@@ -347,7 +347,7 @@ def start_conversation(
         conversation=conv,
         role="assistant",
         content=data["reply_en"],
-        meta=_assistant_meta(data),
+        meta={**_assistant_meta(data), **_usage_meta(comp)},
         tokens_in=comp.tokens_in,
         tokens_out=comp.tokens_out,
     )
@@ -366,6 +366,11 @@ def _assistant_meta(data: dict) -> dict:
         "topic_note_vi": data["topic_note_vi"],
         "suggested_end": data["suggested_end"],
     }
+
+
+def _usage_meta(comp: llm.Completion) -> dict:
+    """Model đã trả lời + độ trễ, để đối chiếu chi phí/chất lượng theo model."""
+    return {"model": comp.model, "latency_ms": comp.latency_ms}
 
 
 def _off_topic_streak(conv: AIConversation) -> int:
@@ -425,7 +430,7 @@ def send_turn(user, conv_id: int, *, text: str, client_msg_id: str, via: str) ->
             conversation=conv,
             role="assistant",
             content=data["reply_en"],
-            meta=_assistant_meta(data),
+            meta={**_assistant_meta(data), **_usage_meta(comp)},
             tokens_in=comp.tokens_in,
             tokens_out=comp.tokens_out,
         )

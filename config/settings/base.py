@@ -163,6 +163,8 @@ AI_ENABLED = env("AI_ENABLED")
 AI_PROVIDER = env("AI_PROVIDER", default="mock")
 AI_BASE_URL = env("AI_BASE_URL", default="https://openrouter.ai/api/v1")
 AI_MODEL = env("AI_MODEL", default="deepseek/deepseek-v4-flash")
+# Model thử lại một lần khi AI_MODEL lỗi mạng/timeout/429/5xx; để trống = không dự phòng.
+AI_FALLBACK_MODEL = env("AI_FALLBACK_MODEL", default="")
 AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT = env("AI_TIMEOUT")
 AI_FREE_TURNS = env("AI_FREE_TURNS")
