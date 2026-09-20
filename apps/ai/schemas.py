@@ -32,6 +32,10 @@ class ScenarioOut(Schema):
     locked: bool
     completed: bool
     best_score: int | None
+    # Ảnh nền card kịch bản (R2), None khi chưa nạp ảnh → client dùng màu theo `scene`.
+    background_url: str | None = None
+    xp_reward: int = 0
+    coin_reward: int = 0
 
 
 class ScenarioDetailOut(ScenarioOut):
@@ -40,8 +44,6 @@ class ScenarioDetailOut(ScenarioOut):
     goals: list[str]
     goal_hints: list[str]
     tip_vi: str
-    xp_reward: int
-    coin_reward: int
 
 
 class ContinueOut(Schema):
@@ -52,6 +54,9 @@ class ContinueOut(Schema):
     goals_total: int
     turns: int
     minutes_ago: int
+    # Cảnh + ảnh nền của kịch bản đang dở; rỗng/None với "Nói chuyện tự do".
+    scene: str = ""
+    background_url: str | None = None
 
 
 class HistoryItemOut(Schema):

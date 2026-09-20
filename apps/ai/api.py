@@ -8,6 +8,7 @@ Lỗi riêng: 429 `ai_quota_exceeded` · 409 `conversation_ended` · 503 `featur
 
 from datetime import timedelta
 
+from django.conf import settings
 from django.utils import timezone as djtz
 from ninja import Router
 
@@ -37,6 +38,12 @@ def _quota(profile) -> s.QuotaOut:
     )
 
 
+def _media(path: str | None) -> str | None:
+    if not path:
+        return None
+    return f"{settings.R2_PUBLIC_BASE.rstrip('/')}/{path}"
+
+
 def _scenario(sc: RoleplayScenario, profile, best: dict[int, int]) -> s.ScenarioOut:
     return s.ScenarioOut(
         id=sc.id,
@@ -51,6 +58,9 @@ def _scenario(sc: RoleplayScenario, profile, best: dict[int, int]) -> s.Scenario
         locked=sc.is_premium and not profile.is_premium,
         completed=sc.id in best,
         best_score=best.get(sc.id),
+        background_url=_media(sc.thumbnail_path),
+        xp_reward=sc.xp_reward,
+        coin_reward=sc.coin_reward,
     )
 
 
@@ -63,8 +73,6 @@ def _scenario_detail(sc: RoleplayScenario, profile, best: dict[int, int]) -> s.S
         goals=list(sc.goals),
         goal_hints=list(sc.goal_hints),
         tip_vi=sc.tip_vi,
-        xp_reward=sc.xp_reward,
-        coin_reward=sc.coin_reward,
     )
 
 
@@ -167,6 +175,8 @@ def ai_home(request):
             goals_total=len(open_conv.goals_state),
             turns=open_conv.turn_count,
             minutes_ago=max(0, int((djtz.now() - open_conv.created_at).total_seconds() // 60)),
+            scene=open_conv.scenario.scene if open_conv.scenario else "",
+            background_url=_media(open_conv.scenario.thumbnail_path) if open_conv.scenario else None,
         )
     history = AIConversation.objects.filter(user=user, ended_at__isnull=False).order_by(
         "-ended_at"

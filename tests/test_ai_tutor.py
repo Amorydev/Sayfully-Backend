@@ -77,6 +77,7 @@ def test_hub_tra_quota_kich_ban_va_chu_de(api, token, user, scenarios):
     assert len(body["scenarios"]) == len(scenarios)
     cafe = next(sc for sc in body["scenarios"] if sc["scene"] == "cafe")
     assert cafe["locked"] is False and cafe["goal_count"] == 5
+    assert cafe["background_url"] is None
     doctor = next(sc for sc in body["scenarios"] if sc["scene"] == "doctor")
     assert doctor["locked"] is True
     assert body["topics"][0]["code"] == "travel"
@@ -318,6 +319,7 @@ def test_tiep_tuc_phien_do(api, token, user):
     hub = api.get("/ai/home", token=token).json()
     assert hub["continue_session"]["conversation_id"] == conv["id"]
     assert hub["continue_session"]["title_vi"] == "Nói chuyện tự do: Ẩm thực"
+    assert hub["continue_session"]["scene"] == "" and hub["continue_session"]["background_url"] is None
 
 
 def test_home_quota_va_thu_thach_noi_voi_long(api, token, user, settings):
