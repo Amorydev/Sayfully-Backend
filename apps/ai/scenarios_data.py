@@ -241,29 +241,104 @@ SCENARIOS = [
     },
 ]
 
+# `subtopics` giới hạn nhánh Long được khai thác; `back_on_topic` = 3 câu gợi ý thay cho
+# `suggested_replies` khi người học lạc đề, để một chạm là quay lại chủ đề. `random` không ràng buộc.
 TOPICS = [
-    {"code": "travel", "emoji": "✈️", "title_vi": "Du lịch", "opening_en": "travel and holidays"},
+    {
+        "code": "travel",
+        "emoji": "✈️",
+        "title_vi": "Du lịch",
+        "opening_en": "travel and holidays",
+        "subtopics": ["favourite places", "planning a trip", "transport and hotels", "holiday memories", "dream destinations"],
+        "back_on_topic": [
+            {"en": "My favourite place is Da Lat.", "vi": "Nơi mình thích nhất là Đà Lạt."},
+            {"en": "I want to visit Japan next year.", "vi": "Mình muốn đi Nhật năm sau."},
+            {"en": "I usually travel by bus.", "vi": "Mình thường đi du lịch bằng xe buýt."},
+        ],
+    },
     {
         "code": "work",
         "emoji": "💼",
         "title_vi": "Công việc",
         "opening_en": "work and daily routine",
+        "subtopics": ["your job or studies", "a typical workday", "colleagues and teamwork", "work-life balance", "future career plans"],
+        "back_on_topic": [
+            {"en": "I work in an office in Hanoi.", "vi": "Mình làm việc ở một văn phòng tại Hà Nội."},
+            {"en": "My day starts at eight o'clock.", "vi": "Ngày làm việc của mình bắt đầu lúc 8 giờ."},
+            {"en": "I like my colleagues a lot.", "vi": "Mình rất quý đồng nghiệp."},
+        ],
     },
-    {"code": "movies", "emoji": "🎬", "title_vi": "Phim & nhạc", "opening_en": "movies and music"},
-    {"code": "food", "emoji": "🍜", "title_vi": "Ẩm thực", "opening_en": "food and cooking"},
+    {
+        "code": "movies",
+        "emoji": "🎬",
+        "title_vi": "Phim & nhạc",
+        "opening_en": "movies and music",
+        "subtopics": ["favourite films and series", "music you listen to", "singers and actors", "cinema versus streaming", "concerts"],
+        "back_on_topic": [
+            {"en": "My favourite film is Toy Story.", "vi": "Phim mình thích nhất là Toy Story."},
+            {"en": "I listen to pop music every day.", "vi": "Mình nghe nhạc pop mỗi ngày."},
+            {"en": "I prefer watching movies at home.", "vi": "Mình thích xem phim ở nhà hơn."},
+        ],
+    },
+    {
+        "code": "food",
+        "emoji": "🍜",
+        "title_vi": "Ẩm thực",
+        "opening_en": "food and cooking",
+        "subtopics": ["favourite dishes", "cooking at home", "street food", "eating out", "breakfast habits"],
+        "back_on_topic": [
+            {"en": "My favourite dish is pho.", "vi": "Món mình thích nhất là phở."},
+            {"en": "I cook dinner at home most days.", "vi": "Mình nấu bữa tối ở nhà hầu hết các ngày."},
+            {"en": "I love street food in Saigon.", "vi": "Mình mê đồ ăn đường phố ở Sài Gòn."},
+        ],
+    },
     {
         "code": "school",
         "emoji": "🏫",
         "title_vi": "Trường học",
         "opening_en": "school and studying",
+        "subtopics": ["favourite subjects", "teachers and classmates", "homework and exams", "learning English", "school memories"],
+        "back_on_topic": [
+            {"en": "My favourite subject was maths.", "vi": "Môn mình thích nhất là toán."},
+            {"en": "I study English every evening.", "vi": "Mình học tiếng Anh mỗi tối."},
+            {"en": "I had a very kind teacher.", "vi": "Mình từng có một cô giáo rất tốt."},
+        ],
     },
-    {"code": "sports", "emoji": "⚽", "title_vi": "Thể thao", "opening_en": "sports and exercise"},
-    {"code": "pets", "emoji": "🐶", "title_vi": "Thú cưng", "opening_en": "pets and animals"},
+    {
+        "code": "sports",
+        "emoji": "⚽",
+        "title_vi": "Thể thao",
+        "opening_en": "sports and exercise",
+        "subtopics": ["sports you play", "exercise routine", "favourite teams and athletes", "watching matches", "staying healthy"],
+        "back_on_topic": [
+            {"en": "I play football on weekends.", "vi": "Mình đá bóng vào cuối tuần."},
+            {"en": "I go running every morning.", "vi": "Mình chạy bộ mỗi sáng."},
+            {"en": "My favourite team is Manchester United.", "vi": "Đội mình thích nhất là Manchester United."},
+        ],
+    },
+    {
+        "code": "pets",
+        "emoji": "🐶",
+        "title_vi": "Thú cưng",
+        "opening_en": "pets and animals",
+        "subtopics": ["your pet", "taking care of animals", "favourite animals", "zoo and wildlife", "dogs versus cats"],
+        "back_on_topic": [
+            {"en": "I have a small dog named Bông.", "vi": "Mình có một chú chó nhỏ tên Bông."},
+            {"en": "I like cats more than dogs.", "vi": "Mình thích mèo hơn chó."},
+            {"en": "I feed my pet twice a day.", "vi": "Mình cho thú cưng ăn hai lần một ngày."},
+        ],
+    },
     {
         "code": "hobbies",
         "emoji": "🎨",
         "title_vi": "Sở thích",
         "opening_en": "hobbies and free time",
+        "subtopics": ["what you do after work", "weekend activities", "creative hobbies", "reading and games", "learning something new"],
+        "back_on_topic": [
+            {"en": "I like drawing in my free time.", "vi": "Lúc rảnh mình thích vẽ."},
+            {"en": "On weekends I read books.", "vi": "Cuối tuần mình đọc sách."},
+            {"en": "I am learning to play the guitar.", "vi": "Mình đang học chơi guitar."},
+        ],
     },
     {"code": "random", "emoji": "🎲", "title_vi": "Ngẫu nhiên", "opening_en": "anything you like"},
 ]

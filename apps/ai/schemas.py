@@ -105,6 +105,10 @@ class MessageOut(Schema):
     vocab: list[VocabOut] = []
     praise_vi: str | None = None
     suggested_replies: list[SuggestedReplyOut] = []
+    # Free talk có chủ đề: false khi câu vừa rồi lạc đề (gợi ý trả lời đã đổi sang câu thuộc chủ đề);
+    # `topic_note_vi` chỉ có sau OFF_TOPIC_NUDGE_AFTER lượt lạc đề liên tiếp.
+    on_topic: bool = True
+    topic_note_vi: str | None = None
     created_at: str
 
 

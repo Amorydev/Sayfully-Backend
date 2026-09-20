@@ -102,6 +102,8 @@ def _message(m: AIMessage, user, user_msg: AIMessage | None = None) -> s.Message
             suggested_replies=[
                 s.SuggestedReplyOut(**r) for r in meta.get("suggested_replies") or []
             ],
+            on_topic=bool(meta.get("on_topic", True)),
+            topic_note_vi=meta.get("topic_note_vi"),
             created_at=m.created_at.isoformat(),
         )
     corr = meta.get("correction")

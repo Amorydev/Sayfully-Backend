@@ -143,6 +143,7 @@ def _mock(system: str, messages: list[dict]) -> Completion:
             {"en": "I visited my grandparents.", "vi": "Mình về thăm ông bà."},
         ],
         "goals_completed": goals_completed,
+        "on_topic": True,
         "suggested_end": len(user_turns) >= 15,
     }
     return Completion(text=json.dumps(out), tokens_in=0, tokens_out=0)

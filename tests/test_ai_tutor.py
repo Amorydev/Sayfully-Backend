@@ -41,13 +41,14 @@ def grammar():
     )
 
 
-def _turn(reply="Nice! Tell me more?", correction=None, goals=(), end=False):
+def _turn(reply="Nice! Tell me more?", correction=None, goals=(), end=False, on_topic=True):
     return llm.Completion(
         text=json.dumps(
             {
                 "reply_en": reply,
                 "reply_vi": "Hay quá!",
                 "correction": correction,
+                "on_topic": on_topic,
                 "vocab": ["beach"],
                 "praise_vi": None,
                 "suggested_replies": [{"en": "I went home.", "vi": "Mình về nhà."}],
@@ -146,6 +147,70 @@ def test_gui_luot_sua_loi_tru_quota_va_idempotent(api, token, user, grammar, mon
     msgs = r3.json()["messages"]
     assert [m["role"] for m in msgs] == ["assistant", "user", "assistant"]
     assert msgs[1]["correction"]["note_vi"] == "Quá khứ đơn: go → went"
+
+
+def test_free_talk_co_chu_de_bam_chu_de_va_keo_ve(api, token, user, settings, monkeypatch):
+    settings.AI_FREE_TURNS = 20
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "food"}, token=token).json()
+    seen = []
+
+    def fake(system, messages, **kw):
+        seen.append((system, messages))
+        off = "football" in messages[-1]["content"]
+        return _turn(reply="Nice! What is your favourite dish?", on_topic=not off)
+
+    monkeypatch.setattr(llm, "complete", fake)
+
+    def send(i, text):
+        r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": text, "client_msg_id": f"m{i}", "via": "voice"}, token=token)
+        assert r.status_code == 200, r.json()
+        return r.json()["message"]
+
+    on = send(1, "I love pho")
+    system, messages = seen[-1]
+    assert "TOPIC: food and cooking" in system and "street food" in system
+    # Lời nhắc chủ đề chèn ngay trước câu mới nhất, không nằm trong câu người học
+    assert messages[-2]["content"].startswith("(Reminder: the conversation topic is food and cooking")
+    assert messages[-1]["content"] == "I love pho"
+    assert on["on_topic"] is True and on["topic_note_vi"] is None
+    assert on["suggested_replies"][0]["en"] == "I went home."
+
+    off1 = send(2, "Do you like football?")
+    assert off1["on_topic"] is False and off1["topic_note_vi"] is None
+    assert [r["en"] for r in off1["suggested_replies"]] == [
+        "My favourite dish is pho.",
+        "I cook dinner at home most days.",
+        "I love street food in Saigon.",
+    ]
+    send(3, "football again")
+    off3 = send(4, "football forever")
+    assert off3["topic_note_vi"] == "Mình quay lại chủ đề Ẩm thực nhé 🍜"
+
+    # Quay lại chủ đề → reset chuỗi lạc đề
+    back = send(5, "Ok, I like banh mi")
+    assert back["on_topic"] is True and back["topic_note_vi"] is None
+
+    # Tải lại hội thoại vẫn giữ cờ
+    msgs = api.get(f"/ai/conversations/{conv['id']}", token=token).json()["messages"]
+    assert [m["on_topic"] for m in msgs if m["role"] == "assistant"][1:] == [True, False, False, False, True]
+
+
+def test_free_talk_ngau_nhien_khong_rang_buoc(api, token, user, monkeypatch):
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "random"}, token=token).json()
+    seen = []
+
+    def fake(system, messages, **kw):
+        seen.append((system, messages))
+        return _turn(on_topic=False)
+
+    monkeypatch.setattr(llm, "complete", fake)
+    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "Let's talk about football", "client_msg_id": "r1", "via": "voice"}, token=token)
+    system, messages = seen[-1]
+    assert "TOPIC:" not in system and "anything the learner likes" in system
+    assert not any(m["content"].startswith("(Reminder") for m in messages)
+    # `random` bỏ qua cờ on_topic của model
+    assert r.json()["message"]["on_topic"] is True
+    assert r.json()["message"]["suggested_replies"][0]["en"] == "I went home."
 
 
 def test_het_quota_tra_429(api, token, user):

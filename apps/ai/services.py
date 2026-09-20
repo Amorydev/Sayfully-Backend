@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 HISTORY_TURNS = 12
 MAX_TURNS = 15
+# Lạc đề liên tiếp bấy nhiêu lượt thì server chèn lời nhắc quay lại chủ đề (không kết thúc phiên).
+OFF_TOPIC_NUDGE_AFTER = 3
 MIN_TURNS_FOR_REWARD = 6
 TUTOR_XP = 30
 TUTOR_COINS = 15
@@ -69,6 +71,7 @@ _TURN_SCHEMA = """Return ONLY a JSON object with exactly these keys:
  "praise_vi": string|null (one short Vietnamese line when the learner used a notebook word or a previously corrected structure correctly),
  "suggested_replies": [{"en": string, "vi": string}] (exactly 3 short example answers to your question at the learner's level),
  "goals_completed": [int] (roleplay only: indexes of goals the learner has just achieved in this turn),
+ "on_topic": boolean (free talk with a TOPIC only: false when the learner's latest message is not about the TOPIC; otherwise true),
  "suggested_end": boolean}"""
 
 
@@ -103,9 +106,20 @@ def _system_prompt(profile: UserProfile, conv: AIConversation) -> str:
         ]
     else:
         topic = _topic(conv.topic)
+        lines.append("FREE TALK MODE.")
+        if _topic_bound(topic):
+            lines += [
+                f"TOPIC: {topic['opening_en']}. Every reply and every question you ask must be about this topic.",
+                "Sub-topics you may explore: " + ", ".join(topic["subtopics"]) + ".",
+                "If the learner drifts to another subject, acknowledge it in one short clause, then ask a "
+                "question that brings them back to the TOPIC. Never open a new subject yourself.",
+                "Lines in parentheses starting with (Reminder are app notes, not learner text: never correct them.",
+            ]
+        else:
+            lines.append(
+                "Conversation topic: anything the learner likes. Follow whatever they want to talk about."
+            )
         lines += [
-            "FREE TALK MODE.",
-            f"Conversation topic: {topic['opening_en'] if topic else 'anything the learner likes'}. "
             "Start by greeting the learner by name and asking an easy opening question.",
             f"After {MAX_TURNS} learner turns set `suggested_end` to true.",
         ]
@@ -115,6 +129,18 @@ def _system_prompt(profile: UserProfile, conv: AIConversation) -> str:
 
 def _topic(code: str) -> dict | None:
     return next((t for t in TOPICS if t["code"] == code), None)
+
+
+def _topic_bound(topic: dict | None) -> bool:
+    """Chủ đề cụ thể (có `subtopics`) thì ràng buộc; `random` để người học dẫn chuyện."""
+    return bool(topic and topic.get("subtopics"))
+
+
+def _bound_topic(conv: AIConversation) -> dict | None:
+    if conv.kind != AIConversation.Kind.TUTOR:
+        return None
+    topic = _topic(conv.topic)
+    return topic if _topic_bound(topic) else None
 
 
 def _display_name(profile: UserProfile) -> str:
@@ -234,6 +260,12 @@ def _normalise_turn(data: dict, conv: AIConversation, cefr: str) -> dict:
                 if isinstance(i, int) and 0 <= i < n
             }
         )
+    topic = _bound_topic(conv)
+    on_topic = True
+    if topic is not None and data.get("on_topic") is False:
+        # Lạc đề: giữ câu Long kéo về, nhưng gợi ý trả lời phải thuộc chủ đề để một chạm là quay lại.
+        on_topic = False
+        replies = [dict(r) for r in topic["back_on_topic"]]
     return {
         "reply_en": data["reply_en"].strip(),
         "reply_vi": (data.get("reply_vi") or None) if cefr in ("A1", "A2") else None,
@@ -242,6 +274,8 @@ def _normalise_turn(data: dict, conv: AIConversation, cefr: str) -> dict:
         "praise_vi": data.get("praise_vi") or None,
         "suggested_replies": replies[:3],
         "goals_completed": goals_completed,
+        "on_topic": on_topic,
+        "topic_note_vi": None,
         "suggested_end": bool(data.get("suggested_end")),
     }
 
@@ -251,6 +285,13 @@ def _ask(
 ) -> tuple[dict, llm.Completion]:
     system = _system_prompt(profile, conv) + "\n" + build_context(profile, conv)
     messages = history or [{"role": "user", "content": "(The learner just joined. Please start.)"}]
+    topic = _bound_topic(conv)
+    if topic is not None and history:
+        # Nhắc lại chủ đề ngay trước câu mới nhất: model bám phần cuối hội thoại hơn phần đầu.
+        messages = history[:-1] + [
+            {"role": "user", "content": f"(Reminder: the conversation topic is {topic['opening_en']}. Reply only about it.)"},
+            history[-1],
+        ]
     comp = llm.complete(system, messages)
     try:
         data = _parse_json(comp.text)
@@ -321,8 +362,20 @@ def _assistant_meta(data: dict) -> dict:
         "vocab": data["vocab"],
         "praise_vi": data["praise_vi"],
         "suggested_replies": data["suggested_replies"],
+        "on_topic": data["on_topic"],
+        "topic_note_vi": data["topic_note_vi"],
         "suggested_end": data["suggested_end"],
     }
+
+
+def _off_topic_streak(conv: AIConversation) -> int:
+    """Số lượt lạc đề liên tiếp gần nhất, đọc từ meta các câu trả lời trước."""
+    streak = 0
+    for m in conv.messages.filter(role="assistant").order_by("-id").values_list("meta", flat=True):
+        if (m or {}).get("on_topic", True):
+            break
+        streak += 1
+    return streak
 
 
 def get_conversation(user, conv_id: int) -> AIConversation:
@@ -356,6 +409,9 @@ def send_turn(user, conv_id: int, *, text: str, client_msg_id: str, via: str) ->
 
     history = _history(conv) + [{"role": "user", "content": text}]
     data, comp = _ask(profile, conv, history)
+    if not data["on_topic"] and _off_topic_streak(conv) + 1 >= OFF_TOPIC_NUDGE_AFTER:
+        topic = _bound_topic(conv)
+        data["topic_note_vi"] = f"Mình quay lại chủ đề {topic['title_vi']} nhé {topic['emoji']}"
 
     with transaction.atomic():
         AIMessage.objects.create(
@@ -405,6 +461,8 @@ def _data_from_meta(reply: AIMessage, user_msg: AIMessage | None) -> dict:
         "praise_vi": meta.get("praise_vi"),
         "suggested_replies": meta.get("suggested_replies") or [],
         "goals_completed": [],
+        "on_topic": bool(meta.get("on_topic", True)),
+        "topic_note_vi": meta.get("topic_note_vi"),
         "suggested_end": bool(meta.get("suggested_end")),
     }
 
