@@ -18,12 +18,12 @@ from apps.notifications.models import Notification
 from .models import CoinTransaction, ShopItem, ShopReceipt, ShopWishlist, UserCosmetic
 
 # Chỉ bán vật phẩm mà `apply_effects` thực sự cài hiệu ứng, tránh trừ xu mà không có gì xảy ra.
+# Xu KHÔNG đổi được Premium — quyền Premium chỉ đến từ apps.billing (webhook/redeem).
 SUPPORTED_EFFECTS = {
     "hearts",
     "streak_freeze",
     "xp_boost",
     "streak_repair",
-    "premium_days",
     "mystery_box",
     "cosmetic",
 }
@@ -141,15 +141,6 @@ def apply_effects(profile, effects: dict, *, item: ShopItem, now, ref_id: str) -
                 granted["streak_repair"] = profile.streak_lost_value
                 profile.streak_lost_value = 0
                 profile.streak_lost_at = None
-        elif key == "premium_days":
-            base = (
-                profile.premium_until
-                if premium_active(profile, now) and profile.premium_until
-                else now
-            )
-            profile.premium_until = base + timedelta(days=n)
-            profile.is_premium = True
-            granted["premium_days"] = n
         elif key == "mystery_box":
             prize = roll_mystery_box()
             if "coins" in prize:
@@ -185,8 +176,6 @@ PROFILE_FIELDS = [
     "streak_best",
     "streak_lost_value",
     "streak_lost_at",
-    "premium_until",
-    "is_premium",
     "avatar_frame",
 ]
 

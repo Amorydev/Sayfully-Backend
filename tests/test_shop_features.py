@@ -176,15 +176,15 @@ def test_hoi_sinh_qua_48h_409(client, token, user):
     assert _buy(client, token, item.id).status_code == 409
 
 
-# --------------------------------------------------------------- premium theo xu
-def test_doi_xu_lay_ngay_premium(client, token, user):
+# --------------------------------------------------------------- xu không đổi được premium
+def test_vat_pham_premium_days_khong_ban_va_khong_cap_quyen(client, token, user, api):
     item = _item("premium_day", 1000, {"premium_days": 1}, category="special")
     profile = _rich(user, 2500)
-    assert _buy(client, token, item.id, "a").status_code == 200
-    assert _buy(client, token, item.id, "b").status_code == 200
+    ids = [i["id"] for i in api.get("/shop/items", token=token).json()]
+    assert item.id not in ids
+    assert _buy(client, token, item.id, "a").status_code == 404
     profile.refresh_from_db()
-    assert profile.is_premium
-    assert timedelta(hours=47) < profile.premium_until - djtz.now() <= timedelta(days=2)
+    assert profile.is_premium is False and profile.coins == 2500
 
 
 def test_premium_duoc_cong_them_xu(user):
