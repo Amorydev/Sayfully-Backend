@@ -1,0 +1,53 @@
+# Prod trên 1 VPS: caddy (TLS) → api (gunicorn) + worker (django-q2) → db (Postgres 16).
+# Dev vẫn dùng docker-compose.yml (chỉ db + redis). Chạy: docker compose -f compose.prod.yml up -d
+name: sayfully-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env.db
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sayfully}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    image: sayfully-api
+    env_file: .env
+    expose: ["8000"]
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    image: sayfully-api
+    env_file: .env
+    command: python manage.py qcluster
+    depends_on:
+      db: { condition: service_healthy }
+      api: { condition: service_started }
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

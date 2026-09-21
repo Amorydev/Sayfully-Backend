@@ -1,0 +1,8 @@
+# Reverse proxy + TLS tự động (Let's Encrypt). Đổi domain ở đây nếu khác D1.
+api.sayfully.com {
+	encode zstd gzip
+	reverse_proxy api:8000
+	request_body {
+		max_size 6MB
+	}
+}
