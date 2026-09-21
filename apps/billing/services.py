@@ -20,6 +20,7 @@ from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Conflict, NotFound
 
 from .models import GiftCode, GiftCodeRedemption, PaymentEvent, Product, Subscription
+from .revenuecat import parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -274,3 +275,69 @@ def redeem_gift(user, code: str):
             user, provider="gift", product_code=f"gift_{gift.days}d", expires_at=expires_at
         )
     return gift.days, expires_at
+
+
+# ---------------------------------------------------------------- sync với RevenueCat
+ENTITLEMENT_IDS = ("premium", "premium_plus")  # tier thật lấy từ Product khớp product_identifier
+_STORE_NAMES = {"play_store": "play_store", "app_store": "app_store", "mac_app_store": "app_store"}
+
+
+def sync_from_store(user, subscriber: dict | None, *, provider="revenuecat") -> bool:
+    """Đối chiếu `subscriber` (REST v1) với DB: entitlement còn hạn → grant, hết hạn → thu hồi.
+
+    Upsert theo `txn_id="rc:<product_identifier>"` nên gọi lại nhiều lần không tạo dòng mới.
+    Gói xu KHÔNG cộng ở đây (chỉ webhook, idempotent theo event_id) để không cộng đôi.
+    Trả về True khi có thay đổi quyền.
+    """
+    now = djtz.now()
+    entitlements = (subscriber or {}).get("entitlements") or {}
+    subscriptions = (subscriber or {}).get("subscriptions") or {}
+    changed = False
+    seen_products: set[str] = set()
+
+    for ent_id in ENTITLEMENT_IDS:
+        ent = entitlements.get(ent_id)
+        if not ent:
+            continue
+        expires_at = parse_date(ent.get("expires_date"))
+        product_id = ent.get("product_identifier") or ""
+        product = resolve_product(provider, product_id)
+        if product is None:
+            logger.warning(
+                "billing: sync %s entitlement %s không khớp Product (%s)",
+                user.id,
+                ent_id,
+                product_id,
+            )
+            continue
+        active = expires_at is None or expires_at > now
+        sub = subscriptions.get(product_id) or {}
+        if active:
+            seen_products.add(product.code)
+            grant_premium(
+                user,
+                provider=provider,
+                product_code=product.code,
+                expires_at=expires_at,
+                tier=product.tier,
+                status="grace" if sub.get("billing_issues_detected_at") else "active",
+                store=_STORE_NAMES.get(str(sub.get("store") or "").lower(), sub.get("store") or ""),
+                txn_id=f"rc:{product_id}",
+                will_renew=expires_at is not None and not sub.get("unsubscribe_detected_at"),
+            )
+            changed = True
+
+    # Gói RC từng cấp mà giờ không còn entitlement hiệu lực (hết hạn/biến mất) → đóng lại.
+    stale = Subscription.objects.filter(
+        user=user, provider=provider, status__in=["active", "grace"]
+    ).exclude(product_code__in=seen_products)
+    for sub in stale:
+        product = Product.objects.filter(code=sub.product_code).first()
+        revoke_premium(
+            user,
+            provider=provider,
+            txn_id=sub.original_txn_id,
+            tier=product.tier if product else Product.Tier.PREMIUM,
+        )
+        changed = True
+    return changed

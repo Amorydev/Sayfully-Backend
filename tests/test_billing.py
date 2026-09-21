@@ -296,3 +296,109 @@ def test_tron_doi_khong_bao_gio_het_han(api, client, settings, user, password):
         token = _login(api, user, password)
         body = api.get("/billing/subscription", token=token).json()
     assert body["is_premium"] is True and body["premium_until"] is None
+
+
+# --------------------------------------------------------------- sync RevenueCat
+def _subscriber(product="sayfully_premium_year", days=365, ent="premium", **sub_extra):
+    exp = None if days is None else (djtz.now() + timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    return {
+        "entitlements": {ent: {"expires_date": exp, "product_identifier": product,
+                               "purchase_date": "2026-09-01T00:00:00Z"}},
+        "subscriptions": {product: {"expires_date": exp, "store": "play_store",
+                                    "unsubscribe_detected_at": None,
+                                    "billing_issues_detected_at": None, **sub_extra}},
+        "non_subscriptions": {},
+    }
+
+
+@pytest.fixture
+def rc_product(product):
+    product.store_ids = {"revenuecat": "sayfully_premium_year"}
+    product.save()
+    return product
+
+
+def _sync(api, token, monkeypatch, subscriber):
+    monkeypatch.setattr(bapi, "fetch_subscriber", lambda uid: subscriber)
+    return api.post("/billing/sync", token=token)
+
+
+def test_sync_entitlement_con_han_bat_premium(api, token, user, rc_product, monkeypatch):
+    body = _sync(api, token, monkeypatch, _subscriber()).json()
+    assert body["is_premium"] is True and body["store"] == "play_store" and body["will_renew"] is True
+    sub = Subscription.objects.get(user=user)
+    assert sub.provider == "revenuecat" and sub.original_txn_id == "rc:sayfully_premium_year"
+
+
+def test_sync_goi_lai_khong_tao_dong_moi(api, token, user, rc_product, monkeypatch):
+    _sync(api, token, monkeypatch, _subscriber())
+    _sync(api, token, monkeypatch, _subscriber())
+    assert Subscription.objects.filter(user=user).count() == 1
+
+
+def test_sync_tron_doi(api, token, user, monkeypatch):
+    Product.objects.create(code="premium_lifetime", name_vi="Trọn đời", period="lifetime",
+                           price=999000, store_ids={"revenuecat": "sayfully_premium_lifetime"})
+    body = _sync(api, token, monkeypatch, _subscriber("sayfully_premium_lifetime", days=None)).json()
+    assert body["is_premium"] is True and body["premium_until"] is None and body["will_renew"] is False
+
+
+def test_sync_het_han_thu_hoi(api, token, user, rc_product, monkeypatch):
+    _sync(api, token, monkeypatch, _subscriber())
+    body = _sync(api, token, monkeypatch, _subscriber(days=-1)).json()
+    assert body["is_premium"] is False and body["product_code"] is None
+    assert Subscription.objects.get(user=user).status == "expired"
+
+
+def test_sync_khong_con_entitlement_thu_hoi(api, token, user, rc_product, monkeypatch):
+    _sync(api, token, monkeypatch, _subscriber())
+    body = _sync(api, token, monkeypatch, {"entitlements": {}, "subscriptions": {}}).json()
+    assert body["is_premium"] is False
+
+
+def test_sync_tat_gia_han_va_loi_thanh_toan(api, token, user, rc_product, monkeypatch):
+    body = _sync(api, token, monkeypatch, _subscriber(
+        unsubscribe_detected_at="2026-09-10T00:00:00Z", billing_issues_detected_at="2026-09-11T00:00:00Z",
+    )).json()
+    assert body["is_premium"] is True and body["will_renew"] is False and body["status"] == "grace"
+
+
+def test_sync_subscriber_chua_ton_tai_tra_free(api, token, user, monkeypatch):
+    body = _sync(api, token, monkeypatch, None).json()
+    assert body["is_premium"] is False
+
+
+def test_sync_san_pham_la_bo_qua(api, token, user, monkeypatch):
+    body = _sync(api, token, monkeypatch, _subscriber("unknown_product")).json()
+    assert body["is_premium"] is False
+
+
+def test_sync_khong_dung_gift_dang_chay(api, token, user, monkeypatch):
+    GiftCode.objects.create(code="FREE30", days=30)
+    api.post("/billing/redeem", {"code": "FREE30"}, token=token)
+    body = _sync(api, token, monkeypatch, {"entitlements": {}, "subscriptions": {}}).json()
+    assert body["is_premium"] is True and body["provider"] == "gift"
+
+
+def test_sync_chua_cau_hinh_503(api, token, user, settings):
+    settings.REVENUECAT_API_KEY = ""
+    r = api.post("/billing/sync", token=token)
+    assert r.status_code == 503 and r.json()["error"]["code"] == "store_sync_failed"
+
+
+def test_sync_revenuecat_loi_503(api, token, user, monkeypatch):
+    from apps.billing.revenuecat import StoreSyncFailed
+
+    def boom(uid):
+        raise StoreSyncFailed("RevenueCat trả 500")
+
+    monkeypatch.setattr(bapi, "fetch_subscriber", boom)
+    r = api.post("/billing/sync", token=token)
+    assert r.status_code == 503 and r.json()["error"]["code"] == "store_sync_failed"
+
+
+def test_sync_rate_limit(api, token, user, settings, monkeypatch):
+    settings.RATELIMIT_ENABLE = True
+    monkeypatch.setattr(bapi, "fetch_subscriber", lambda uid: None)
+    codes = [api.post("/billing/sync", token=token).status_code for _ in range(11)]
+    assert codes[:10] == [200] * 10 and codes[10] == 429

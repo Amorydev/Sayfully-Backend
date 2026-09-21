@@ -21,6 +21,7 @@ env = environ.Env(
     AI_TIMEOUT=(int, 30),
     PLAY_INTEGRITY_MAX_AGE_SEC=(int, 600),
     REVENUECAT_WEBHOOK_SECRET=(str, ""),
+    REVENUECAT_API_KEY=(str, ""),
     PAYOS_WEBHOOK_SECRET=(str, ""),
     PAYOS_API_KEY=(str, ""),
 )
@@ -193,6 +194,7 @@ VIDEO_IMPORT_SYNC = env("VIDEO_IMPORT_SYNC")              # True: xử lý ngay 
 # Thanh toán (apps.billing). RevenueCat gửi secret trong header `Authorization`;
 # PayOS ký payload bằng checksum key. Trống → webhook trả 401, checkout trả 503.
 REVENUECAT_WEBHOOK_SECRET = env("REVENUECAT_WEBHOOK_SECRET")
+REVENUECAT_API_KEY = env("REVENUECAT_API_KEY")  # secret v1 key cho POST /billing/sync
 PAYOS_WEBHOOK_SECRET = env("PAYOS_WEBHOOK_SECRET")
 PAYOS_API_KEY = env("PAYOS_API_KEY")
 

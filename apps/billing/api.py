@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from django.conf import settings
 from django.utils import timezone as djtz
+from django_ratelimit.decorators import ratelimit
 from ninja import Router
 
 from apps.accounts.models import User
@@ -19,9 +20,11 @@ from apps.common.schemas import ErrorOut
 from . import schemas as s
 from . import services
 from .models import Product, Subscription
+from .revenuecat import fetch_subscriber
 
 billing_router = Router()
 webhooks_router = Router()
+RATE_SYNC = "10/m"  # mỗi lần gọi là một request tới RevenueCat
 
 
 def create_payos_link(product: Product, user: User) -> str:
@@ -113,7 +116,30 @@ def products(request, kind: str | None = None):
     ),
 )
 def subscription(request):
+    return _subscription_out(request.auth)
+
+
+@billing_router.post(
+    "/sync",
+    response={200: s.SubscriptionOut, 401: ErrorOut, 429: ErrorOut, 503: ErrorOut},
+    summary="Đối chiếu quyền với RevenueCat",
+    description=(
+        "App gọi sau khi store xác nhận mua / khôi phục. Server hỏi RevenueCat REST bằng secret "
+        "key rồi grant/thu hồi như webhook — không tin CustomerInfo từ client. Subscriber chưa "
+        "tồn tại → trả trạng thái hiện tại. 503 `store_sync_failed` khi RevenueCat không phản hồi."
+    ),
+)
+@ratelimit(key="user", rate=RATE_SYNC, method="POST", block=True)
+def sync(request):
     user = request.auth
+    ensure_profile(user)
+    subscriber = fetch_subscriber(str(user.id))
+    if subscriber is not None:
+        services.sync_from_store(user, subscriber)
+    return _subscription_out(user)
+
+
+def _subscription_out(user) -> s.SubscriptionOut:
     profile = ensure_profile(user)
     sub = (
         Subscription.objects.filter(user=user, status__in=["active", "grace"])
