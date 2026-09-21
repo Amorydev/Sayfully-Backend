@@ -133,6 +133,8 @@ _PATH_TITLE_PREFIX = re.compile(r"^\s*Bài\s+\d+\s*[:·.\-]?\s*", re.IGNORECASE)
 def _path_display_title(lesson: Lesson) -> str:
     """Trả copy đã chuẩn hoá để client không phải tự ghép hoặc cắt title."""
     title = _PATH_TITLE_PREFIX.sub("", lesson.title_vi).strip() or lesson.title_vi
+    if lesson.kind == Lesson.Kind.CHECKPOINT:
+        return "Checkpoint · Kiểm tra unit"
     return f"Bài {lesson.order} · {title}"
 
 
@@ -689,6 +691,7 @@ def learn_path(request, level: str):
                     id=ls.id,
                     code=ls.code,
                     order=ls.order,
+                    kind=ls.kind,
                     title_vi=ls.title_vi,
                     display_title_vi=_path_display_title(ls),
                     subtitle_vi=ls.path_subtitle_vi,
@@ -1475,6 +1478,7 @@ def reading_list(
                 title_vi=reading.title_vi,
                 topic_id=reading.topic_id,
                 topic=reading.topic.name_vi if reading.topic else None,
+                topic_icon_url=_icon_url(reading.topic.icon_url) if reading.topic else None,
                 est_minutes=reading.est_minutes,
                 cover_url=_media(reading.cover_path),
                 question_count=reading.question_count,
@@ -1709,6 +1713,7 @@ def speaking_topics(request):
                 title_en=d.title_en,
                 title_vi=d.title_vi or d.title_en,
                 phrase_preview=d.ordered_sentences[0].text_en if d.ordered_sentences else "",
+                focus_vi=d.focus_vi,
                 icon=d.icon,
                 icon_url=_icon_url(d.icon_url),
                 background_url=_icon_url(d.background_url),
@@ -1901,19 +1906,12 @@ def profile_overview(request):
 
 
 # =============================================================== challenges overview (C6)
-_TIER_WEEK_TARGET = {1: 600, 2: 900, 3: 1200, 4: 1500, 5: 1800}
-_NEXT_TIER_LABEL = {1: "Bạc", 2: "Vàng", 3: "Bạch kim", 4: "Kim cương", 5: "Huyền Thoại"}
-_DIVISIONS = ["I", "II", "III", "IV", "V"]
+# Bảng mục tiêu tuần / bậc nằm ở gamification.services để /leaderboard dùng cùng số.
+_TIER_WEEK_TARGET = gami_services.TIER_WEEK_TARGET
+_NEXT_TIER_LABEL = gami_services.NEXT_TIER_LABEL
 _SPEAKING_TARGET = 15
 _CHECKIN_XP = 5
 _CHECKIN_COINS = 10
-
-
-def _division(xp_week: int, target: int) -> str:
-    if target <= 0:
-        return _DIVISIONS[0]
-    idx = min(len(_DIVISIONS), int(min(1.0, xp_week / target) * len(_DIVISIONS)) + 1)
-    return _DIVISIONS[idx - 1]
 
 
 def _week_left_sec() -> int:
@@ -1942,7 +1940,7 @@ def challenges_overview(request):
     league = s.ChallengeLeagueOut(
         tier=group.tier,
         tier_label=group.get_tier_display(),
-        division=_division(xp_week, week_target),
+        division=gami_services.division(xp_week, week_target),
         rank=rank,
         percentile=max(1, round(rank / size * 100)),
         time_left_sec=_week_left_sec(),

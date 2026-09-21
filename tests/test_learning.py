@@ -606,7 +606,9 @@ def test_skills_overview_va_goi_y(api, token, user, levels):
 def test_reading_list_progress_facets_and_premium_lock(api, token, user, levels):
     a1, a2 = levels
     life = Topic.objects.create(code="life", name_vi="Đời sống", name_en="Life", order=1)
-    travel = Topic.objects.create(code="travel", name_vi="Du lịch", name_en="Travel", order=2)
+    travel = Topic.objects.create(
+        code="travel", name_vi="Du lịch", name_en="Travel", order=2, icon_url="icons/travel.png"
+    )
     vocabulary = Vocabulary.objects.create(headword="family", pos="n", level=a1, meaning_vi="gia đình")
     reading = Reading.objects.create(
         level=a1,
@@ -640,6 +642,8 @@ def test_reading_list_progress_facets_and_premium_lock(api, token, user, levels)
     first = body["items"][0]
     assert first["keyword_preview"] == ["family"]
     assert first["progress"]["status"] == "not_started"
+    assert first["topic_icon_url"] is None  # topic chưa có icon → app hiện placeholder
+    assert body["items"][1]["topic_icon_url"].endswith("/icons/travel.png")
 
     partial = api.post(
         f"/learn/readings/{reading.id}/progress",

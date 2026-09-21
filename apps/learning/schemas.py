@@ -160,6 +160,7 @@ class PathLessonOut(Schema):
     id: int
     code: str
     order: int
+    kind: str = "lesson"  # lesson | checkpoint
     title_vi: str
     display_title_vi: str
     subtitle_vi: str
@@ -455,6 +456,7 @@ class SpeakingTopicOut(Schema):
     title_en: str
     title_vi: str
     phrase_preview: str
+    focus_vi: str  # trọng tâm phát âm/ngữ điệu của deck, hiện dưới tiêu đề thẻ
     icon: str  # token dự phòng
     icon_url: str | None  # ảnh icon để app render trực tiếp
     background_url: str | None  # ảnh nền card; app dùng placeholder nếu trống/lỗi
@@ -531,6 +533,7 @@ class ReadingListItemOut(Schema):
     title_vi: str
     topic_id: int | None
     topic: str | None
+    topic_icon_url: str | None = None  # icon chủ đề (Topic.icon_url); app dùng placeholder nếu trống
     est_minutes: int
     cover_url: str | None
     question_count: int
