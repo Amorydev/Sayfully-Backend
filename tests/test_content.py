@@ -149,6 +149,27 @@ def test_lesson_detail_buoc_da_hinh(api, token, levels, vocab):
     assert body["steps"][1]["vocab"]["headword"] == "beautiful"
 
 
+def test_lesson_vocab_card_collocation_va_so_tay(api, token, user, levels, vocab):
+    """Thẻ từ trong bài: collocations + note_vi (payload) + notebook_entry_id (bookmark của người dùng)."""
+    from apps.learning.models import NotebookEntry
+
+    a1, _ = levels
+    lesson = _make_lesson(a1, vocab)
+    step = lesson.steps.get(kind="vocab")
+    step.payload = {"note_vi": "Ôn tập — đã học ở a1-u1-l0"}
+    step.save(update_fields=["payload"])
+    Collocation.objects.create(vocabulary=vocab, text_en="a beautiful smile", meaning_vi="nụ cười đẹp")
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+    r = api.get("/content/lessons/a1-u1-l1", token=token)
+    assert r.status_code == 200, r.content
+    card = r.json()["steps"][1]["vocab"]
+    assert {c["text_en"] for c in card["collocations"]} == {"beautiful day", "a beautiful smile"}
+    assert card["note_vi"].startswith("Ôn tập")
+    assert card["notebook_entry_id"] == entry.id
+    assert card["category"] == "word"
+    assert [s["text"] for s in card["syllables"]] == ["bjuː", "tɪ", "fəl"]
+
+
 def test_lesson_a2_khoa_voi_free_user(api, token, levels, vocab):
     _, a2 = levels
     _make_lesson(a2, vocab, code="a2-u1-l1")

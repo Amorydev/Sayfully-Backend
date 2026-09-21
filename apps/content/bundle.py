@@ -29,7 +29,13 @@ def _vocab(v) -> dict:
         "audio_uk_url": _media(v.audio_uk_path),
         "audio_us_url": _media(v.audio_us_path),
         "examples": [
-            {"text_en": e.text_en, "text_vi": e.text_vi, "audio_url": _media(e.audio_us_path or e.audio_uk_path), "audio_us_url": _media(e.audio_us_path), "audio_uk_url": _media(e.audio_uk_path)}
+            {
+                "text_en": e.text_en,
+                "text_vi": e.text_vi,
+                "audio_url": _media(e.audio_us_path or e.audio_uk_path),
+                "audio_us_url": _media(e.audio_us_path),
+                "audio_uk_url": _media(e.audio_uk_path),
+            }
             for e in v.examples.all()
         ],
         "collocations": [
@@ -46,9 +52,18 @@ def _grammar(g) -> dict:
         "formula": g.formula,
         "explanation_vi": g.explanation_vi,
         "common_mistake_vi": g.common_mistake_vi,
+        "mistake_wrong": g.mistake_wrong,
+        "mistake_right": g.mistake_right,
         "conjugation": g.conjugation,
         "examples": [
-            {"text_en": e.text_en, "ipa": e.ipa, "text_vi": e.text_vi, "audio_url": _media(e.audio_us_path or e.audio_uk_path), "audio_us_url": _media(e.audio_us_path), "audio_uk_url": _media(e.audio_uk_path)}
+            {
+                "text_en": e.text_en,
+                "ipa": e.ipa,
+                "text_vi": e.text_vi,
+                "audio_url": _media(e.audio_us_path or e.audio_uk_path),
+                "audio_us_url": _media(e.audio_us_path),
+                "audio_uk_url": _media(e.audio_uk_path),
+            }
             for e in g.examples.all()
         ],
     }
@@ -60,6 +75,7 @@ def _dialogue(d) -> dict:
         "title_en": d.title_en,
         "title_vi": d.title_vi,
         "context_vi": d.context_vi,
+        "total_lines": d.lines.count(),
         "lines": [
             {
                 "order": ln.order,
@@ -72,7 +88,7 @@ def _dialogue(d) -> dict:
                 "audio_us_url": _media(ln.audio_us_path),
                 "audio_uk_url": _media(ln.audio_uk_path),
             }
-            for ln in d.lines.all()
+            for ln in d.lesson_lines()
         ],
     }
 
@@ -81,6 +97,11 @@ def _step(step) -> dict:
     out = {"order": step.order, "kind": step.kind}
     if step.kind == "vocab" and step.vocabulary_id:
         out["vocab"] = _vocab(step.vocabulary)
+        out["vocab"]["note_vi"] = (step.payload or {}).get("note_vi", "")
+        out["vocab"]["collocations"] = [
+            {"text_en": c.text_en, "meaning_vi": c.meaning_vi}
+            for c in step.vocabulary.collocations.all()
+        ]
     elif step.kind == "grammar" and step.grammar_point_id:
         out["grammar"] = _grammar(step.grammar_point)
     elif step.kind == "dialogue" and step.dialogue_id:

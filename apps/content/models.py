@@ -43,6 +43,9 @@ class Topic(models.Model):
     name_vi = models.CharField(max_length=64)
     name_en = models.CharField(max_length=64)
     icon = models.CharField(max_length=48, blank=True)
+    icon_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh icon (URL đầy đủ hoặc path R2) — app render trực tiếp, trống thì placeholder
     order = models.PositiveSmallIntegerField(default=0)
 
     def __str__(self) -> str:
@@ -94,6 +97,7 @@ class CanDo(models.Model):
         CEFR = "cefr", "CEFR Companion Volume"
         GSE_LO = "gse_lo", "GSE Learning Objective"
         GSE_GR = "gse_gr", "GSE Grammar Objective"
+        SAYFULLY = "sayfully", "Mục tiêu bài học Sayfully"  # viết tay theo nội dung hội thoại (SF-<lesson>)
 
     code = models.CharField(max_length=128, unique=True)  # "GLLA0603" | "Conversation#A2#5"
     source = models.CharField(max_length=8, choices=Source.choices)
@@ -174,6 +178,7 @@ class PronunciationFeature(models.Model):
     category_en = models.CharField(max_length=64, blank=True)
     category_vi = models.CharField(max_length=64)
     feature_en = models.CharField(max_length=160)
+    title_vi = models.CharField(max_length=120, blank=True, default="")  # tên thân thiện cho người học (UI)
     status = models.CharField(max_length=10)  # Core | Non-core
     ipa = models.CharField(max_length=96, blank=True)
     rule_en = models.TextField(blank=True)
@@ -246,9 +251,14 @@ class LevelMilestone(models.Model):
 
 
 class Lesson(models.Model):
+    class Kind(models.TextChoices):
+        LESSON = "lesson", "Bài học"
+        CHECKPOINT = "checkpoint", "Kiểm tra unit"  # bài 7: chỉ intro + 12 quiz tổng hợp 6 bài
+
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="lessons")
     order = models.PositiveSmallIntegerField()
     code = models.SlugField(max_length=80, unique=True)
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.LESSON)
     title_vi = models.CharField(max_length=128)
     title_en = models.CharField(max_length=128)
     description_vi = models.TextField(blank=True)
@@ -492,9 +502,19 @@ class Dialogue(models.Model):
     source_ref = models.CharField(
         max_length=48, blank=True, db_index=True
     )  # "voa-l1:lesson-01-conv" | "gen:a1-01-hello-3"
+    # Hội thoại VOA dài: bài học chỉ hiện/phát lượt excerpt_start..excerpt_end (order, inclusive); null = cả bài
+    excerpt_start = models.PositiveSmallIntegerField(null=True, blank=True)
+    excerpt_end = models.PositiveSmallIntegerField(null=True, blank=True)
 
     def __str__(self) -> str:
         return str(self.title_en)
+
+    def lesson_lines(self):
+        """Lượt thoại app hiện trong bài học: trích đoạn nếu có, không thì cả bài."""
+        qs = self.lines.order_by("order")
+        if self.excerpt_start and self.excerpt_end:
+            qs = qs.filter(order__gte=self.excerpt_start, order__lte=self.excerpt_end)
+        return qs
 
 
 class DialogueLine(AccentAudio):

@@ -69,6 +69,7 @@ class LessonBriefOut(Schema):
     id: int
     code: str
     order: int
+    kind: str = "lesson"  # lesson | checkpoint
     title_vi: str
     title_en: str
     est_minutes: int
@@ -99,6 +100,11 @@ class IntroStepOut(Schema):
     preview: list[SentenceOut]
 
 
+class CollocationOut(Schema):
+    text_en: str
+    meaning_vi: str
+
+
 class VocabCardOut(Schema):
     id: int
     headword: str
@@ -110,6 +116,13 @@ class VocabCardOut(Schema):
     audio_uk_url: str | None
     audio_us_url: str | None
     examples: list[ExampleOut]
+    # từ đã gặp ở bài trước: "Nghĩa mới của từ đã học (…)" / "Ôn tập — đã học ở …"
+    note_vi: str = ""
+    # "Cụm từ hay gặp" trên thẻ từ (crawl/framework/collocations.json)
+    collocations: list[CollocationOut] = []
+    # đã lưu vào sổ tay (bookmark) → id để xoá; None = chưa lưu
+    notebook_entry_id: int | None = None
+    category: str = "word"  # word | phrasal_verb | phrase | idiom → chip loại từ
 
 
 class ConjugationRowOut(Schema):
@@ -125,6 +138,8 @@ class GrammarStepOut(Schema):
     note_vi: str
     explanation_vi: str
     common_mistake_vi: str
+    mistake_wrong: str = ""  # cặp ✗/✓ dưới "Mẹo phản xạ"
+    mistake_right: str = ""
     conjugation: list[ConjugationRowOut]
     examples: list[SentenceOut]
 
@@ -143,7 +158,8 @@ class DialogueStepOut(Schema):
     title_en: str
     title_vi: str
     context_vi: str
-    lines: list[DialogueLineOut]
+    lines: list[DialogueLineOut]  # chỉ trích đoạn khi hội thoại gốc dài (VOA); xem total_lines
+    total_lines: int = 0  # số lượt của cả bài gốc; > len(lines) nghĩa là đang xem trích đoạn
 
 
 class SpellingStepOut(AccentAudioOut):
@@ -204,6 +220,7 @@ class LessonStepOut(Schema):
 class LessonDetailOut(Schema):
     code: str
     order: int
+    kind: str = "lesson"  # checkpoint: không từ mới/ngữ pháp/hội thoại, chỉ intro + quiz
     unit: UnitRefOut
     level: str
     title_vi: str
@@ -238,11 +255,6 @@ class VocabListOut(AccentAudioOut):
     syllables: list[SyllableOut]
     is_saved: bool = False
     notebook_entry_id: int | None = None
-
-
-class CollocationOut(Schema):
-    text_en: str
-    meaning_vi: str
 
 
 class RelatedWordOut(Schema):

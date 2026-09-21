@@ -13,13 +13,16 @@ Bước bài học sinh theo mẫu app hiện hỗ trợ: intro · vocab×8 · g
 import csv
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
+import cmudict
+import pyphen
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.content import models as m
+from apps.content.phonemics import sentence_ipa, split_ipa
 
 POS_MAP = {
     "noun": "n",
@@ -59,7 +62,43 @@ SUPER_VI = {
     "FOCUS": "Nhấn mạnh",
 }
 LEARNER_SPEAKERS = {"Linh", "Anna"}
+
+# Tên tiếng Việt cho chủ đề EVP (Topic.code → name_vi); thiếu thì giữ tên gốc tiếng Anh.
+TOPIC_NAME_VI = {
+    "travel": "Du lịch",
+    "business": "Công sở",
+    "people-actions": "Con người: hành động",
+    "relationships": "Các mối quan hệ",
+    "describing-things": "Miêu tả sự vật",
+    "communication": "Giao tiếp",
+    "technology": "Công nghệ",
+    "work": "Công việc",
+    "shopping": "Mua sắm",
+    "arts-and-media": "Nghệ thuật & truyền thông",
+    "food-and-drink": "Ăn uống",
+    "natural-world": "Thiên nhiên",
+    "buildings": "Nhà cửa & công trình",
+    "people-personality": "Con người: tính cách",
+    "money": "Tiền bạc",
+    "politics": "Chính trị",
+    "education": "Giáo dục",
+    "body-and-health": "Cơ thể & sức khoẻ",
+    "people-appearance": "Con người: ngoại hình",
+    "clothes": "Quần áo",
+    "animals": "Động vật",
+    "crime": "Tội phạm",
+}
 csv.field_size_limit(10**7)
+
+
+MULTI_CATEGORY = {"phrasal verbs": "phrasal_verb", "phrases": "phrase", "idioms": "idiom"}
+
+
+def display_headword(e: dict) -> str:
+    """Tên hiển thị của mục EVP: base cho cụm ("take off sth or take sth off" → "take off sth"), headword cho từ đơn."""
+    if e["category"] in MULTI_CATEGORY:
+        return re.sub(r"\s+or\s+.*$", "", e["base"]).strip()
+    return e["headword"]
 
 
 def slug(s: str) -> str:
@@ -279,8 +318,17 @@ class Command(BaseCommand):
 
     def bands(self):
         self.BAND = {}
+        codes = {
+            b["code"] for b in self.P["bands"]
+        }  # band đã gộp/bỏ (A1.1, A1.2 → A1): xoá để không đụng uniq (level, order)
+        stale = m.Band.objects.exclude(code__in=codes)
+        m.LevelMilestone.objects.filter(band__in=stale).delete()
+        stale.delete()
+        per_band = Counter(L["band"] for L in self.P["lessons"])
+        done_before = Counter()  # milestone tính trên tổng bài đã xong của cấp → yêu cầu = luỹ kế các band trước + band này
         for b in self.P["bands"]:
             lv = m.Level.objects.get(code=b["level"])
+            done_before[b["level"]] += per_band[b["code"]]
             ms, _ = m.LevelMilestone.objects.update_or_create(
                 level=lv,
                 order=b["order"],
@@ -288,7 +336,7 @@ class Command(BaseCommand):
                     "code": f"{b['level'].lower()}-{b['order']}",
                     "name": b["code"],
                     "title_vi": f"Chứng chỉ {b['code']}",
-                    "requirement_lessons": 36,
+                    "requirement_lessons": done_before[b["level"]],
                     "reward_xp": 300,
                     "reward_coins": 150,
                 },
@@ -394,6 +442,7 @@ class Command(BaseCommand):
                     "category_en": r["category"][:64],
                     "category_vi": r["category_vi"][:64],
                     "feature_en": r["feature"][:160],
+                    "title_vi": (r.get("title_vi") or "")[:120],
                     "status": r["status"][:10],
                     "ipa": (r.get("ipa") or "")[:96],
                     "rule_en": r.get("rule_en") or "",
@@ -424,10 +473,13 @@ class Command(BaseCommand):
         counter = defaultdict(int)
         self.GP = {}
         n_new = 0
+        extras_path = self.crawl / "framework" / "grammar_extras.json"  # ghi chú Bé Long, mẹo phản xạ, mẫu KĐ/PĐ (viết tay)
+        extras = json.load(open(extras_path, encoding="utf-8")) if extras_path.exists() else {}
         for g in self.F["grammar_points"]:
             ref = str(g["id"])
             lv = g["level"]
             ex = g.get("examples") or []
+            x = extras.get(ref, {})
             vals = dict(
                 level_id=lv,
                 category=SUPER_VI.get(g["super_category"], g["super_category"].title())[:48],
@@ -436,6 +488,11 @@ class Command(BaseCommand):
                 subtitle_vi=(g.get("sub_category") or "")[:160],
                 formula=(g.get("formula") or "")[:160],
                 explanation_vi=g.get("explanation_vi") or "",
+                note_vi=x.get("note_vi", ""),
+                common_mistake_vi=x.get("common_mistake_vi", ""),
+                mistake_wrong=x.get("mistake_wrong", "")[:160],
+                mistake_right=x.get("mistake_right", "")[:160],
+                conjugation=[{"subject": p["label"], "form": p["value"]} for p in x.get("patterns", [])],
                 source_ref=ref,
                 super_category=g["super_category"][:32],
                 sub_category=(g.get("sub_category") or "")[:96],
@@ -473,7 +530,7 @@ class Command(BaseCommand):
                 obj.objectives.set([self.CANDO[c] for c in gobj[ref] if c in self.CANDO])
             self.GP[ref] = obj
         self.log(
-            f"GrammarPoint: {len(self.GP)} (+{n_new} mới; lõi lộ trình {len(core)}) · GrammarExample: {m.GrammarExample.objects.count()}"
+            f"GrammarPoint: {len(self.GP)} (+{n_new} mới; lõi lộ trình {len(core)}; ghi chú/mẹo {len(extras)}) · GrammarExample: {m.GrammarExample.objects.count()}"
         )
 
     # ------------------------------------------------------------------ 3. từ vựng (chỉ sense trong lộ trình)
@@ -489,45 +546,66 @@ class Command(BaseCommand):
         topics = {t.code: t for t in m.Topic.objects.all()}
         by_ref = {v.source_ref: v for v in m.Vocabulary.objects.exclude(source_ref="")}
         self.VOCAB = {}
+        self.hyphen = pyphen.Pyphen(lang="en_US")
+        colloc = (
+            self.crawl / "framework" / "collocations.json"
+        )  # {evp_id: [{"en","vi"}]} — cụm từ hay gặp trên thẻ từ
+        self.COLLOC = json.load(open(colloc, encoding="utf-8")) if colloc.exists() else {}
         n_new = n_adopt = 0
         for vid in ids:
             e = self.EV[vid]
             pos = POS_MAP.get(e["pos"], "n")
             sense = slug(e.get("guideword") or "") if e.get("guideword") else ""
+            multi = e["category"] in MULTI_CATEGORY  # cụm: headword = base "take off sth"
+            head = display_headword(e)
+            pron = None if multi else split_ipa(e.get("ipa_us") or e.get("ipa_uk") or "")
             vals = dict(
                 level_id=e["level"],
                 meaning_vi=e["meaning_vi"][:255],
+                # âm tiết + trọng âm tách từ IPA EVP (khớp IPA hiển thị; gen_ipa/CMUdict chỉ cho từ không có IPA)
+                ipa_syllables=[x[:16] for x in pron.ipa_syllables] if pron else [],
+                primary_stress=pron.primary_stress if pron else None,
+                secondary_stress=pron.secondary_stress if pron else None,
+                syllables=[] if multi else [x[:16] for x in self.hyphen.inserted(head).split("-")],
                 definition_en=e.get("definition_en") or "",
-                ipa_uk=(e.get("ipa_uk") or "")[:64],
-                ipa_us=(e.get("ipa_us") or "")[:64],
+                ipa_uk="" if multi else (e.get("ipa_uk") or "")[:64],
+                ipa_us="" if multi else (e.get("ipa_us") or "")[:64],
                 sense=sense,
                 sense_label_en=(e.get("guideword") or "")[:96],
-                headword_us=(e.get("headword_us") or "")[:64],
-                category="phrasal_verb" if e["pos"] == "phrasal verb" else "word",
+                headword_us="" if multi else (e.get("headword_us") or "")[:64],
+                category=MULTI_CATEGORY.get(e["category"], "word"),
                 usage_label=(e.get("usage") or "")[:32],
                 source=src_evp,
                 source_ref=vid,
                 is_path_core=True,
-                **self.audio(vid, e["headword"]),
+                **self.audio(vid, head),
             )
             obj = by_ref.get(vid)
             if not obj:
-                obj = m.Vocabulary.objects.filter(
-                    headword=e["headword"], pos=pos, sense=sense
-                ).first()
+                obj = m.Vocabulary.objects.filter(headword=head, pos=pos, sense=sense).first()
                 if not obj and sense:  # bản ghi demo cũ chưa có sense → nhận lại
                     obj = m.Vocabulary.objects.filter(
-                        headword=e["headword"], pos=pos, sense="", source_ref=""
+                        headword=head, pos=pos, sense="", source_ref=""
                     ).first()
                     if obj:
                         n_adopt += 1
             if obj:
                 for k, v in vals.items():
                     setattr(obj, k, v)
+                obj.headword = head[:64]
                 obj.save()
             else:
-                obj = m.Vocabulary.objects.create(headword=e["headword"][:64], pos=pos, **vals)
+                obj = m.Vocabulary.objects.create(headword=head[:64], pos=pos, **vals)
                 n_new += 1
+            obj.collocations.all().delete()
+            m.Collocation.objects.bulk_create(
+                [
+                    m.Collocation(
+                        vocabulary=obj, text_en=c["en"][:128], meaning_vi=(c.get("vi") or "")[:128]
+                    )
+                    for c in self.COLLOC.get(vid, [])
+                ]
+            )
             obj.examples.all().delete()
             m.VocabularyExample.objects.bulk_create(
                 [
@@ -546,10 +624,14 @@ class Command(BaseCommand):
                 objs = []
                 for t in tps:
                     code = slug(t)
+                    name_vi = TOPIC_NAME_VI.get(code, t[:64])
                     if code not in topics:
                         topics[code] = m.Topic.objects.create(
-                            code=code, name_vi=t[:64], name_en=t[:64], order=len(topics) + 1
+                            code=code, name_vi=name_vi, name_en=t[:64], order=len(topics) + 1
                         )
+                    elif topics[code].name_vi != name_vi and code in TOPIC_NAME_VI:
+                        topics[code].name_vi = name_vi  # seed cũ để tên tiếng Anh
+                        topics[code].save(update_fields=["name_vi"])
                     objs.append(topics[code])
                 obj.topics.set(objs)
             self.VOCAB[vid] = obj
@@ -604,19 +686,35 @@ class Command(BaseCommand):
 
     def lessons(self):
         n_dlg = n_line = n_quiz = n_step = 0
+        self.CMU = cmudict.dict()
         vocab_by_ref = getattr(self, "VOCAB", None) or {
             v.source_ref: v for v in m.Vocabulary.objects.exclude(source_ref="")
         }
+        self.HEAD = {}
+        for L in self.P["lessons"]:
+            for ref in L["vocabulary"]:
+                v = vocab_by_ref.get(ref)
+                if v:
+                    self.HEAD.setdefault(v.headword.lower(), v)
         for L in self.P["lessons"]:
             objs = [(self.CANDO.get(o["code"]), o["is_primary"]) for o in L["objectives"]]
             primary = next((c for c, p in objs if p and c), next((c for c, _ in objs if c), None))
             vals = dict(
                 unit=self.UNIT[L["unit"]],
                 order=L["order"],
+                kind=L.get("kind") or "lesson",
                 title_vi=L["title_vi"][:128],
                 title_en=L["title_en"][:128],
-                description_vi=" · ".join(c.can_do_vi for c, _ in objs if c),
-                path_subtitle_vi=(primary.can_do_vi if primary else "")[:160],
+                description_vi=(
+                    "Ôn tập toàn diện từ vựng, ngữ pháp và kỹ năng nghe của unit"
+                    if L.get("kind") == "checkpoint"
+                    else " · ".join(c.can_do_vi for c, _ in objs if c)
+                ),
+                path_subtitle_vi=(
+                    "Kiểm tra tổng hợp 6 bài"
+                    if L.get("kind") == "checkpoint"
+                    else (primary.can_do_vi if primary else "")
+                )[:160],
                 est_minutes=L["est_minutes"],
                 xp_reward=L["xp_reward"],
                 grammar_point=self.GP.get(str(L["grammar_point"])) if L["grammar_point"] else None,
@@ -649,9 +747,12 @@ class Command(BaseCommand):
                         "title_en": (src.get("title_en") or L["title_en"])[:128],
                         "title_vi": (src.get("title_vi") or "")[:128],
                         "context_en": (src.get("context_en") or "")[:255],
+                        "excerpt_start": (L.get("excerpt") or [None, None])[0],
+                        "excerpt_end": (L.get("excerpt") or [None, None])[1],
                     },
                 )
                 dialogue.lines.all().delete()
+                # IPA câu tất định từ CMUdict (US); từ ngoài từ điển giữ chính tả
                 m.DialogueLine.objects.bulk_create(
                     [
                         m.DialogueLine(
@@ -660,6 +761,7 @@ class Command(BaseCommand):
                             speaker=ln["speaker"][:32],
                             is_native=ln["speaker"] not in LEARNER_SPEAKERS,
                             text_en=ln["en"][:1024],
+                            ipa=sentence_ipa(ln["en"], self.CMU)[:1024],
                             text_vi=(ln.get("vi") or "")[:1024],
                             **self.audio(f"{did}#{ln['n']}"),
                         )
@@ -760,7 +862,7 @@ class Command(BaseCommand):
                 "audio_us_path": ln.audio_us_path,
                 "audio_uk_path": ln.audio_uk_path,
             }
-            for ln in (dialogue.lines.order_by("order")[:2] if dialogue else [])
+            for ln in (dialogue.lesson_lines()[:2] if dialogue else [])
         ]
         steps.append(
             m.LessonStep(
@@ -768,14 +870,29 @@ class Command(BaseCommand):
                 order=1,
                 kind=K.INTRO,
                 payload={
-                    "highlight_vi": primary.can_do_vi if primary else lesson.title_vi,
+                    "highlight_vi": (
+                        f"Ôn lại 6 bài của unit qua {len(qs)} câu hỏi tổng hợp"
+                        if lesson.kind == "checkpoint"
+                        else primary.can_do_vi
+                        if primary
+                        else lesson.title_vi
+                    ),
                     "preview": preview,
                 },
             )
         )
-        for v in vocabs:
+        notes = (
+            L.get("vocab_notes") or {}
+        )  # từ lặp giữa các bài: "Nghĩa mới của từ đã học…" / "Ôn tập — đã học ở…"
+        for vid, v in zip([x for x in L["vocabulary"] if x in vocab_by_ref], vocabs, strict=True):
             steps.append(
-                m.LessonStep(lesson=lesson, order=len(steps) + 1, kind=K.VOCAB, vocabulary=v)
+                m.LessonStep(
+                    lesson=lesson,
+                    order=len(steps) + 1,
+                    kind=K.VOCAB,
+                    vocabulary=v,
+                    payload={"note_vi": notes[vid]} if vid in notes else {},
+                )
             )
         if lesson.grammar_point_id:
             steps.append(
@@ -803,6 +920,8 @@ class Command(BaseCommand):
                 )
             )
         by_head = {v.headword.lower(): v for v in vocabs}
+        if not vocabs:  # checkpoint: quiz của 6 bài → tra từ theo headword toàn lộ trình
+            by_head = self.HEAD
         for q in qs:
             vq = None
             if (

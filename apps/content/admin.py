@@ -22,7 +22,8 @@ class LevelAdmin(admin.ModelAdmin):
 
 @admin.register(m.Topic)
 class TopicAdmin(admin.ModelAdmin):
-    list_display = ("code", "name_vi", "name_en", "order")
+    list_display = ("code", "name_vi", "name_en", "icon_url", "order")
+    list_editable = ("icon_url",)
     search_fields = ("code", "name_vi", "name_en")
 
 

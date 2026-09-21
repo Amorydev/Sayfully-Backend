@@ -14,7 +14,7 @@ from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
 from apps.learning import services as learn_services
 from apps.learning import video_practice
-from apps.learning.models import GrammarProgress, IPASoundProgress, WordRootProgress
+from apps.learning.models import GrammarProgress, IPASoundProgress, NotebookEntry, WordRootProgress
 
 from . import models as m
 from . import schemas as s
@@ -40,7 +40,7 @@ def _ipa(vocab: m.Vocabulary, accent: str) -> str:
 def _syllables(vocab: m.Vocabulary) -> list[s.SyllableOut]:
     return [
         s.SyllableOut(
-            text=syl,
+            text=syl.lstrip("ˈˌ"),  # app tự thêm dấu trọng âm theo is_primary/is_secondary
             is_primary=(i == vocab.primary_stress),
             is_secondary=(i == vocab.secondary_stress),
         )
@@ -57,7 +57,10 @@ def _accent_audio(obj, accent: str) -> dict:
     """Ba URL audio cho schema kế thừa `AccentAudioOut`; `obj` là model có `AccentAudio`
     hoặc dict JSON có `audio_us_path`/`audio_uk_path` (payload bước bài học, cụm động từ)."""
     if isinstance(obj, dict):
-        us, uk = obj.get("audio_us_path") or obj.get("audio_path") or "", obj.get("audio_uk_path") or ""
+        us, uk = (
+            obj.get("audio_us_path") or obj.get("audio_path") or "",
+            obj.get("audio_uk_path") or "",
+        )
     else:
         us, uk = obj.audio_us_path, obj.audio_uk_path
     chosen = (us or uk) if accent == "US" else (uk or us)
@@ -66,7 +69,11 @@ def _accent_audio(obj, accent: str) -> dict:
 
 def _sentence(obj, accent: str, *, text_en=None, ipa=None, text_vi=None) -> s.SentenceOut:
     """`obj` model (AccentAudio) hay dict payload; text lấy từ obj nếu không truyền."""
-    get = (lambda k, d="": obj.get(k, d)) if isinstance(obj, dict) else (lambda k, d="": getattr(obj, k, d))
+    get = (
+        (lambda k, d="": obj.get(k, d))
+        if isinstance(obj, dict)
+        else (lambda k, d="": getattr(obj, k, d))
+    )
     return s.SentenceOut(
         text_en=text_en if text_en is not None else get("text_en"),
         ipa=(ipa if ipa is not None else get("ipa")) or None,
@@ -111,6 +118,11 @@ def _vocab_card(v: m.Vocabulary, accent: str) -> s.VocabCardOut:
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
         examples=[_example(e, accent) for e in v.examples.all()],
+        collocations=[
+            s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
+            for c in v.collocations.all()
+        ],
+        category=v.category or "word",
     )
 
 
@@ -189,6 +201,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         )
     elif step.kind == m.LessonStep.Kind.VOCAB and step.vocabulary_id:
         out.vocab = _vocab_card(step.vocabulary, accent)
+        out.vocab.note_vi = (step.payload or {}).get("note_vi", "")
     elif step.kind == m.LessonStep.Kind.GRAMMAR and step.grammar_point_id:
         gp = step.grammar_point
         out.grammar = s.GrammarStepOut(
@@ -199,6 +212,8 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             note_vi=gp.note_vi,
             explanation_vi=gp.explanation_vi,
             common_mistake_vi=gp.common_mistake_vi,
+            mistake_wrong=gp.mistake_wrong,
+            mistake_right=gp.mistake_right,
             conjugation=_conjugation(gp),
             examples=_grammar_examples(gp, accent),
         )
@@ -209,6 +224,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             title_en=d.title_en,
             title_vi=d.title_vi,
             context_vi=d.context_vi,
+            total_lines=d.lines.count(),
             lines=[
                 s.DialogueLineOut(
                     order=ln.order,
@@ -219,7 +235,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
                     text_vi=ln.text_vi,
                     **_accent_audio(ln, accent),
                 )
-                for ln in d.lines.all()
+                for ln in d.lesson_lines()
             ],
         )
     elif step.kind == m.LessonStep.Kind.SPELLING:
@@ -338,6 +354,7 @@ def get_unit(request, id: int):
                 id=ls.id,
                 code=ls.code,
                 order=ls.order,
+                kind=ls.kind,
                 title_vi=ls.title_vi,
                 title_en=ls.title_en,
                 est_minutes=ls.est_minutes,
@@ -365,7 +382,17 @@ def get_lesson(request, code: str):
         raise NotFound(_NOTFOUND)
     _gate(profile, lesson.unit.level)
 
-    steps = lesson.steps.select_related("vocabulary", "grammar_point", "dialogue").order_by("order")
+    steps = (
+        lesson.steps.select_related("vocabulary", "grammar_point", "dialogue")
+        .prefetch_related("vocabulary__examples", "vocabulary__collocations")
+        .order_by("order")
+    )
+    vocab_ids = [st.vocabulary_id for st in steps if st.vocabulary_id]
+    saved = dict(  # bookmark trên thẻ từ = mục sổ tay của người dùng
+        NotebookEntry.objects.filter(user=request.auth, vocabulary_id__in=vocab_ids).values_list(
+            "vocabulary_id", "id"
+        )
+    )
     step_outs, n_vocab, n_grammar, n_dialogue = [], 0, 0, 0
     for step in steps:
         if step.kind == m.LessonStep.Kind.VOCAB:
@@ -374,9 +401,13 @@ def get_lesson(request, code: str):
             n_grammar += 1
         elif step.kind == m.LessonStep.Kind.DIALOGUE:
             n_dialogue += 1
-        step_outs.append(_lesson_step(step, profile.accent))
+        out = _lesson_step(step, profile.accent)
+        if out.vocab is not None:
+            out.vocab.notebook_entry_id = saved.get(step.vocabulary_id)
+        step_outs.append(out)
 
     return s.LessonDetailOut(
+        kind=lesson.kind,
         code=lesson.code,
         order=lesson.order,
         unit=s.UnitRefOut(
@@ -787,10 +818,7 @@ def get_reading(request, id: int):
         topic=r.topic.name_vi if r.topic else None,
         est_minutes=r.est_minutes,
         cover_url=_media(r.cover_path),
-        sentences=[
-            _sentence(sen, accent)
-            for sen in r.sentences.all()
-        ],
+        sentences=[_sentence(sen, accent) for sen in r.sentences.all()],
         keywords=[
             s.ReadingKeywordOut(
                 id=k.id,
@@ -979,7 +1007,9 @@ def preview_video_import(request, url: str = Query(..., min_length=5, max_length
     video_import.ensure_can_import(profile)
     youtube_id = video_import.parse_youtube_id(url)
     if youtube_id is None:
-        raise video_import.VideoImportError(video_import.reject_message("invalid_url"), code="invalid_url")
+        raise video_import.VideoImportError(
+            video_import.reject_message("invalid_url"), code="invalid_url"
+        )
     info = video_import.preview(youtube_id)
     return s.VideoPreviewOut(
         youtube_id=info.youtube_id,
@@ -1075,8 +1105,14 @@ def get_video(request, id: int):
             shadowing_done=practice.summary.shadowing_done,
             dictation_done=practice.summary.dictation_done,
             last_mode=practice.summary.last_mode,
-            shadowing=[s.VideoSentenceResultOut(order=o, percent=p) for o, p in sorted(practice.shadowing.items())],
-            dictation=[s.VideoSentenceResultOut(order=o, percent=p) for o, p in sorted(practice.dictation.items())],
+            shadowing=[
+                s.VideoSentenceResultOut(order=o, percent=p)
+                for o, p in sorted(practice.shadowing.items())
+            ],
+            dictation=[
+                s.VideoSentenceResultOut(order=o, percent=p)
+                for o, p in sorted(practice.dictation.items())
+            ],
         ),
         subtitles=[
             s.VideoSubtitleOut(
