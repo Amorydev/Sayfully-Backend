@@ -1,6 +1,6 @@
 """Xoá sạch DB rồi nạp lại nội dung từ Data/REVIEW_skills.xlsx (nguồn sự thật duy nhất).
 
-  python manage.py reset_content --yes                       # flush → import_review_skills → tạo lại admin + demo
+  python manage.py reset_content --yes                       # flush → import_review_skills → seed_catalog/scenarios/match_pairs → admin + demo
   python manage.py reset_content --yes --xlsx /path/file.xlsx
 
 Giữ lại 2 tài khoản `admin@sayfully.com` và `demo@sayfully.app` (cùng mật khẩu cũ — chép hash), mọi
@@ -49,6 +49,9 @@ class Command(BaseCommand):
         call_command("flush", interactive=False, verbosity=0)
         import_opts = {"xlsx": opts["xlsx"]} if opts["xlsx"] else {}
         call_command("import_review_skills", **import_opts)
+        call_command("seed_catalog")  # nhiệm vụ · huy hiệu · cửa hàng · game · gói · mã quà
+        call_command("seed_scenarios")  # kịch bản đóng vai Gia sư AI
+        call_command("seed_match_pairs")  # chặng Ghép cặp
         for k in kept:
             u = user_model(
                 email=k["email"],
