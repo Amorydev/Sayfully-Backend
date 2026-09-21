@@ -100,10 +100,29 @@ def products(request, kind: str | None = None):
             currency=p.currency,
             trial_days=p.trial_days,
             badge_vi=p.badge_vi,
-            features=p.features or [],
+            features=[_feature(f) for f in p.features or []],
         )
         for p in qs
     ]
+
+
+def _feature(raw) -> s.ProductFeatureOut:
+    """`features` seed cũ là chuỗi, mới là {title, description, icon_url}."""
+    if isinstance(raw, dict):
+        return s.ProductFeatureOut(
+            title=str(raw.get("title", "")),
+            description=str(raw.get("description", "")),
+            icon_url=_icon_url(raw.get("icon_url")),
+        )
+    return s.ProductFeatureOut(title=str(raw))
+
+
+def _icon_url(value) -> str | None:
+    """URL đầy đủ (http…) giữ nguyên; path tương đối thì ghép R2 base."""
+    if not value:
+        return None
+    value = str(value)
+    return value if value.startswith("http") else f"{settings.R2_PUBLIC_BASE.rstrip('/')}/{value}"
 
 
 @billing_router.get(

@@ -5,6 +5,12 @@ from datetime import datetime
 from ninja import Schema
 
 
+class ProductFeatureOut(Schema):
+    title: str
+    description: str = ""
+    icon_url: str | None = None  # ảnh icon trên CDN để app render trực tiếp; trống → icon mặc định
+
+
 class ProductOut(Schema):
     code: str
     name_vi: str
@@ -18,7 +24,7 @@ class ProductOut(Schema):
     currency: str
     trial_days: int
     badge_vi: str
-    features: list[str]
+    features: list[ProductFeatureOut]
 
 
 class SubscriptionOut(Schema):

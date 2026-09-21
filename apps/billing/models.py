@@ -31,6 +31,7 @@ class Product(models.Model):
     currency = models.CharField(max_length=3, default="VND")
     trial_days = models.PositiveSmallIntegerField(default=0)
     badge_vi = models.CharField(max_length=32, blank=True)  # "TIẾT KIỆM 50%"
+    # [{"title", "description", "icon_url"}] — icon_url: URL đầy đủ hoặc path R2
     features = models.JSONField(default=list)
     store_ids = models.JSONField(default=dict)  # {"revenuecat": "...", "payos": "..."}
     is_active = models.BooleanField(default=True)

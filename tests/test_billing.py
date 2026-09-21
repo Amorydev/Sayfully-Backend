@@ -22,7 +22,7 @@ def token(api, user, password):
 def product():
     return Product.objects.create(
         code="premium_year", name_vi="Gói Năm", period="year", price=499000,
-        original_price=999000, trial_days=7, badge_vi="TIẾT KIỆM 50%",
+        original_price=999000, trial_days=0, badge_vi="TIẾT KIỆM 50%",
         features=["Mở khoá A2–C2", "Gia sư AI"], order=1,
     )
 
@@ -47,7 +47,7 @@ def _event(user, type_, product="premium_year", days=365, **extra):
 # --------------------------------------------------------------- products / subscription
 def test_products(api, token, product):
     body = api.get("/billing/products", token=token).json()
-    assert body[0]["code"] == "premium_year" and body[0]["features"][0] == "Mở khoá A2–C2"
+    assert body[0]["code"] == "premium_year" and body[0]["features"][0] == {"title": "Mở khoá A2–C2", "description": "", "icon_url": None}
     assert body[0]["tier"] == "premium" and body[0]["store_product_id"] == "premium_year"
 
 

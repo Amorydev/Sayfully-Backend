@@ -1250,17 +1250,6 @@ class Command(BaseCommand):
                 0,
                 {},
             ),
-            (
-                "premium_day",
-                "1 ngày Premium",
-                "Mở khoá toàn bộ nội dung 24h",
-                1000,
-                {"premium_days": 1},
-                "special",
-                22,
-                0,
-                {},
-            ),
         ]:
             ShopItem.objects.update_or_create(
                 code=code,
@@ -1288,6 +1277,14 @@ class Command(BaseCommand):
                 3,
             ),
             ("speed_type", "Gõ nhanh 60s", "Thử thách tốc độ gõ phím", "reflex", False, 4),
+            (
+                "speed_say",
+                "Nói nhanh",
+                "Đọc to từ trước khi hết giờ",
+                "speaking",
+                False,
+                5,
+            ),
         ]:
             Game.objects.update_or_create(
                 code=code,
@@ -1302,26 +1299,54 @@ class Command(BaseCommand):
 
         # Thanh toán
         for code, name, period, price, orig, trial, badge, order in [
-            ("premium_month", "Gói Tháng", "month", 59000, None, 0, "", 1),
-            ("premium_year", "Gói Năm", "year", 499000, 999000, 7, "TIẾT KIỆM 50%", 2),
-            ("premium_lifetime", "Trọn đời", "lifetime", 699000, None, 0, "", 3),
+            ("premium_month", "Gói Tháng", "month", 79000, None, 0, "", 1),
+            ("premium_year", "Gói Năm", "year", 499000, 948000, 0, "TIẾT KIỆM 47%", 2),
+            ("premium_lifetime", "Trọn đời", "lifetime", 999000, None, 0, "MUA 1 LẦN", 3),
         ]:
             Product.objects.update_or_create(
                 code=code,
                 defaults={
                     "name_vi": name,
                     "kind": "premium",
+                    "tier": "premium",
                     "period": period,
                     "price": price,
                     "original_price": orig,
                     "trial_days": trial,
                     "badge_vi": badge,
                     "features": [
-                        "Mở khoá A2–C2",
-                        "Gia sư AI",
-                        "Không quảng cáo",
-                        "+50% xu mọi nguồn",
+                        {
+                            "title": "Mở toàn bộ bài PRO lộ trình A1–C2",
+                            "description": "Lộ trình bài bản từ sơ cấp đến thành thạo phản xạ",
+                            "icon_url": "billing/features/pro.png",
+                        },
+                        {
+                            "title": "Tim không giới hạn",
+                            "description": "Sai không mất tim, học liền mạch không gián đoạn",
+                            "icon_url": "billing/features/hearts.png",
+                        },
+                        {
+                            "title": "Gia sư AI 30 lượt/ngày",
+                            "description": "Sửa phát âm và hội thoại 1–1 theo chuẩn bản ngữ",
+                            "icon_url": "billing/features/ai.png",
+                        },
+                        {
+                            "title": "Sổ tay 4.000 từ",
+                            "description": "Lưu, ôn và tra từ mọi lúc ngay cả khi không mạng",
+                            "icon_url": "billing/features/notebook.png",
+                        },
+                        {
+                            "title": "Thêm 3 video YouTube mỗi ngày",
+                            "description": "Luyện nghe với phụ đề song ngữ và IPA",
+                            "icon_url": "billing/features/video.png",
+                        },
+                        {
+                            "title": "+50% xu · Không quảng cáo",
+                            "description": "Tối đa sự tập trung trong từng phút học cùng Long",
+                            "icon_url": "billing/features/coins.png",
+                        },
                     ],
+                    "store_ids": {"revenuecat": f"sayfully_{code}", "payos": code},
                     "order": order,
                 },
             )
@@ -1340,6 +1365,7 @@ class Command(BaseCommand):
                     "price": price,
                     "badge_vi": badge,
                     "features": [],
+                    "store_ids": {"revenuecat": f"sayfully_{code}", "payos": code},
                     "order": order,
                 },
             )
