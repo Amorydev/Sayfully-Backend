@@ -184,7 +184,8 @@ class UserProfile(models.Model):
     event_notifications = models.BooleanField(default=True)
 
     is_premium = models.BooleanField(default=False)
-    premium_until = models.DateTimeField(null=True, blank=True)
+    premium_until = models.DateTimeField(null=True, blank=True)  # null khi trọn đời
+    plus_until = models.DateTimeField(null=True, blank=True)  # Premium+ (AI), luôn có hạn
 
     # Cửa hàng (C50): boost XP, hồi sinh streak, khung avatar đang trang bị
     xp_boost_until = models.DateTimeField(null=True, blank=True)

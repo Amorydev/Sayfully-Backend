@@ -13,6 +13,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
         "store",
         "started_at",
         "expires_at",
+        "will_renew",
     )
     list_filter = ("provider", "status", "store")
     search_fields = ("user__email", "original_txn_id")
@@ -41,5 +42,16 @@ class GiftCodeAdmin(admin.ModelAdmin):
 
 @admin.register(m.Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("code", "name_vi", "kind", "period", "price", "coins", "is_active", "order")
-    list_filter = ("kind", "is_active")
+    list_display = (
+        "code",
+        "name_vi",
+        "kind",
+        "tier",
+        "period",
+        "price",
+        "coins",
+        "is_active",
+        "order",
+    )
+    list_filter = ("kind", "tier", "is_active")
+    list_editable = ("is_active", "order")

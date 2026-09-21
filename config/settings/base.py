@@ -20,6 +20,9 @@ env = environ.Env(
     VIDEO_IMPORT_SYNC=(bool, False),
     AI_TIMEOUT=(int, 30),
     PLAY_INTEGRITY_MAX_AGE_SEC=(int, 600),
+    REVENUECAT_WEBHOOK_SECRET=(str, ""),
+    PAYOS_WEBHOOK_SECRET=(str, ""),
+    PAYOS_API_KEY=(str, ""),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -186,6 +189,12 @@ VIDEO_IMPORT_ENABLED = env("VIDEO_IMPORT_ENABLED")
 VIDEO_IMPORT_MAX_SEC = env("VIDEO_IMPORT_MAX_SEC")        # từ chối video dài hơn (mặc định 20 phút)
 VIDEO_IMPORT_DAILY_LIMIT = env("VIDEO_IMPORT_DAILY_LIMIT")  # số video mỗi người mỗi ngày
 VIDEO_IMPORT_SYNC = env("VIDEO_IMPORT_SYNC")              # True: xử lý ngay trong request (dev/test)
+
+# Thanh toán (apps.billing). RevenueCat gửi secret trong header `Authorization`;
+# PayOS ký payload bằng checksum key. Trống → webhook trả 401, checkout trả 503.
+REVENUECAT_WEBHOOK_SECRET = env("REVENUECAT_WEBHOOK_SECRET")
+PAYOS_WEBHOOK_SECRET = env("PAYOS_WEBHOOK_SECRET")
+PAYOS_API_KEY = env("PAYOS_API_KEY")
 
 LANGUAGE_CODE = "vi"
 TIME_ZONE = "UTC"                      # DB lưu UTC; đổi sang giờ user khi tính streak

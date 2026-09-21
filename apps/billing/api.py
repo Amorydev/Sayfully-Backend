@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 
 from django.conf import settings
+from django.utils import timezone as djtz
 from ninja import Router
 
 from apps.accounts.models import User
@@ -43,6 +44,9 @@ def _iso(v):
         return None
 
 
+_STORES = {"PLAY_STORE": "play_store", "APP_STORE": "app_store", "MAC_APP_STORE": "app_store"}
+
+
 def _extract(body: dict) -> dict:
     ev = body.get("event", body)  # RevenueCat lồng dưới "event"
     return {
@@ -51,12 +55,19 @@ def _extract(body: dict) -> dict:
         "app_user_id": ev.get("app_user_id") or ev.get("user_id"),
         "product_code": ev.get("product_id") or ev.get("product_code") or "",
         "expires_at": _ms_to_dt(ev.get("expiration_at_ms")) or _iso(ev.get("expires_at")),
+        "txn_id": str(ev.get("original_transaction_id") or ev.get("transaction_id") or ""),
+        "store": _STORES.get(str(ev.get("store") or "").upper(), ev.get("store") or ""),
+        "transferred_from": ev.get("transferred_from") or [],
     }
 
 
 def _verify(request, secret_setting: str):
+    """RevenueCat gửi đúng chuỗi cấu hình (có thể kèm `Bearer `) trong `Authorization`."""
     secret = getattr(settings, secret_setting, "")
-    if not secret or request.headers.get("X-Webhook-Secret", "") != secret:
+    sent = request.headers.get("Authorization", "") or request.headers.get("X-Webhook-Secret", "")
+    if sent.startswith("Bearer "):
+        sent = sent[7:]
+    if not secret or sent != secret:
         raise Unauthorized("Chữ ký webhook không hợp lệ", code="webhook_signature_invalid")
 
 
@@ -77,8 +88,10 @@ def products(request, kind: str | None = None):
             code=p.code,
             name_vi=p.name_vi,
             kind=p.kind,
+            tier=p.tier,
             coins=p.coins,
             period=p.period,
+            store_product_id=(p.store_ids or {}).get("revenuecat") or p.code,
             price=p.price,
             original_price=p.original_price,
             currency=p.currency,
@@ -94,22 +107,29 @@ def products(request, kind: str | None = None):
     "/subscription",
     response={200: s.SubscriptionOut, 401: ErrorOut},
     summary="Trạng thái Premium",
-    description="Gói đang hiệu lực (nếu có) + cờ `is_premium`.",
+    description=(
+        "Gói đang hiệu lực (nếu có) + cờ `is_premium`. `premium_until=null` khi trọn đời; "
+        "`tier=plus` khi Premium+ còn hạn. `store` để app mở đúng trang quản lý gói."
+    ),
 )
 def subscription(request):
     user = request.auth
     profile = ensure_profile(user)
     sub = (
-        Subscription.objects.filter(user=user, status=Subscription.Status.ACTIVE)
+        Subscription.objects.filter(user=user, status__in=["active", "grace"])
         .order_by("-started_at")
         .first()
     )
     return s.SubscriptionOut(
         is_premium=profile.is_premium,
+        tier="plus" if profile.plus_until and profile.plus_until > djtz.now() else "premium",
+        premium_until=profile.premium_until if profile.is_premium else None,
         product_code=sub.product_code if sub else None,
         status=sub.status if sub else None,
         provider=sub.provider if sub else None,
+        store=sub.store if sub else None,
         expires_at=sub.expires_at if sub else None,
+        will_renew=sub.will_renew if sub else False,
     )
 
 
@@ -165,6 +185,9 @@ def _handle_webhook(request, provider, secret_setting):
             product_code=data["product_code"],
             expires_at=data["expires_at"],
             payload=payload,
+            txn_id=data["txn_id"],
+            store=data["store"],
+            transferred_from=data["transferred_from"],
         )
     return {"ok": True}
 
@@ -174,7 +197,13 @@ def _handle_webhook(request, provider, secret_setting):
     auth=None,
     response={200: dict, 401: ErrorOut},
     summary="Webhook RevenueCat",
-    description="Xác thực chữ ký · idempotent theo `event_id` · đổi `is_premium`.",
+    description=(
+        "Header `Authorization` = secret cấu hình · idempotent theo `event_id` · "
+        "map `product_id` qua `Product.store_ids.revenuecat`. INITIAL_PURCHASE/RENEWAL/"
+        "UNCANCELLATION/PRODUCT_CHANGE/NON_RENEWING_PURCHASE → grant · CANCELLATION → "
+        "chỉ tắt `will_renew` · BILLING_ISSUE → grace · EXPIRATION → thu hồi · TRANSFER → "
+        "thu hồi user cũ."
+    ),
 )
 def revenuecat_webhook(request):
     return _handle_webhook(request, "revenuecat", "REVENUECAT_WEBHOOK_SECRET")
