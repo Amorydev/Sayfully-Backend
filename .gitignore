@@ -16,3 +16,4 @@ media/
 *.md
 .env.db
 *.dump
+compose.local.yml

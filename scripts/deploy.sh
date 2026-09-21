@@ -2,7 +2,9 @@
 # Deploy bản mới trên VPS: pull → build → migrate → up → health. Chạy từ thư mục repo.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-COMPOSE="docker compose -f compose.prod.yml"
+FILES="-f compose.prod.yml"
+[ -f compose.local.yml ] && FILES="$FILES -f compose.local.yml"   # cấu hình riêng của VPS (không commit)
+COMPOSE="docker compose $FILES"
 
 git pull --ff-only
 $COMPOSE build api

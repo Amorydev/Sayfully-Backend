@@ -1,5 +1,8 @@
 # Prod trên 1 VPS: caddy (TLS) → api (gunicorn) + worker (django-q2) → db (Postgres 16).
 # Dev vẫn dùng docker-compose.yml (chỉ db + redis). Chạy: docker compose -f compose.prod.yml up -d
+# VPS đã có reverse proxy khác giữ 80/443: bỏ profile `standalone` (caddy không chạy) và thêm
+# compose.local.yml (không commit) nối `api` vào network của proxy đó — xem DEPLOY-PLAN.md.
+# VPS trống: thêm --profile standalone để dùng Caddyfile trong repo.
 name: sayfully-prod
 
 services:
@@ -38,6 +41,7 @@ services:
     restart: unless-stopped
 
   caddy:
+    profiles: ["standalone"]
     image: caddy:2-alpine
     ports: ["80:80", "443:443"]
     volumes:
