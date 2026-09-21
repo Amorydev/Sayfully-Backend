@@ -74,6 +74,29 @@ def regen_hearts(profile: UserProfile) -> None:
     profile.save(update_fields=["hearts", "hearts_updated_at"])
 
 
+def hearts_next_at(profile: UserProfile):
+    """Mốc hồi tim kế tiếp; None khi đã đầy. Gọi sau `regen_hearts`."""
+    if profile.hearts >= HEARTS_MAX:
+        return None
+    return profile.hearts_updated_at + timedelta(minutes=HEART_REGEN_MINUTES)
+
+
+def lose_heart(profile: UserProfile) -> bool:
+    """Trừ 1 tim khi thua ván mini-game (hết 3 mạng). Trả False nếu đã 0 tim.
+
+    Khi đang đầy, `hearts_updated_at` chỉ là mốc vô nghĩa nên đặt lại = now để đồng hồ
+    hồi tim bắt đầu chạy từ lúc mất tim đầu tiên.
+    """
+    regen_hearts(profile)
+    if profile.hearts <= 0:
+        return False
+    if profile.hearts >= HEARTS_MAX:
+        profile.hearts_updated_at = djtz.now()
+    profile.hearts -= 1
+    profile.save(update_fields=["hearts", "hearts_updated_at"])
+    return True
+
+
 @dataclass
 class RewardResult:
     xp_earned: int
@@ -96,8 +119,13 @@ def _bump_streak(profile: UserProfile, today) -> bool:
         profile.streak_current += 1
     elif prev == today - timedelta(days=2) and profile.streak_freezes > 0:
         profile.streak_freezes -= 1
+        profile.streak_frozen_on = today - timedelta(days=1)
         profile.streak_current += 1
     else:
+        # Mất streak: ghi lại để có thể mua "Hồi sinh streak" trong 48h (gamification.shop).
+        if prev is not None and profile.streak_current > 0:
+            profile.streak_lost_value = profile.streak_current
+            profile.streak_lost_at = djtz.now()
         profile.streak_current = 1
     record = profile.streak_current > profile.streak_best
     profile.streak_best = max(profile.streak_best, profile.streak_current)
@@ -115,9 +143,19 @@ def record(
     lessons: int = 0,
     words: int = 0,
     speaking: int = 0,
+    listening: int = 0,
+    ai_turns: int = 0,
     minutes: int = 0,
 ) -> RewardResult:
-    """Ghi 1 lần hoạt động: DailyActivity + streak + XP/level + xu (kèm sổ cái)."""
+    """Ghi 1 lần hoạt động: DailyActivity + streak + XP/level + xu (kèm sổ cái).
+
+    XP nhân đôi khi đang bật boost; Premium được cộng thêm % xu (xem gamification.shop)."""
+    from apps.gamification import shop  # noqa: PLC0415 — tránh import vòng
+
+    now = djtz.now()
+    if xp and shop.xp_boost_active(profile, now):
+        xp *= shop.XP_BOOST_MULTIPLIER
+    coins = shop.coin_bonus(profile, coins, now)
     today = local_today(profile)
     first_today = not DailyActivity.objects.filter(user=profile.user, date=today).exists()
 
@@ -126,15 +164,15 @@ def record(
     daily.lessons_completed += lessons
     daily.words_reviewed += words
     daily.speaking_count += speaking
+    daily.listening_count += listening
+    daily.ai_turns += ai_turns
     daily.minutes += minutes
     daily.save()
 
     is_record = _bump_streak(profile, today) if first_today else False
 
     iso = today.isocalendar()
-    ws, _ = WeeklyStat.objects.get_or_create(
-        user=profile.user, iso_year=iso[0], iso_week=iso[1]
-    )
+    ws, _ = WeeklyStat.objects.get_or_create(user=profile.user, iso_year=iso[0], iso_week=iso[1])
     ws.xp += xp
     if first_today:
         ws.days_active += 1
@@ -153,6 +191,9 @@ def record(
             "streak_current",
             "streak_best",
             "streak_freezes",
+            "streak_frozen_on",
+            "streak_lost_value",
+            "streak_lost_at",
         ]
     )
     if coins:
@@ -164,6 +205,7 @@ def record(
             ref_id=str(ref_id),
             balance_after=profile.coins,
         )
+        shop.notify_wishlist(profile)
 
     return RewardResult(
         xp_earned=xp,

@@ -1,19 +1,24 @@
 """21 endpoint nội dung học (G2). Tất cả `Bearer`.
 
-Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Chi tiết A2–C2 cần Premium (🔒).
+Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Cấp có `is_free=False` cần Premium (🔒).
 `audio_url` ghép đầy đủ từ `R2_PUBLIC_BASE`; `ipa` theo `UserProfile.accent`.
 """
 
 from django.conf import settings
 from django.db.models import Count, Q
+from django.utils import timezone
 from ninja import Query, Router
 
 from apps.accounts.services import ensure_profile
 from apps.common.exceptions import Forbidden, NotFound
 from apps.common.schemas import ErrorOut
+from apps.learning import services as learn_services
+from apps.learning import video_practice
+from apps.learning.models import GrammarProgress, IPASoundProgress, NotebookEntry, WordRootProgress
 
 from . import models as m
 from . import schemas as s
+from . import video_import
 
 router = Router()
 
@@ -35,7 +40,7 @@ def _ipa(vocab: m.Vocabulary, accent: str) -> str:
 def _syllables(vocab: m.Vocabulary) -> list[s.SyllableOut]:
     return [
         s.SyllableOut(
-            text=syl,
+            text=syl.lstrip("ˈˌ"),  # app tự thêm dấu trọng âm theo is_primary/is_secondary
             is_primary=(i == vocab.primary_stress),
             is_secondary=(i == vocab.secondary_stress),
         )
@@ -48,19 +53,45 @@ def _gate(profile, level: m.Level) -> None:
         raise Forbidden(_PREMIUM, code="premium_required")
 
 
-def _sentence(text_en: str, ipa: str, text_vi: str, audio_path: str) -> s.SentenceOut:
+def _accent_audio(obj, accent: str) -> dict:
+    """Ba URL audio cho schema kế thừa `AccentAudioOut`; `obj` là model có `AccentAudio`
+    hoặc dict JSON có `audio_us_path`/`audio_uk_path` (payload bước bài học, cụm động từ)."""
+    if isinstance(obj, dict):
+        us, uk = (
+            obj.get("audio_us_path") or obj.get("audio_path") or "",
+            obj.get("audio_uk_path") or "",
+        )
+    else:
+        us, uk = obj.audio_us_path, obj.audio_uk_path
+    chosen = (us or uk) if accent == "US" else (uk or us)
+    return {"audio_url": _media(chosen), "audio_us_url": _media(us), "audio_uk_url": _media(uk)}
+
+
+def _sentence(obj, accent: str, *, text_en=None, ipa=None, text_vi=None) -> s.SentenceOut:
+    """`obj` model (AccentAudio) hay dict payload; text lấy từ obj nếu không truyền."""
+    get = (
+        (lambda k, d="": obj.get(k, d))
+        if isinstance(obj, dict)
+        else (lambda k, d="": getattr(obj, k, d))
+    )
     return s.SentenceOut(
-        text_en=text_en, ipa=ipa or None, text_vi=text_vi, audio_url=_media(audio_path)
+        text_en=text_en if text_en is not None else get("text_en"),
+        ipa=(ipa if ipa is not None else get("ipa")) or None,
+        text_vi=text_vi if text_vi is not None else get("text_vi"),
+        **_accent_audio(obj, accent),
     )
 
 
-def _example(e: m.VocabularyExample) -> s.ExampleOut:
-    return s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path))
+def _example(e: m.VocabularyExample, accent: str) -> s.ExampleOut:
+    return s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, **_accent_audio(e, accent))
 
 
 # --------------------------------------------------------------- builders: vocab
-def _vocab_list(v: m.Vocabulary, accent: str) -> s.VocabListOut:
-    audio = v.audio_us_path if accent == "US" else v.audio_uk_path
+def _vocab_list(
+    v: m.Vocabulary,
+    accent: str,
+    notebook_entry_id: int | None = None,
+) -> s.VocabListOut:
     return s.VocabListOut(
         id=v.id,
         headword=v.headword,
@@ -69,7 +100,9 @@ def _vocab_list(v: m.Vocabulary, accent: str) -> s.VocabListOut:
         meaning_vi=v.meaning_vi,
         ipa=_ipa(v, accent),
         syllables=_syllables(v),
-        audio_url=_media(audio),
+        **_accent_audio(v, accent),
+        is_saved=notebook_entry_id is not None,
+        notebook_entry_id=notebook_entry_id,
     )
 
 
@@ -84,11 +117,36 @@ def _vocab_card(v: m.Vocabulary, accent: str) -> s.VocabCardOut:
         meaning_vi=v.meaning_vi,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
-        examples=[_example(e) for e in v.examples.all()],
+        examples=[_example(e, accent) for e in v.examples.all()],
+        collocations=[
+            s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
+            for c in v.collocations.all()
+        ],
+        category=v.category or "word",
     )
 
 
-def _vocab_detail(v: m.Vocabulary, accent: str) -> s.VocabDetailOut:
+def _related_word(v: m.Vocabulary) -> s.RelatedWordOut:
+    return s.RelatedWordOut(
+        id=v.id,
+        headword=v.headword,
+        pos=v.pos,
+        meaning_vi=v.meaning_vi,
+    )
+
+
+def _named_related_word(name: str, by_headword: dict[str, m.Vocabulary]) -> s.RelatedWordOut:
+    vocabulary = by_headword.get(name.casefold())
+    return _related_word(vocabulary) if vocabulary else s.RelatedWordOut(headword=name)
+
+
+def _vocab_detail(
+    v: m.Vocabulary,
+    accent: str,
+    notebook_entry_id: int | None = None,
+    named_related: dict[str, m.Vocabulary] | None = None,
+) -> s.VocabDetailOut:
+    related = named_related or {}
     return s.VocabDetailOut(
         id=v.id,
         headword=v.headword,
@@ -100,12 +158,19 @@ def _vocab_detail(v: m.Vocabulary, accent: str) -> s.VocabDetailOut:
         syllables=_syllables(v),
         meaning_vi=v.meaning_vi,
         definition_en=v.definition_en,
+        definition_vi=v.definition_vi,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
         frequency_rank=v.frequency_rank,
         synonyms=v.synonyms or [],
+        antonyms=v.antonyms or [],
         word_family=[w.headword for w in v.word_family.all()],
-        examples=[_example(e) for e in v.examples.all()],
+        synonym_items=[_named_related_word(name, related) for name in (v.synonyms or [])],
+        antonym_items=[_named_related_word(name, related) for name in (v.antonyms or [])],
+        word_family_items=[_related_word(word) for word in v.word_family.all()],
+        is_saved=notebook_entry_id is not None,
+        notebook_entry_id=notebook_entry_id,
+        examples=[_example(e, accent) for e in v.examples.all()],
         collocations=[
             s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
             for c in v.collocations.all()
@@ -121,8 +186,8 @@ def _conjugation(gp: m.GrammarPoint) -> list[s.ConjugationRowOut]:
     ]
 
 
-def _grammar_examples(gp: m.GrammarPoint) -> list[s.SentenceOut]:
-    return [_sentence(e.text_en, e.ipa, e.text_vi, e.audio_path) for e in gp.examples.all()]
+def _grammar_examples(gp: m.GrammarPoint, accent: str) -> list[s.SentenceOut]:
+    return [_sentence(e, accent) for e in gp.examples.all()]
 
 
 # --------------------------------------------------------------- builders: lesson steps
@@ -132,18 +197,11 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         p = step.payload or {}
         out.intro = s.IntroStepOut(
             highlight_vi=p.get("highlight_vi", ""),
-            preview=[
-                _sentence(
-                    x.get("text_en", ""),
-                    x.get("ipa", ""),
-                    x.get("text_vi", ""),
-                    x.get("audio_path", ""),
-                )
-                for x in p.get("preview", [])
-            ],
+            preview=[_sentence(x, accent) for x in p.get("preview", [])],
         )
     elif step.kind == m.LessonStep.Kind.VOCAB and step.vocabulary_id:
         out.vocab = _vocab_card(step.vocabulary, accent)
+        out.vocab.note_vi = (step.payload or {}).get("note_vi", "")
     elif step.kind == m.LessonStep.Kind.GRAMMAR and step.grammar_point_id:
         gp = step.grammar_point
         out.grammar = s.GrammarStepOut(
@@ -154,8 +212,10 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             note_vi=gp.note_vi,
             explanation_vi=gp.explanation_vi,
             common_mistake_vi=gp.common_mistake_vi,
+            mistake_wrong=gp.mistake_wrong,
+            mistake_right=gp.mistake_right,
             conjugation=_conjugation(gp),
-            examples=_grammar_examples(gp),
+            examples=_grammar_examples(gp, accent),
         )
     elif step.kind == m.LessonStep.Kind.DIALOGUE and step.dialogue_id:
         d = step.dialogue
@@ -164,6 +224,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
             title_en=d.title_en,
             title_vi=d.title_vi,
             context_vi=d.context_vi,
+            total_lines=d.lines.count(),
             lines=[
                 s.DialogueLineOut(
                     order=ln.order,
@@ -172,24 +233,21 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
                     text_en=ln.text_en,
                     ipa=ln.ipa or None,
                     text_vi=ln.text_vi,
-                    audio_url=_media(ln.audio_path),
+                    **_accent_audio(ln, accent),
                 )
-                for ln in d.lines.all()
+                for ln in d.lesson_lines()
             ],
         )
     elif step.kind == m.LessonStep.Kind.SPELLING:
         p = step.payload or {}
         v = step.vocabulary
-        audio_path = (
-            (v.audio_us_path if accent == "US" else v.audio_uk_path) if v else p.get("audio_path", "")
-        )
         out.spelling = s.SpellingStepOut(
             vocab_id=step.vocabulary_id,
             word=v.headword if v else p.get("word", ""),
             meaning_vi=v.meaning_vi if v else p.get("meaning_vi", ""),
             ipa=_ipa(v, accent) if v else p.get("ipa"),
-            audio_url=_media(audio_path),
             hint_vi=p.get("hint_vi", ""),
+            **_accent_audio(v if v else p, accent),
         )
     elif step.kind == m.LessonStep.Kind.WRITING:
         p = step.payload or {}
@@ -203,13 +261,20 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
         p = step.payload or {}
         v = step.vocabulary
         out.quiz = s.QuizStepOut(
+            kind=p.get("kind") or "listening",
             prompt_vi=p.get("prompt_vi", ""),
             question_word=v.headword if v else p.get("question_word", ""),
+            question_vi=p.get("question_vi", ""),
             question_ipa=_ipa(v, accent) if v else p.get("question_ipa"),
-            audio_url=_media(p.get("audio_path", "")),
+            **_accent_audio(v if v else p, accent),
             options=[s.QuizOptionOut(text=o) for o in p.get("options", [])],
             correct_index=p.get("correct_index", 0),
             explanation_vi=p.get("explanation_vi", ""),
+            sentence_en=p.get("sentence_en", ""),
+            sentence_vi=p.get("sentence_vi", ""),
+            speaker=p.get("speaker", ""),
+            hint_vi=p.get("hint_vi", ""),
+            formula=p.get("formula", ""),
             xp=p.get("xp", 10),
         )
     return out
@@ -220,7 +285,7 @@ def _lesson_step(step: m.LessonStep, accent: str) -> s.LessonStepOut:
     "/levels",
     response={200: list[s.LevelOut], 401: ErrorOut},
     summary="Danh sách cấp CEFR",
-    description="6 cấp A1→C2 kèm mục tiêu số từ và cờ miễn phí (`is_free`, chỉ A1).",
+    description="6 cấp A1→C2 kèm mục tiêu số từ và cờ miễn phí (`is_free`).",
 )
 def list_levels(request):
     return [
@@ -289,6 +354,7 @@ def get_unit(request, id: int):
                 id=ls.id,
                 code=ls.code,
                 order=ls.order,
+                kind=ls.kind,
                 title_vi=ls.title_vi,
                 title_en=ls.title_en,
                 est_minutes=ls.est_minutes,
@@ -305,7 +371,7 @@ def get_unit(request, id: int):
     summary="Chi tiết bài học (lồng đủ các bước)",
     description=(
         "Trả toàn bộ bước học đa hình theo `kind` trong **một lần gọi**.\n\n"
-        "Chi tiết cấp A2–C2 cần Premium (`premium_required`). Bước `writing` chỉ có "
+        "Chi tiết cấp có `is_free=False` cần Premium (`premium_required`). Bước `writing` chỉ có "
         "khi bật AI."
     ),
 )
@@ -316,7 +382,17 @@ def get_lesson(request, code: str):
         raise NotFound(_NOTFOUND)
     _gate(profile, lesson.unit.level)
 
-    steps = lesson.steps.select_related("vocabulary", "grammar_point", "dialogue").order_by("order")
+    steps = (
+        lesson.steps.select_related("vocabulary", "grammar_point", "dialogue")
+        .prefetch_related("vocabulary__examples", "vocabulary__collocations")
+        .order_by("order")
+    )
+    vocab_ids = [st.vocabulary_id for st in steps if st.vocabulary_id]
+    saved = dict(  # bookmark trên thẻ từ = mục sổ tay của người dùng
+        NotebookEntry.objects.filter(user=request.auth, vocabulary_id__in=vocab_ids).values_list(
+            "vocabulary_id", "id"
+        )
+    )
     step_outs, n_vocab, n_grammar, n_dialogue = [], 0, 0, 0
     for step in steps:
         if step.kind == m.LessonStep.Kind.VOCAB:
@@ -325,9 +401,13 @@ def get_lesson(request, code: str):
             n_grammar += 1
         elif step.kind == m.LessonStep.Kind.DIALOGUE:
             n_dialogue += 1
-        step_outs.append(_lesson_step(step, profile.accent))
+        out = _lesson_step(step, profile.accent)
+        if out.vocab is not None:
+            out.vocab.notebook_entry_id = saved.get(step.vocabulary_id)
+        step_outs.append(out)
 
     return s.LessonDetailOut(
+        kind=lesson.kind,
         code=lesson.code,
         order=lesson.order,
         unit=s.UnitRefOut(
@@ -350,6 +430,41 @@ def get_lesson(request, code: str):
 
 
 # =============================================================== 2.2 Từ vựng
+_AUDIO_SAMPLE_WORDS = ("hello", "beautiful", "water", "thank")
+
+
+@router.get(
+    "/audio/sample",
+    response={200: s.AudioSampleOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Từ mẫu nghe thử giọng US/UK",
+    description="Ưu tiên từ quen thuộc có đủ hai giọng; kho chưa có audio nào → 404.",
+)
+def audio_sample(request):
+    ensure_profile(request.auth)
+    both = ~Q(audio_us_path="") & ~Q(audio_uk_path="")
+    v = None
+    for word in _AUDIO_SAMPLE_WORDS:
+        v = m.Vocabulary.objects.filter(both, headword__iexact=word).first()
+        if v:
+            break
+    if v is None:
+        v = (
+            m.Vocabulary.objects.filter(both).order_by("frequency_rank", "id").first()
+            or m.Vocabulary.objects.exclude(audio_us_path="", audio_uk_path="")
+            .order_by("frequency_rank", "id")
+            .first()
+        )
+    if v is None:
+        raise NotFound("Kho từ vựng chưa có bản ghi âm nào")
+    return s.AudioSampleOut(
+        word=v.headword,
+        ipa_us=v.ipa_us,
+        ipa_uk=v.ipa_uk,
+        audio_us_url=_media(v.audio_us_path),
+        audio_uk_url=_media(v.audio_uk_path),
+    )
+
+
 @router.get(
     "/vocabulary",
     response={200: s.Page[s.VocabListOut], 401: ErrorOut, 422: ErrorOut},
@@ -382,9 +497,18 @@ def list_vocabulary(
         )
     qs = qs.distinct().order_by("frequency_rank", "headword")
     count = qs.count()
-    items = qs[offset : offset + limit]
+    items = list(qs[offset : offset + limit])
+    # Import cục bộ để content không tạo vòng import module với learning.
+    from apps.learning.models import NotebookEntry
+
+    notebook_entries = dict(
+        NotebookEntry.objects.filter(
+            user=request.auth,
+            vocabulary_id__in=[item.id for item in items],
+        ).values_list("vocabulary_id", "id")
+    )
     return s.Page(
-        items=[_vocab_list(v, profile.accent) for v in items],
+        items=[_vocab_list(v, profile.accent, notebook_entries.get(v.id)) for v in items],
         count=count,
         limit=limit,
         offset=offset,
@@ -406,7 +530,24 @@ def get_vocabulary(request, id: int):
     )
     if v is None:
         raise NotFound(_NOTFOUND)
-    return _vocab_detail(v, profile.accent)
+    from apps.learning.models import NotebookEntry
+
+    notebook_entry_id = (
+        NotebookEntry.objects.filter(
+            user=request.auth,
+            vocabulary=v,
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    named_words = set(v.synonyms or []) | set(v.antonyms or [])
+    related = {
+        word.headword.casefold(): word
+        for word in m.Vocabulary.objects.filter(headword__in=named_words).order_by(
+            "frequency_rank", "id"
+        )
+    }
+    return _vocab_detail(v, profile.accent, notebook_entry_id, related)
 
 
 @router.get(
@@ -431,45 +572,70 @@ def list_topics(request):
 
 
 # =============================================================== 2.3 Ngữ pháp
+def _grammar_completed_ids(user) -> set[int]:
+    return set(
+        GrammarProgress.objects.filter(user=user, completed_at__isnull=False).values_list(
+            "grammar_point_id", flat=True
+        )
+    )
+
+
 @router.get(
     "/grammar",
-    response={200: s.Page[s.GrammarListOut], 401: ErrorOut, 422: ErrorOut},
+    response={200: s.GrammarPageOut, 401: ErrorOut, 422: ErrorOut},
     summary="Danh sách điểm ngữ pháp",
-    description="Lọc theo `level`, `category`; `q` tìm theo tiêu đề.",
+    description=(
+        "Lọc theo `level` (mặc định cấp của người dùng), `category`; `q` tìm theo tiêu đề. Kèm chip "
+        "danh mục của cấp, số điểm đã hoàn thành và mẹo vàng."
+    ),
 )
 def list_grammar(
     request,
     level: str | None = None,
     category: str | None = None,
     q: str | None = None,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    qs = m.GrammarPoint.objects.all()
-    if level:
-        qs = qs.filter(level_id=level.upper())
+    profile = ensure_profile(request.auth)
+    level_code = (level or profile.cefr_level or "A1").upper()
+    base = m.GrammarPoint.objects.filter(level_id=level_code).select_related("level")
+    categories = [
+        c for c in base.order_by("order").values_list("category", flat=True).distinct() if c
+    ]
+    qs = base
     if category:
         qs = qs.filter(category=category)
     if q:
         qs = qs.filter(Q(title_vi__icontains=q) | Q(title_en__icontains=q))
-    qs = qs.order_by("level__order", "order")
+    qs = qs.annotate(n_ex=Count("exercises")).order_by("order")
     count = qs.count()
-    items = qs[offset : offset + limit]
-    return s.Page(
+    items = list(qs[offset : offset + limit])
+    done = _grammar_completed_ids(request.auth)
+    tip = next((g.note_vi for g in base.order_by("order") if g.id not in done and g.note_vi), "")
+    return s.GrammarPageOut(
         items=[
             s.GrammarListOut(
                 id=g.id,
                 level=g.level_id,
+                order=g.order,
                 category=g.category,
                 title_vi=g.title_vi,
                 title_en=g.title_en,
+                subtitle_vi=g.subtitle_vi,
                 formula=g.formula,
+                exercise_count=g.n_ex,
+                completed=g.id in done,
+                is_locked=not g.level.is_free and not profile.is_premium,
             )
             for g in items
         ],
         count=count,
         limit=limit,
         offset=offset,
+        categories=list(dict.fromkeys(categories)),
+        completed=sum(1 for gid in base.values_list("id", flat=True) if gid in done),
+        tip_vi=tip,
     )
 
 
@@ -477,7 +643,7 @@ def list_grammar(
     "/grammar/{id}",
     response={200: s.GrammarDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết điểm ngữ pháp",
-    description="Công thức, bảng chia, ví dụ. Cấp A2–C2 cần Premium.",
+    description="Công thức (kèm từng thành phần), bảng chia, ví dụ, lỗi hay gặp, tiến độ. Cấp có `is_free=False` cần Premium.",
 )
 def get_grammar(request, id: int):
     profile = ensure_profile(request.auth)
@@ -490,17 +656,99 @@ def get_grammar(request, id: int):
     if g is None:
         raise NotFound(_NOTFOUND)
     _gate(profile, g.level)
+    siblings = list(
+        m.GrammarPoint.objects.filter(level=g.level).order_by("order").values_list("id", flat=True)
+    )
+    prog = GrammarProgress.objects.filter(user=request.auth, grammar_point=g).first()
     return s.GrammarDetailOut(
         id=g.id,
         level=g.level_id,
+        order=g.order,
+        position=siblings.index(g.id) + 1 if g.id in siblings else 1,
+        total_in_level=len(siblings),
         category=g.category,
         title_vi=g.title_vi,
         title_en=g.title_en,
+        subtitle_vi=g.subtitle_vi,
+        form_vi=g.form_vi,
         formula=g.formula,
+        formula_parts=[
+            s.FormulaPartOut(token=p.get("token", ""), label_vi=p.get("label_vi", ""))
+            for p in (g.formula_parts or [])
+        ],
+        note_vi=g.note_vi,
         explanation_vi=g.explanation_vi,
         common_mistake_vi=g.common_mistake_vi,
+        mistake_wrong=g.mistake_wrong,
+        mistake_right=g.mistake_right,
         conjugation=_conjugation(g),
-        examples=_grammar_examples(g),
+        examples=_grammar_examples(g, profile.accent),
+        exercise_count=g.exercises.count(),
+        xp_reward=GrammarProgress.XP_REWARD,
+        completed=bool(prog and prog.completed_at),
+        best_percent=prog.best_percent if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+@router.get(
+    "/grammar/{id}/exercises",
+    response={200: list[s.GrammarExerciseOut], 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Câu thực hành của điểm ngữ pháp",
+    description="Trắc nghiệm điền chỗ trống (`___` trong prompt_en). App chấm tại chỗ rồi gửi kết quả qua /practice.",
+)
+def list_grammar_exercises(request, id: int):
+    profile = ensure_profile(request.auth)
+    g = m.GrammarPoint.objects.filter(id=id).select_related("level").first()
+    if g is None:
+        raise NotFound(_NOTFOUND)
+    _gate(profile, g.level)
+    return [
+        s.GrammarExerciseOut(
+            id=e.id,
+            order=e.order,
+            prompt_en=e.prompt_en,
+            prompt_vi=e.prompt_vi,
+            options=e.options or [],
+            answer_index=e.answer_index,
+            explanation_vi=e.explanation_vi,
+        )
+        for e in g.exercises.all()
+    ]
+
+
+@router.post(
+    "/grammar/{id}/practice",
+    response={200: s.GrammarPracticeOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Ghi kết quả thực hành ngữ pháp",
+    description="≥ 70% lần đầu → hoàn thành điểm ngữ pháp, +30 XP và tính hoạt động trong ngày (giữ streak).",
+)
+def practice_grammar(request, id: int, data: s.GrammarPracticeIn):
+    profile = ensure_profile(request.auth)
+    g = m.GrammarPoint.objects.filter(id=id).select_related("level").first()
+    if g is None:
+        raise NotFound(_NOTFOUND)
+    _gate(profile, g.level)
+    percent = min(100, round(100 * min(data.correct, data.total) / data.total))
+    prog, _ = GrammarProgress.objects.get_or_create(user=request.auth, grammar_point=g)
+    prog.attempts += 1
+    prog.best_percent = max(prog.best_percent, percent)
+    newly = False
+    xp = 0
+    if prog.best_percent >= GrammarProgress.COMPLETE_PERCENT and prog.completed_at is None:
+        prog.completed_at = timezone.now()
+        newly = True
+        xp = GrammarProgress.XP_REWARD
+    prog.save()
+    reward = learn_services.record(profile, xp=xp, ref_type="grammar", ref_id=str(g.id), minutes=1)
+    return s.GrammarPracticeOut(
+        percent=percent,
+        best_percent=prog.best_percent,
+        attempts=prog.attempts,
+        completed=prog.completed_at is not None,
+        newly_completed=newly,
+        xp_earned=reward.xp_earned,
+        streak_days=reward.streak_days,
     )
 
 
@@ -548,10 +796,11 @@ def list_readings(
     "/readings/{id}",
     response={200: s.ReadingDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết bài đọc",
-    description="Câu song ngữ (IPA + audio), từ khoá, câu hỏi. Cấp A2–C2 cần Premium.",
+    description="Câu song ngữ (IPA + audio), từ khoá, câu hỏi. Cấp có `is_free=False` cần Premium.",
 )
 def get_reading(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     r = (
         m.Reading.objects.filter(id=id)
         .select_related("level")
@@ -566,19 +815,20 @@ def get_reading(request, id: int):
         level=r.level_id,
         title_en=r.title_en,
         title_vi=r.title_vi,
+        topic=r.topic.name_vi if r.topic else None,
         est_minutes=r.est_minutes,
-        sentences=[
-            _sentence(sen.text_en, sen.ipa, sen.text_vi, sen.audio_path)
-            for sen in r.sentences.all()
-        ],
+        cover_url=_media(r.cover_path),
+        sentences=[_sentence(sen, accent) for sen in r.sentences.all()],
         keywords=[
             s.ReadingKeywordOut(
                 id=k.id,
                 headword=k.headword,
+                level=k.level_id,
                 ipa=_ipa(k, profile.accent),
                 pos=k.pos,
                 meaning_vi=k.meaning_vi,
                 synonyms=k.synonyms or [],
+                **_accent_audio(k, profile.accent),
             )
             for k in r.keywords.all()
         ],
@@ -642,10 +892,11 @@ def list_stories(
     "/stories/{id}",
     response={200: s.StoryDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết truyện",
-    description="Cảnh + câu (audio) + câu hỏi. Cấp A2–C2 cần Premium.",
+    description="Cảnh + câu (audio) + câu hỏi. Cấp có `is_free=False` cần Premium.",
 )
 def get_story(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     st = (
         m.Story.objects.filter(id=id)
         .select_related("level")
@@ -670,7 +921,7 @@ def get_story(request, id: int):
                         order=sen.order,
                         text_en=sen.text_en,
                         text_vi=sen.text_vi,
-                        audio_url=_media(sen.audio_path),
+                        **_accent_audio(sen, accent),
                     )
                     for sen in sc.sentences.all()
                 ],
@@ -696,35 +947,46 @@ def get_story(request, id: int):
     "/videos",
     response={200: s.Page[s.VideoListOut], 401: ErrorOut},
     summary="Danh sách video học",
-    description="Lọc theo `level`, `category`.",
+    description="Lọc theo `level`, `category`, `featured=true` (hàng Nổi bật, sắp theo `featured_order`).",
 )
 def list_videos(
     request,
     level: str | None = None,
     category: str | None = None,
+    featured: bool | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    qs = m.Video.objects.all()
+    qs = m.Video.objects.filter(source=m.Video.Source.CURATED)
     if level:
         qs = qs.filter(level_id=level.upper())
     if category:
         qs = qs.filter(category=category)
-    qs = qs.order_by("level__order", "id")
+    if featured is not None:
+        qs = qs.filter(is_featured=featured)
+    qs = qs.annotate(sentence_count=Count("subtitles")).order_by(
+        "-is_featured", "featured_order", "level__order", "id"
+    )
     count = qs.count()
-    items = qs[offset : offset + limit]
+    items = list(qs[offset : offset + limit])
+    practice = video_practice.summaries(request.auth, [vd.id for vd in items])
+    subtitles = dict(m.VideoCategory.objects.values_list("name", "subtitle"))
     return s.Page(
         items=[
             s.VideoListOut(
                 id=vd.id,
                 youtube_id=vd.youtube_id,
-                level=vd.level_id,
+                level=vd.level_id or "",
                 title_vi=vd.title_vi,
                 title_en=vd.title_en,
                 category=vd.category,
+                category_subtitle=subtitles.get(vd.category, ""),
                 duration_sec=vd.duration_sec,
                 thumbnail_url=_media(vd.thumbnail_path),
                 is_free=vd.is_free,
+                is_featured=vd.is_featured,
+                sentence_count=vd.sentence_count,
+                practice=_practice_summary_out(practice[vd.id]),
             )
             for vd in items
         ],
@@ -735,25 +997,123 @@ def list_videos(
 
 
 @router.get(
+    "/videos/preview",
+    response={200: s.VideoPreviewOut, 401: ErrorOut, 403: ErrorOut, 422: ErrorOut},
+    summary="Xem trước link YouTube trước khi thêm (Premium)",
+    description="Tiêu đề, kênh, thời lượng và có phụ đề EN hay không. `reject_code` rỗng = thêm được.",
+)
+def preview_video_import(request, url: str = Query(..., min_length=5, max_length=300)):
+    profile = ensure_profile(request.auth)
+    video_import.ensure_can_import(profile)
+    youtube_id = video_import.parse_youtube_id(url)
+    if youtube_id is None:
+        raise video_import.VideoImportError(
+            video_import.reject_message("invalid_url"), code="invalid_url"
+        )
+    info = video_import.preview(youtube_id)
+    return s.VideoPreviewOut(
+        youtube_id=info.youtube_id,
+        title=info.title,
+        channel=info.channel,
+        duration_sec=info.duration_sec,
+        has_english_captions=info.has_english_captions,
+        thumbnail_url=_yt_thumb(info.youtube_id),
+        reject_code=info.reject_code,
+        reject_message=video_import.reject_message(info.reject_code) if info.reject_code else "",
+    )
+
+
+@router.post(
+    "/videos/import",
+    response={202: s.UserVideoOut, 401: ErrorOut, 403: ErrorOut, 422: ErrorOut, 429: ErrorOut},
+    summary="Thêm video YouTube của bạn (Premium)",
+    description=(
+        "Tạo video học từ link YouTube có phụ đề EN. Trả `status=pending|processing`; client poll "
+        "`GET /content/videos/mine` tới khi `ready`. Video đã có sẵn thì trả `ready` ngay, không tốn quota. "
+        "Lỗi: `premium_required` 403, `invalid_url|no_captions|too_long|not_embeddable` 422, "
+        "`video_quota_exceeded` 429."
+    ),
+)
+def import_video(request, payload: s.VideoImportIn):
+    profile = ensure_profile(request.auth)
+    video = video_import.request_import(profile, payload.url)
+    video.refresh_from_db()
+    return 202, _user_video_out(video, profile)
+
+
+@router.get(
+    "/videos/mine",
+    response={200: s.UserVideoListOut, 401: ErrorOut},
+    summary="Video của tôi (Premium) + quota hôm nay",
+)
+def list_my_videos(request):
+    profile = ensure_profile(request.auth)
+    left, limit = video_import.quota(profile)
+    videos = video_import.library(profile)
+    practice = video_practice.summaries(request.auth, [vd.id for vd in videos])
+    return s.UserVideoListOut(
+        items=[_user_video_out(vd, profile, practice[vd.id]) for vd in videos],
+        quota=s.VideoQuotaOut(left=left, limit=limit),
+        can_import=settings.VIDEO_IMPORT_ENABLED and profile.is_premium,
+    )
+
+
+@router.delete(
+    "/videos/{id}",
+    response={204: None, 401: ErrorOut, 404: ErrorOut},
+    summary="Bỏ video khỏi 'Video của tôi'",
+)
+def remove_my_video(request, id: int):
+    profile = ensure_profile(request.auth)
+    if not video_import.remove_from_library(profile, id):
+        raise NotFound(_NOTFOUND)
+    return 204, None
+
+
+@router.get(
     "/videos/{id}",
     response={200: s.VideoDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết video kèm phụ đề",
-    description="Phụ đề song ngữ có timestamp + IPA. Cấp A2–C2 cần Premium.",
+    description=(
+        "Phụ đề song ngữ có timestamp + IPA. Cấp có `is_free=False` cần Premium. "
+        "Video người dùng thêm: chỉ người đã thêm mới xem được; chưa `ready` thì `subtitles` rỗng."
+    ),
 )
 def get_video(request, id: int):
     profile = ensure_profile(request.auth)
     vd = m.Video.objects.filter(id=id).select_related("level").prefetch_related("subtitles").first()
     if vd is None:
         raise NotFound(_NOTFOUND)
-    _gate(profile, vd.level)
+    if vd.source == m.Video.Source.USER:
+        if not video_import.can_view(profile, vd):
+            raise NotFound(_NOTFOUND)
+    elif vd.level is not None:
+        _gate(profile, vd.level)
+    practice = video_practice.detail(request.auth, vd.id)
     return s.VideoDetailOut(
         id=vd.id,
         youtube_id=vd.youtube_id,
-        level=vd.level_id,
+        level=vd.level_id or "",
         title_vi=vd.title_vi,
         title_en=vd.title_en,
         category=vd.category,
         duration_sec=vd.duration_sec,
+        source=vd.source,
+        status=vd.status,
+        error_code=vd.error_code,
+        practice=s.VideoPracticeOut(
+            shadowing_done=practice.summary.shadowing_done,
+            dictation_done=practice.summary.dictation_done,
+            last_mode=practice.summary.last_mode,
+            shadowing=[
+                s.VideoSentenceResultOut(order=o, percent=p)
+                for o, p in sorted(practice.shadowing.items())
+            ],
+            dictation=[
+                s.VideoSentenceResultOut(order=o, percent=p)
+                for o, p in sorted(practice.dictation.items())
+            ],
+        ),
         subtitles=[
             s.VideoSubtitleOut(
                 order=sub.order,
@@ -763,8 +1123,38 @@ def get_video(request, id: int):
                 ipa=sub.ipa,
                 text_vi=sub.text_vi,
             )
-            for sub in vd.subtitles.all()
+            for sub in (vd.subtitles.all() if vd.status == m.Video.Status.READY else [])
         ],
+    )
+
+
+def _yt_thumb(youtube_id: str) -> str:
+    return f"https://img.youtube.com/vi/{youtube_id}/hqdefault.jpg"
+
+
+def _practice_summary_out(summary) -> s.VideoPracticeSummaryOut:
+    return s.VideoPracticeSummaryOut(
+        shadowing_done=summary.shadowing_done,
+        dictation_done=summary.dictation_done,
+        last_mode=summary.last_mode,
+    )
+
+
+def _user_video_out(vd: m.Video, profile, practice=None) -> s.UserVideoOut:
+    return s.UserVideoOut(
+        id=vd.id,
+        youtube_id=vd.youtube_id,
+        title=vd.title_vi or vd.title_en,
+        channel=vd.channel,
+        duration_sec=vd.duration_sec,
+        level=vd.level_id,
+        status=vd.status,
+        error_code=vd.error_code,
+        error_message=video_import.reject_message(vd.error_code) if vd.error_code else "",
+        thumbnail_url=_yt_thumb(vd.youtube_id),
+        added_label=video_import.added_label(vd, profile),
+        sentence_count=vd.subtitles.count(),
+        practice=_practice_summary_out(practice) if practice else s.VideoPracticeSummaryOut(),
     )
 
 
@@ -811,10 +1201,11 @@ def list_shadowing(
     "/shadowing/{id}",
     response={200: s.ShadowingDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết bộ shadowing",
-    description="Câu mục tiêu + IPA + audio bản xứ. Cấp A2–C2 cần Premium.",
+    description="Câu mục tiêu + IPA + audio bản xứ. Cấp có `is_free=False` cần Premium.",
 )
 def get_shadowing(request, id: int):
     profile = ensure_profile(request.auth)
+    accent = profile.accent
     dk = (
         m.ShadowingDeck.objects.filter(id=id)
         .select_related("level")
@@ -836,7 +1227,9 @@ def get_shadowing(request, id: int):
                 text_en=sen.text_en,
                 ipa=sen.ipa,
                 text_vi=sen.text_vi,
-                audio_url=_media(sen.audio_path),
+                speaking_goal_vi=sen.speaking_goal_vi,
+                **_accent_audio(sen, accent),
+                highlights=sen.highlights or [],
             )
             for sen in dk.sentences.all()
         ],
@@ -844,58 +1237,192 @@ def get_shadowing(request, id: int):
 
 
 # =============================================================== 2.6 Tra cứu
+def _root_split(root: m.WordRoot, word: str) -> tuple[str, str]:
+    """Tách từ theo gốc: trả (phần còn lại, dạng "un·happy")."""
+    affix = root.text.strip("-").lower()
+    w = word.lower()
+    if root.kind == "prefix" and w.startswith(affix) and len(w) > len(affix):
+        return word[len(affix) :], f"{word[: len(affix)]}·{word[len(affix) :]}"
+    if root.kind == "suffix" and w.endswith(affix) and len(w) > len(affix):
+        return word[: -len(affix)], f"{word[: -len(affix)]}·{word[-len(affix) :]}"
+    idx = w.find(affix)
+    if idx > 0 and idx + len(affix) < len(w):
+        return word[:idx] + word[
+            idx + len(affix) :
+        ], f"{word[:idx]}·{word[idx : idx + len(affix)]}·{word[idx + len(affix) :]}"
+    return word, word
+
+
+def _root_examples(root: m.WordRoot, accent: str) -> list[s.RootExampleOut]:
+    """Từ vựng liên kết trước, rồi từ mẫu JSON (bỏ trùng); id = Vocabulary nếu tra được."""
+    out: list[s.RootExampleOut] = []
+    seen: set[str] = set()
+    for v in root.examples.all():
+        base, split = _root_split(root, v.headword)
+        out.append(
+            s.RootExampleOut(
+                id=v.id,
+                headword=v.headword,
+                base=base,
+                split=split,
+                ipa=_ipa(v, accent),
+                meaning_vi=v.meaning_vi,
+                **_accent_audio(v, accent),
+            )
+        )
+        seen.add(v.headword.lower())
+    for sample in root.samples or []:
+        word = sample.get("word", "")
+        if not word or word.lower() in seen:
+            continue
+        seen.add(word.lower())
+        base, split = _root_split(root, word)
+        base = sample.get("base") or base
+        vocab = (
+            m.Vocabulary.objects.filter(headword__iexact=word)
+            .only("id", "ipa_uk", "ipa_us", "audio_us_path", "audio_uk_path")
+            .first()
+        )
+        audio = _accent_audio(vocab, accent) if vocab else {}
+        if not audio.get("audio_url"):
+            audio = _accent_audio(sample, accent)
+        out.append(
+            s.RootExampleOut(
+                id=vocab.id if vocab else None,
+                headword=word,
+                base=base,
+                split=split,
+                ipa=sample.get("ipa") or (_ipa(vocab, accent) if vocab else ""),
+                meaning_vi=sample.get("meaning_vi", ""),
+                **audio,
+            )
+        )
+    return out
+
+
+def _root_example_count(root: m.WordRoot) -> int:
+    linked = {v.lower() for v in root.examples.values_list("headword", flat=True)}
+    extra = {str(x.get("word", "")).lower() for x in (root.samples or []) if x.get("word")}
+    return len(linked | extra)
+
+
 @router.get(
     "/roots",
-    response={200: list[s.WordRootOut], 401: ErrorOut},
-    summary="Danh sách gốc từ (tiền tố / gốc / hậu tố)",
-    description="Lọc theo `kind`; `q` tìm theo ký tự gốc.",
+    response={200: s.WordRootBoardOut, 401: ErrorOut},
+    summary="Bảng gốc từ (tiền tố / gốc / hậu tố) theo nhóm + tiến độ",
+    description=(
+        "Lọc `kind` = prefix | root | suffix (mặc định prefix). `total/learned` tính trên toàn bộ "
+        'gốc từ để hiện "Đã học x/40"; `q` tìm theo ký tự gốc.'
+    ),
 )
-def list_roots(request, kind: str | None = None, q: str | None = None):
-    qs = m.WordRoot.objects.annotate(n=Count("examples"))
+def list_roots(request, kind: str | None = "prefix", q: str | None = None):
+    learned_ids = set(
+        WordRootProgress.objects.filter(user=request.auth, learned_at__isnull=False).values_list(
+            "root_id", flat=True
+        )
+    )
+    total = m.WordRoot.objects.count()
+    qs = m.WordRoot.objects.prefetch_related("examples")
     if kind:
         qs = qs.filter(kind=kind)
     if q:
         qs = qs.filter(text__icontains=q)
-    return [
-        s.WordRootOut(
+    roots = list(qs.order_by("group_order", "order", "text"))
+    groups: list[s.WordRootGroupOut] = []
+    for r in roots:
+        tile = s.WordRootOut(
             id=r.id,
             kind=r.kind,
             text=r.text,
             meaning_vi=r.meaning_vi,
             group_vi=r.group_vi,
-            example_count=r.n,
+            example_count=_root_example_count(r),
+            learned=r.id in learned_ids,
         )
-        for r in qs.order_by("kind", "text")
-    ]
+        if groups and groups[-1].title_vi == r.group_vi and groups[-1].kind == r.kind:
+            groups[-1].roots.append(tile)
+        else:
+            groups.append(
+                s.WordRootGroupOut(
+                    kind=r.kind, title_vi=r.group_vi or "Khác", order=r.group_order, roots=[tile]
+                )
+            )
+    return s.WordRootBoardOut(
+        total=total,
+        learned=len(learned_ids),
+        kind_total=len(roots),
+        kind_learned=sum(1 for r in roots if r.id in learned_ids),
+        groups=groups,
+    )
 
 
 @router.get(
     "/roots/{id}",
     response={200: s.WordRootDetailOut, 401: ErrorOut, 404: ErrorOut},
-    summary="Chi tiết gốc từ kèm từ ví dụ",
-    description="Nghĩa, mẹo nhớ, và các từ vựng chứa gốc này.",
+    summary="Chi tiết gốc từ kèm từ ví dụ đã tách cấu trúc",
+    description="Nghĩa, tác dụng, mẹo nhớ, từ mẫu dạng `un- + happy = un·happy`, đáp án nhiễu cho bài luyện, tiến độ.",
 )
 def get_root(request, id: int):
     r = m.WordRoot.objects.filter(id=id).prefetch_related("examples").first()
     if r is None:
         raise NotFound(_NOTFOUND)
     profile = ensure_profile(request.auth)
+    examples = _root_examples(r, profile.accent)
+    own = {e.meaning_vi for e in examples}
+    distractors: list[str] = []
+    for other in m.WordRoot.objects.exclude(id=r.id).order_by("?")[:8]:
+        for x in other.samples or []:
+            mv = x.get("meaning_vi", "")
+            if mv and mv not in own and mv not in distractors:
+                distractors.append(mv)
+        if len(distractors) >= 12:
+            break
+    prog = WordRootProgress.objects.filter(user=request.auth, root=r).first()
     return s.WordRootDetailOut(
         id=r.id,
         kind=r.kind,
         text=r.text,
         meaning_vi=r.meaning_vi,
         group_vi=r.group_vi,
+        effect_vi=r.effect_vi,
         mnemonic_vi=r.mnemonic_vi,
-        examples=[
-            s.RootExampleOut(
-                id=v.id,
-                headword=v.headword,
-                ipa=_ipa(v, profile.accent),
-                meaning_vi=v.meaning_vi,
-            )
-            for v in r.examples.all()
-        ],
+        examples=examples,
+        distractors=distractors[:12],
+        learned=bool(prog and prog.learned_at),
+        best_percent=prog.best_percent if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+@router.post(
+    "/roots/{id}/practice",
+    response={200: s.WordRootPracticeOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Ghi kết quả luyện một gốc từ",
+    description="App chấm bài trắc nghiệm (đúng/tổng); ≥ 70% → gốc từ được tính là đã học.",
+)
+def practice_root(request, id: int, data: s.WordRootPracticeIn):
+    r = m.WordRoot.objects.filter(id=id).first()
+    if r is None:
+        raise NotFound(_NOTFOUND)
+    percent = min(100, round(100 * min(data.correct, data.total) / data.total))
+    prog, _ = WordRootProgress.objects.get_or_create(user=request.auth, root=r)
+    prog.attempts += 1
+    prog.best_percent = max(prog.best_percent, percent)
+    newly = False
+    if prog.best_percent >= WordRootProgress.LEARNED_PERCENT and prog.learned_at is None:
+        prog.learned_at = timezone.now()
+        newly = True
+    prog.save()
+    return s.WordRootPracticeOut(
+        percent=percent,
+        best_percent=prog.best_percent,
+        attempts=prog.attempts,
+        learned=prog.learned_at is not None,
+        newly_learned=newly,
+        total_learned=WordRootProgress.objects.filter(
+            user=request.auth, learned_at__isnull=False
+        ).count(),
+        total=m.WordRoot.objects.count(),
     )
 
 
@@ -940,31 +1467,200 @@ def list_phrasal_verbs(
     )
 
 
+_IPA_GROUPS = [
+    ("vowel", m.IPASound.Group.MONOPHTHONG),
+    ("vowel", m.IPASound.Group.DIPHTHONG),
+    ("consonant", m.IPASound.Group.VOICELESS),
+    ("consonant", m.IPASound.Group.VOICED),
+    ("consonant", m.IPASound.Group.NASAL_APPROX),
+]
+
+
+def _ipa_progress_map(user) -> dict[int, IPASoundProgress]:
+    return {p.sound_id: p for p in IPASoundProgress.objects.filter(user=user)}
+
+
+def _ipa_word_audio(word: str) -> tuple[str | None, str | None]:
+    """Audio từ mẫu lấy từ kho từ vựng nếu có (khớp headword)."""
+    v = (
+        m.Vocabulary.objects.filter(headword__iexact=word)
+        .only("audio_uk_path", "audio_us_path")
+        .first()
+    )
+    if v is None:
+        return None, None
+    return _media(v.audio_uk_path), _media(v.audio_us_path)
+
+
+def _ipa_tile(snd: m.IPASound, prog: IPASoundProgress | None) -> s.IPASoundOut:
+    return s.IPASoundOut(
+        id=snd.id,
+        symbol=snd.symbol,
+        kind=snd.kind,
+        group=snd.group,
+        category_vi=snd.category_vi,
+        description_vi=snd.description_vi,
+        sample_word=(snd.sample_words or [""])[0],
+        sample_meaning_vi=((snd.examples or [{}])[0]).get("meaning_vi", ""),
+        mastered=bool(prog and prog.mastered_at),
+        best_score=prog.best_score if prog else 0,
+        audio_uk_url=_media(snd.audio_uk_path),
+        audio_us_url=_media(snd.audio_us_path),
+    )
+
+
 @router.get(
     "/ipa-sounds",
-    response={200: list[s.IPASoundOut], 401: ErrorOut},
+    response={200: s.IPABoardOut, 401: ErrorOut},
     summary="Bảng âm IPA",
-    description="Lọc theo `kind` (vowel / consonant). Kèm khẩu hình và từ mẫu.",
+    description=(
+        "44 âm chia nhóm (nguyên âm đơn/đôi, phụ âm vô thanh/hữu thanh, mũi & bán nguyên âm) "
+        "kèm tiến độ thuần thục của người dùng. Lọc `kind` = vowel | consonant."
+    ),
 )
 def list_ipa_sounds(request, kind: str | None = None):
     qs = m.IPASound.objects.all()
     if kind:
         qs = qs.filter(kind=kind)
-    return [
-        s.IPASoundOut(
-            id=snd.id,
-            symbol=snd.symbol,
-            kind=snd.kind,
-            description_vi=snd.description_vi,
-            articulation_vi=snd.articulation_vi,
-            mouth_image_url=_media(snd.mouth_image_path),
-            sample_words=snd.sample_words or [],
-            minimal_pair=snd.minimal_pair or {},
-            audio_uk_url=_media(snd.audio_uk_path),
-            audio_us_url=_media(snd.audio_us_path),
+    sounds = list(qs.order_by("order"))
+    progress = _ipa_progress_map(request.auth)
+    groups = []
+    for group_kind, group in _IPA_GROUPS:
+        if kind and group_kind != kind:
+            continue
+        members = [snd for snd in sounds if snd.group == group]
+        if members:
+            groups.append(
+                s.IPAGroupOut(
+                    code=group.value,
+                    title_vi=group.label,
+                    sounds=[_ipa_tile(snd, progress.get(snd.id)) for snd in members],
+                )
+            )
+    all_total = m.IPASound.objects.count()
+    return s.IPABoardOut(
+        total=all_total,
+        mastered=sum(1 for p in progress.values() if p.mastered_at),
+        groups=groups,
+    )
+
+
+@router.get(
+    "/ipa-sounds/{sound_id}",
+    response={200: s.IPASoundDetailOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Chi tiết một âm IPA",
+    description="Khẩu hình (môi/lưỡi + mô tả), ví dụ kèm IPA & nghĩa, cặp âm tối thiểu, mẹo, tiến độ.",
+)
+def get_ipa_sound(request, sound_id: int):
+    snd = m.IPASound.objects.filter(id=sound_id).first()
+    if snd is None:
+        raise NotFound("Không tìm thấy âm")
+    prog = IPASoundProgress.objects.filter(user=request.auth, sound=snd).first()
+
+    examples = []
+    for ex in snd.examples or []:
+        uk, us = _ipa_word_audio(ex.get("word", ""))
+        examples.append(
+            s.IPAExampleOut(
+                word=ex.get("word", ""),
+                ipa=ex.get("ipa", ""),
+                meaning_vi=ex.get("meaning_vi", ""),
+                audio_uk_url=uk,
+                audio_us_url=us,
+            )
         )
-        for snd in qs.order_by("kind", "order")
-    ]
+
+    pair = None
+    mp = snd.minimal_pair or {}
+    if mp.get("other") and len(mp.get("words") or []) == 2:
+        other = m.IPASound.objects.filter(symbol=mp["other"]).first()
+        this_word, other_word = mp["words"]
+        t_uk, t_us = _ipa_word_audio(this_word)
+        o_uk, o_us = _ipa_word_audio(other_word)
+        pair = s.IPAMinimalPairOut(
+            hint_vi=_pair_hint(snd, other),
+            this=s.IPAPairSideOut(
+                id=snd.id,
+                symbol=snd.symbol,
+                category_vi=snd.category_vi,
+                word=this_word,
+                audio_uk_url=t_uk,
+                audio_us_url=t_us,
+            ),
+            other=s.IPAPairSideOut(
+                id=other.id if other else None,
+                symbol=mp["other"],
+                category_vi=other.category_vi if other else "",
+                word=other_word,
+                audio_uk_url=o_uk,
+                audio_us_url=o_us,
+            ),
+        )
+
+    return s.IPASoundDetailOut(
+        id=snd.id,
+        symbol=snd.symbol,
+        kind=snd.kind,
+        group=snd.group,
+        category_vi=snd.category_vi,
+        category_en=snd.category_en,
+        description_vi=snd.description_vi,
+        articulation_vi=snd.articulation_vi,
+        lips_vi=snd.lips_vi,
+        tongue_vi=snd.tongue_vi,
+        tip_vi=snd.tip_vi,
+        mouth_image_url=_media(snd.mouth_image_path),
+        audio_uk_url=_media(snd.audio_uk_path),
+        audio_us_url=_media(snd.audio_us_path),
+        examples=examples,
+        minimal_pair=pair,
+        mastered=bool(prog and prog.mastered_at),
+        best_score=prog.best_score if prog else 0,
+        attempts=prog.attempts if prog else 0,
+    )
+
+
+def _pair_hint(a: m.IPASound, b: m.IPASound | None) -> str:
+    if b is None:
+        return "So sánh hai âm dễ nhầm"
+    if a.kind == "vowel":
+        return "So sánh độ dài & độ mở vòm miệng"
+    if {a.group, b.group} == {"voiceless", "voiced"}:
+        return "Khác nhau ở rung thanh quản"
+    return "Nghe kỹ vị trí lưỡi & luồng hơi"
+
+
+@router.post(
+    "/ipa-sounds/{sound_id}/practice",
+    response={200: s.IPAPracticeOut, 401: ErrorOut, 404: ErrorOut},
+    summary="Ghi điểm luyện một âm",
+    description=(
+        "App chấm phát âm từ mẫu (0–100) rồi gửi lên. Điểm tốt nhất ≥ 80 → âm được đánh dấu "
+        "thuần thục (tính vào tiến độ x/44)."
+    ),
+)
+def practice_ipa_sound(request, sound_id: int, data: s.IPAPracticeIn):
+    snd = m.IPASound.objects.filter(id=sound_id).first()
+    if snd is None:
+        raise NotFound("Không tìm thấy âm")
+    prog, _ = IPASoundProgress.objects.get_or_create(user=request.auth, sound=snd)
+    prog.attempts += 1
+    prog.best_score = max(prog.best_score, data.score)
+    newly = False
+    if prog.best_score >= IPASoundProgress.MASTERY_SCORE and prog.mastered_at is None:
+        prog.mastered_at = timezone.now()
+        newly = True
+    prog.save()
+    return s.IPAPracticeOut(
+        best_score=prog.best_score,
+        attempts=prog.attempts,
+        mastered=prog.mastered_at is not None,
+        newly_mastered=newly,
+        total_mastered=IPASoundProgress.objects.filter(
+            user=request.auth, mastered_at__isnull=False
+        ).count(),
+        total=m.IPASound.objects.count(),
+    )
 
 
 # =============================================================== 2.7 Bundle manifest (G5)

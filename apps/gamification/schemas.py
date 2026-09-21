@@ -39,6 +39,9 @@ class LeaderboardEntryOut(Schema):
     rank: int
     name: str
     avatar_url: str | None
+    # Khung avatar đang trang bị của người chơi đó (ShopItem.code + màu), để bảng xếp hạng vẽ đúng khung.
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
     xp_week: int
     streak_days: int
     movement: int
@@ -47,12 +50,20 @@ class LeaderboardEntryOut(Schema):
 
 class LeaderboardOut(Schema):
     scope: str
+    period: str = "week"
     tier: str
     time_left_sec: int
     promote_top: int
     safe_top: int
     my_rank: int
+    # XP của tôi theo period — để hiện thanh "Bạn" kể cả khi ngoài top 50.
+    my_xp: int = 0
     xp_to_promote: int
+    # Chỉ scope=league: bậc I–V trong hạng, top % nhóm và mục tiêu XP tuần của hạng
+    # (cùng số với /challenges/overview) — thẻ hạng ở màn Bảng xếp hạng vẽ tiến độ tuần.
+    division: str = ""
+    percentile: int = 0
+    xp_week_target: int = 0
     entries: list[LeaderboardEntryOut]
 
 
@@ -69,9 +80,18 @@ class ShopItemOut(Schema):
     code: str
     title_vi: str
     description_vi: str
-    cost_coins: int
+    category: str  # booster | bundle | cosmetic | special
+    cost_coins: int  # giá gốc
+    price_coins: int  # giá phải trả (đã trừ khuyến mãi)
+    discount_pct: int  # 0 = không giảm
+    sale_until: datetime | None = None
     effect: dict
+    meta: dict  # cosmetic: {"slot": "avatar_frame", "colors": [...]}
     icon_url: str | None
+    owned: bool = False  # cosmetic đã sở hữu
+    equipped: bool = False  # cosmetic đang trang bị
+    wishlisted: bool = False
+    order: int = 0
 
 
 class PurchaseIn(Schema):
@@ -80,16 +100,70 @@ class PurchaseIn(Schema):
 
 class PurchaseResultOut(Schema):
     item_code: str
+    title_vi: str
     coins_spent: int
     balance: int
-    effect: dict
+    effect: dict  # hiệu ứng THỰC nhận (rương may mắn → phần thưởng cụ thể)
+
+
+class StreakRepairOut(Schema):
+    lost_value: int
+    lost_at: datetime
+    expires_at: datetime
+
+
+class WalletOut(Schema):
+    coins: int
+    hearts: int
+    hearts_max: int
+    # Mốc hồi tim kế tiếp; None khi đầy.
+    hearts_next_at: datetime | None = None
+    streak_freezes: int
+    streak_current: int
+    xp_boost_until: datetime | None = None
+    xp_boost_active: bool = False
+    streak_repair: StreakRepairOut | None = None
+    is_premium: bool = False
+    premium_until: datetime | None = None
+    premium_coin_bonus_pct: int = 0
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
+    owned_cosmetic_ids: list[int] = []
+    wishlist_item_ids: list[int] = []
+
+
+class EarnOptionOut(Schema):
+    code: str  # checkin | challenge:<code> | game:<code> | premium
+    title_vi: str
+    subtitle_vi: str = ""
+    reward_coins: int  # 0 = tuỳ điểm
+    done: bool = False
+    current: int = 0
+    target: int = 0
+    screen: str  # challenges | games | premium
+
+
+class WishlistOut(Schema):
+    item_id: int
+    wishlisted: bool
+    wishlist_item_ids: list[int]
+
+
+class EquipIn(Schema):
+    item_id: int | None = None  # null = tháo khung
+
+
+class EquipOut(Schema):
+    avatar_frame: str | None
+    avatar_frame_colors: list[str]
 
 
 class CoinTxOut(Schema):
     amount: int
-    reason: str
+    reason: str  # checkin | challenge | game | lesson | shop_purchase | mystery_box | coin_pack
     ref_type: str
     ref_id: str
+    label_vi: str = ""  # shop_purchase: tên vật phẩm
     balance_after: int
     created_at: datetime
 
@@ -105,11 +179,84 @@ class GameOut(Schema):
     min_level: str
     is_featured: bool
     personal_best: int
+    # Khoá theo CEFR hồ sơ (như `HomeGameOut`); `/games` cũ luôn False.
+    is_locked: bool = False
+
+
+class GameMissionOut(Schema):
+    """Nhiệm vụ trong ngày ở tab Trò chơi: chơi 1 ván trò còn chưa chơi hôm nay."""
+
+    game_code: str
+    title_vi: str
+    reward_coins: int
+    current: int
+    target: int
+    done: bool
+
+
+class GameRecentPlayOut(Schema):
+    """Một ván người chơi khác vừa hoàn thành (feed "Vừa chơi xong")."""
+
+    name: str
+    avatar_url: str | None
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
+    game_code: str
+    game_title_vi: str
+    score: int
+    # Ván này là kỷ lục cá nhân của chính người đó.
+    is_record: bool
+    # Điểm ván này cao hơn kỷ lục của tôi ở trò đó.
+    beats_me: bool
+    played_at: datetime
+
+
+class GameHistoryOut(Schema):
+    id: int
+    game_code: str
+    game_title_vi: str
+    score: int
+    accuracy: float
+    coins_earned: int
+    # Ván đạt kỷ lục cá nhân hiện tại.
+    is_best: bool
+    played_at: datetime
+
+
+class GamesHubOut(Schema):
+    games: list[GameOut]
+    mission: GameMissionOut | None
+    recent: list[GameRecentPlayOut]
+    history: list[GameHistoryOut]
 
 
 class GameScoreIn(Schema):
     score: int
     duration_sec: int = 0
+    # Ván chơi theo path map: ghi kèm tiến độ chặng. Bỏ trống = ván tự do.
+    level: str | None = None
+    stage_index: int | None = None
+    accuracy: float = 0
+    # False = thua ván (hết 3 mạng) → trừ 1 tim hồ sơ, trừ Premium.
+    cleared: bool = True
+
+
+class GameStageOut(Schema):
+    index: int
+    offset: int
+    word_count: int
+    is_unlocked: bool
+    is_completed: bool
+    best_score: int
+    best_accuracy: float
+
+
+class GameStageMapOut(Schema):
+    level: str
+    stage_size: int
+    total_words: int
+    completed_stages: int
+    stages: list[GameStageOut]
 
 
 class GameScoreResultOut(Schema):
@@ -119,6 +266,11 @@ class GameScoreResultOut(Schema):
     is_record: bool
     personal_best: int
     percentile: int
+    # Tim hồ sơ sau ván: client khoá "Chơi lại" khi hearts == 0.
+    heart_lost: bool = False
+    hearts: int = 0
+    hearts_max: int = 0
+    hearts_next_at: datetime | None = None
 
 
 # --------------------------------------------------------------- notifications + devices (C46)
@@ -151,3 +303,81 @@ class DeviceOut(Schema):
     id: int
     platform: str
     is_active: bool
+
+
+# --------------------------------------------------------------- Ghép cặp (C12)
+class MatchPairsDifficultyOut(Schema):
+    """Một ô độ khó trong popup chọn level."""
+
+    code: str  # easy | medium | hard | expert
+    label_vi: str
+    pairs: int
+    cards: int
+    three_star_moves: int
+    stars: int  # 0 khi chưa chơi
+    best_moves: int  # 0 khi chưa chơi
+
+
+class MatchPairsStageOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    subtitle_vi: str
+    symbol: str
+    level: str  # CEFR A1–C2, không phải độ khó
+    order: int
+    is_unlocked: bool
+    is_completed: bool  # có dòng tiến độ, không phải stars > 0
+    stars: int  # tổng sao của cả bốn độ khó, tối đa 12
+    difficulties: list[MatchPairsDifficultyOut]
+
+
+class MatchPairsStageMapOut(Schema):
+    total_stars: int
+    max_stars: int
+    completed_stages: int
+    stages: list[MatchPairsStageOut]
+
+
+class MatchPairsWordOut(Schema):
+    english: str
+    vietnamese: str
+
+
+class MatchPairsRoundOut(Schema):
+    stage_id: int
+    difficulty: str
+    pairs: list[MatchPairsWordOut]
+    three_star_moves: int
+    two_star_moves: int
+
+
+class MatchPairsResultIn(Schema):
+    difficulty: str
+    moves: int
+    duration_sec: int = 0
+
+
+class MatchPairsResultOut(Schema):
+    stars: int
+    best_stars: int
+    best_moves: int
+    coins_earned: int
+    xp_earned: int
+    unlocked_stage_id: int | None = None
+
+
+# --------------------------------------------------------------- Bậc thầy trọng âm
+class StressWordOut(Schema):
+    id: int
+    headword: str
+    meaning_vi: str
+    syllables: list[str]  # chính tả: ['beau', 'ti', 'ful']
+    ipa_syllables: list[str]  # đã bỏ ˈ ˌ để không lộ đáp án: ['bjuː', 'tɪ', 'fəl']
+    primary_stress: int  # chỉ số 0-based trong hai mảng trên
+    audio_url: str | None = None
+
+
+class StressRoundOut(Schema):
+    level: str
+    words: list[StressWordOut]

@@ -8,8 +8,22 @@ class Product(models.Model):
         MONTH = "month", "Tháng"
         YEAR = "year", "Năm"
         LIFETIME = "lifetime", "Trọn đời"
+        ONE_TIME = "one_time", "Mua 1 lần"
 
-    code = models.SlugField(max_length=48, unique=True)  # premium_year | premium_lifetime
+    class Kind(models.TextChoices):
+        PREMIUM = "premium", "Gói Premium"
+        COINS = "coins", "Gói xu"
+
+    class Tier(models.TextChoices):
+        PREMIUM = "premium", "Premium"
+        PLUS = "plus", "Premium+"
+
+    code = models.SlugField(
+        max_length=48, unique=True
+    )  # premium_year | premium_lifetime | coins_500
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.PREMIUM)
+    tier = models.CharField(max_length=8, choices=Tier.choices, default=Tier.PREMIUM)
+    coins = models.PositiveIntegerField(default=0)  # kind=coins: số xu cộng khi thanh toán xong
     name_vi = models.CharField(max_length=64)
     period = models.CharField(max_length=10, choices=Period.choices)
     price = models.PositiveIntegerField()
@@ -17,6 +31,7 @@ class Product(models.Model):
     currency = models.CharField(max_length=3, default="VND")
     trial_days = models.PositiveSmallIntegerField(default=0)
     badge_vi = models.CharField(max_length=32, blank=True)  # "TIẾT KIỆM 50%"
+    # [{"title", "description", "icon_url"}] — icon_url: URL đầy đủ hoặc path R2
     features = models.JSONField(default=list)
     store_ids = models.JSONField(default=dict)  # {"revenuecat": "...", "payos": "..."}
     is_active = models.BooleanField(default=True)
@@ -48,6 +63,7 @@ class Subscription(models.Model):
     store = models.CharField(max_length=16, blank=True)  # play_store | app_store | web
     started_at = models.DateTimeField()
     expires_at = models.DateTimeField(null=True, blank=True)  # null = trọn đời
+    will_renew = models.BooleanField(default=False)  # False khi người dùng tắt tự gia hạn
     original_txn_id = models.CharField(max_length=128, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

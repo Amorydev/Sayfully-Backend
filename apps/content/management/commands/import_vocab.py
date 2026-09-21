@@ -1,10 +1,10 @@
 """L1 — Nạp từ vựng từ CSV (Google Sheets export). Idempotent: upsert theo (headword, pos).
 
 Cột CSV (header, phân tách `,`):
-    headword,pos,level,meaning_vi,definition_en,ipa_uk,ipa_us,frequency_rank,
-    topics,synonyms,examples,collocations
+    headword,pos,level,meaning_vi,definition_en,definition_vi,ipa_uk,ipa_us,frequency_rank,
+    topics,synonyms,antonyms,examples,collocations
 
-- `topics`, `synonyms`: nhiều giá trị ngăn bằng `|`  (topics dùng mã code).
+- `topics`, `synonyms`, `antonyms`: nhiều giá trị ngăn bằng `|`  (topics dùng mã code).
 - `examples`, `collocations`: nhiều mục ngăn bằng `;;`, mỗi mục là `en|vi`.
 - Chạy lại: cập nhật từ đã có, thay mới ví dụ/collocation (không nhân đôi).
 """
@@ -78,10 +78,12 @@ class Command(BaseCommand):
                     "level_id": level,
                     "meaning_vi": meaning_vi,
                     "definition_en": (row.get("definition_en") or "").strip(),
+                    "definition_vi": (row.get("definition_vi") or "").strip(),
                     "ipa_uk": (row.get("ipa_uk") or "").strip(),
                     "ipa_us": (row.get("ipa_us") or "").strip(),
                     "frequency_rank": int(freq) if freq.isdigit() else None,
                     "synonyms": _multi(row.get("synonyms", "")),
+                    "antonyms": _multi(row.get("antonyms", "")),
                 }
                 vocab, was_created = Vocabulary.objects.update_or_create(
                     headword=headword, pos=pos, defaults=defaults

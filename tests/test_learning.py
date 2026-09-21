@@ -3,8 +3,28 @@
 import pytest
 import time_machine
 
-from apps.content.models import Lesson, LessonStep, Level, Unit, Vocabulary
-from apps.learning.models import DailyActivity, LessonProgress, SRSCard
+from apps.content.models import (
+    IPASound,
+    Lesson,
+    LessonStep,
+    Level,
+    Reading,
+    ReadingQuestion,
+    Topic,
+    Unit,
+    Vocabulary,
+    VocabularyDeck,
+    VocabularyDeckCollection,
+    VocabularyDeckItem,
+)
+from apps.gamification.models import Game, GameScore
+from apps.learning.models import (
+    DailyActivity,
+    LessonProgress,
+    NotebookEntry,
+    ReadingDailyActivity,
+    SRSCard,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -49,6 +69,83 @@ def test_home_mac_dinh(api, token, user):
     assert body["due_review_count"] == 0
     assert body["current_lesson"] is None
     assert body["daily_goal"]["words_target"] == 10
+    assert body["games"] == []
+    assert body["checkin_done"] is False
+
+
+def test_home_bao_da_diem_danh(api, token, user):
+    api.post("/learn/checkin", token=token)
+    assert api.get("/home", token=token).json()["checkin_done"] is True
+
+
+def test_home_tra_cong_cu_hoc_tap_mo_rong(api, token, user, settings):
+    settings.AI_ENABLED = False
+    NotebookEntry.objects.create(user=user, custom_word="hello", custom_meaning="xin chào")
+    IPASound.objects.create(
+        symbol="iː",
+        kind=IPASound.Kind.VOWEL,
+        description_vi="Nguyên âm dài",
+    )
+
+    response = api.get("/home", token=token)
+    assert response.status_code == 200
+    tools = response.json()["learning_tools"]
+
+    assert [tool["code"] for tool in tools] == [
+        "ai_tutor",
+        "exam_prep",
+        "ipa",
+        "grammar",
+        "roots",
+        "video",
+        "notebook",
+        "dictionary",
+        "challenge",
+        "hearing",
+        "progress",
+    ]
+    assert tools[0]["action"] == "coming_soon"  # AI_ENABLED=False
+    ai = response.json()["ai_tutor"]
+    assert ai["enabled"] is False and ai["quota_left"] == 20 and ai["quota_limit"] == 20
+    assert tools[2]["title_vi"] == "Bảng 1 âm IPA chuẩn"
+    assert tools[2]["item_count"] == 1
+    assert tools[3]["action"] == "grammar"
+    assert tools[4]["action"] == "roots" and tools[4]["item_count"] == 0
+    assert tools[5]["action"] == "video"
+    assert tools[6]["description_vi"] == "1 từ đã lưu từ các bài đọc"
+    assert tools[6]["item_count"] == 1
+    assert tools[6]["action"] == "notebook"
+    assert tools[7]["action"] == "dictionary"
+
+
+def test_practice_hub_da_xoa(api, token):
+    assert api.get("/learn/practice-hub", token=token).status_code == 404
+
+
+def test_home_tra_game_theo_level_va_ky_luc_ca_nhan(api, token, user, levels):
+    Game.objects.create(
+        code="word_rain",
+        title_vi="Mưa từ vựng",
+        description_vi="Hứng từ đúng",
+        kind="reflex",
+        min_level="A1",
+        is_featured=True,
+        order=1,
+    )
+    locked = Game.objects.create(
+        code="speed_type",
+        title_vi="Gõ nhanh",
+        description_vi="Gõ từ thật nhanh",
+        kind="reflex",
+        min_level="A2",
+        order=2,
+    )
+    GameScore.objects.create(user=user, game=locked, level="A1", score=420)
+
+    games = api.get("/home", token=token).json()["games"]
+    assert games[0]["code"] == "word_rain" and games[0]["is_locked"] is False
+    assert games[1]["code"] == "speed_type"
+    assert games[1]["is_locked"] is True and games[1]["personal_best"] == 420
 
 
 # --------------------------------------------------------------- path + khoá
@@ -369,7 +466,16 @@ def test_notebook_add_list_delete(api, token, user, levels):
     )
     eid = r.json()["id"]
     assert r.json()["headword"] == "apple" and r.json()["tags"] == ["IELTS"]
-    assert api.get("/learn/notebook", token=token).json()["count"] == 1
+    notebook = api.get("/learn/notebook", token=token).json()
+    assert notebook["count"] == 1
+    assert notebook["notebook_total"] == 1
+    assert notebook["capacity"] == 100
+    assert notebook["is_premium"] is False
+    assert notebook["tag_facets"] == [{"tag": "IELTS", "count": 1}]
+    assert notebook["items"][0]["mastery_percent"] == 0
+    assert notebook["items"][0]["reps"] == 0
+    assert notebook["items"][0]["lapses"] == 0
+    assert notebook["items"][0]["due_at"] is None
     assert api.get("/learn/notebook?tag=IELTS", token=token).json()["count"] == 1
     assert api.get("/learn/notebook?tag=XXX", token=token).json()["count"] == 0
     assert api.delete(f"/learn/notebook/{eid}", token=token).status_code == 204
@@ -406,10 +512,56 @@ def test_checkin_idempotent(api, token, user, levels):
     r1 = api.post("/learn/checkin", token=token).json()
     assert r1["already"] is False and r1["xp_earned"] == 5 and r1["coins_earned"] == 10
     assert r1["streak_days"] == 1 and len(r1["week"]) == 7
+    assert r1["streak_before"] == 0 and r1["milestone"] is None
     r2 = api.post("/learn/checkin", token=token).json()
     assert r2["already"] is True and r2["xp_earned"] == 0
+    assert r2["streak_before"] == 1 and r2["streak_days"] == 1
     user.profile.refresh_from_db()
     assert user.profile.coins == 10 and user.profile.xp_total == 5  # không cộng đôi
+
+
+def test_checkin_dung_bang_giu_chuoi(api, token, user, levels):
+    """Lỡ hôm qua + còn băng: /home báo at_risk, điểm danh tiêu 1 băng, chuỗi tiếp tục,
+    ngày hôm qua được đánh dấu frozen trên dải tuần."""
+    from datetime import timedelta
+
+    from apps.learning.models import DailyActivity
+    from apps.learning.services import local_today
+
+    profile = user.profile
+    today = local_today(profile)
+    DailyActivity.objects.create(user=user, date=today - timedelta(days=2), xp=10)
+    profile.streak_current = 5
+    profile.streak_freezes = 1
+    profile.save(update_fields=["streak_current", "streak_freezes"])
+
+    home = api.get("/home", token=token).json()["streak"]
+    assert home == {"days": 5, "freezes": 1, "at_risk": True, "frozen_yesterday": False}
+
+    r = api.post("/learn/checkin", token=token).json()
+    assert r["streak_before"] == 5 and r["streak_days"] == 6
+    assert r["freeze_used"] is True and r["freezes_left"] == 0
+    frozen = [d for d in r["week"] if d["frozen"]]
+    # hôm qua có thể rơi vào tuần trước (thứ Hai) → khi đó dải tuần không có ngày đóng băng
+    assert len(frozen) == (0 if today.weekday() == 0 else 1)
+
+    home = api.get("/home", token=token).json()["streak"]
+    assert home["at_risk"] is False and home["frozen_yesterday"] is True
+
+
+def test_checkin_het_bang_mat_chuoi(api, token, user, levels):
+    from datetime import timedelta
+
+    from apps.learning.models import DailyActivity
+    from apps.learning.services import local_today
+
+    profile = user.profile
+    DailyActivity.objects.create(user=user, date=local_today(profile) - timedelta(days=2), xp=10)
+    profile.streak_current = 5
+    profile.save(update_fields=["streak_current"])
+
+    r = api.post("/learn/checkin", token=token).json()
+    assert r["streak_before"] == 5 and r["streak_days"] == 1 and r["freeze_used"] is False
 
 
 def test_activity_range(api, token, user, levels):
@@ -448,6 +600,101 @@ def test_skills_overview_va_goi_y(api, token, user, levels):
     kinds = {sk["kind"] for sk in body["skills"]}
     assert kinds == {"speaking", "listening", "reading", "writing"}
     assert body["suggestion"]["kind"] != "speaking"  # gợi ý kỹ năng yếu nhất, không phải nói
+
+
+# --------------------------------------------------------------- reading list + progress (C10a)
+def test_reading_list_progress_facets_and_premium_lock(api, token, user, levels):
+    a1, a2 = levels
+    life = Topic.objects.create(code="life", name_vi="Đời sống", name_en="Life", order=1)
+    travel = Topic.objects.create(
+        code="travel", name_vi="Du lịch", name_en="Travel", order=2, icon_url="icons/travel.png"
+    )
+    vocabulary = Vocabulary.objects.create(headword="family", pos="n", level=a1, meaning_vi="gia đình")
+    reading = Reading.objects.create(
+        level=a1,
+        order=1,
+        title_en="My family",
+        title_vi="Gia đình tôi",
+        topic=life,
+        est_minutes=2,
+    )
+    reading.keywords.add(vocabulary)
+    ReadingQuestion.objects.create(
+        reading=reading, order=1, question_en="Who?", options=["A", "B"], answer_index=0
+    )
+    ReadingQuestion.objects.create(
+        reading=reading, order=2, question_en="Where?", options=["A", "B"], answer_index=1
+    )
+    Reading.objects.create(
+        level=a1, order=2, title_en="First flight", title_vi="Chuyến bay", topic=travel
+    )
+    premium_reading = Reading.objects.create(
+        level=a2, order=1, title_en="Advanced", title_vi="Nâng cao"
+    )
+
+    body = api.get("/learn/readings", token=token).json()
+    assert body["overview"]["level"] == "A1"
+    assert body["overview"]["total"] == 2
+    assert body["topic_facets"] == [
+        {"topic_id": life.id, "name_vi": "Đời sống", "count": 1},
+        {"topic_id": travel.id, "name_vi": "Du lịch", "count": 1},
+    ]
+    first = body["items"][0]
+    assert first["keyword_preview"] == ["family"]
+    assert first["progress"]["status"] == "not_started"
+    assert first["topic_icon_url"] is None  # topic chưa có icon → app hiện placeholder
+    assert body["items"][1]["topic_icon_url"].endswith("/icons/travel.png")
+
+    partial = api.post(
+        f"/learn/readings/{reading.id}/progress",
+        {"answered_count": 1, "correct_count": 1, "duration_sec": 60},
+        token=token,
+    ).json()
+    assert partial["progress"]["status"] == "in_progress"
+    assert partial["progress"]["progress_percent"] == 50
+    assert partial["xp_awarded"] == 0
+
+    completed = api.post(
+        f"/learn/readings/{reading.id}/progress",
+        {"answered_count": 2, "correct_count": 2, "completed": True, "duration_sec": 120},
+        token=token,
+    ).json()
+    assert completed["progress"]["status"] == "completed"
+    assert completed["progress"]["score_percent"] == 100
+    assert completed["xp_awarded"] == 20
+    assert ReadingDailyActivity.objects.filter(user=user).count() == 1
+
+    duplicate = api.post(
+        f"/learn/readings/{reading.id}/progress",
+        {"answered_count": 2, "correct_count": 2, "completed": True},
+        token=token,
+    ).json()
+    assert duplicate["xp_awarded"] == 0
+    assert duplicate["progress"]["status"] == "completed"
+
+    locked = api.get("/learn/readings?level=A2", token=token).json()["items"]
+    assert locked[0]["id"] == premium_reading.id
+    assert locked[0]["is_locked"] is True
+
+
+def test_reading_progress_rejects_invalid_answer_counts(api, token, levels):
+    a1, _ = levels
+    reading = Reading.objects.create(level=a1, order=1, title_en="A", title_vi="B")
+    ReadingQuestion.objects.create(
+        reading=reading, order=1, question_en="Q", options=["A", "B"], answer_index=0
+    )
+    response = api.post(
+        f"/learn/readings/{reading.id}/progress",
+        {"answered_count": 1, "correct_count": 2},
+        token=token,
+    )
+    assert response.status_code == 422
+    premature_complete = api.post(
+        f"/learn/readings/{reading.id}/progress",
+        {"answered_count": 0, "correct_count": 0, "completed": True},
+        token=token,
+    )
+    assert premature_complete.status_code == 422
 
 
 # --------------------------------------------------------------- preferences / avatar
@@ -542,3 +789,85 @@ def test_placement_submit_cham_va_de_xuat(api, token, user, levels):
     assert skills["vocab"]["correct"] == 3 and skills["grammar"]["correct"] == 3
     user.profile.refresh_from_db()
     assert user.profile.cefr_level == "A2"
+
+
+# --------------------------------------------------------------- thư viện bộ thẻ (C7a → C7)
+@pytest.fixture
+def decks(levels):
+    a1, a2 = levels
+    popular = VocabularyDeckCollection.objects.create(
+        code="popular", title_vi="Bộ sưu tập phổ biến", chip_label_vi="Thông dụng", order=1
+    )
+    oxford = VocabularyDeckCollection.objects.create(
+        code="oxford", title_vi="Từ vựng Oxford", chip_label_vi="Oxford", order=2
+    )
+    free = VocabularyDeck.objects.create(
+        collection=popular, code="oxford-3000", title_vi="3000 từ Oxford thông dụng",
+        cover_title="Oxford 3000", badge_vi="A1 – B2",
+        background_url="images/decks/oxford-3000.png", level=a1, order=1,
+        is_free=True, learner_base=354_000,
+    )
+    pro = VocabularyDeck.objects.create(
+        collection=oxford, code="ielts-75", title_vi="IELTS Speaking & Writing 7.5+",
+        cover_title="IELTS Advance", badge_vi="Band 7.5+",
+        background_url="https://cdn.example/ielts.png", level=a2, order=1,
+        is_free=False, learner_base=198_000,
+    )
+    for i in range(3):
+        v = Vocabulary.objects.create(
+            headword=f"deckword{i}", pos="n", level=a1, meaning_vi="nghĩa",
+            ipa_us=f"/us{i}/", ipa_uk=f"/uk{i}/",
+        )
+        VocabularyDeckItem.objects.create(deck=free, vocabulary=v, order=i)
+    return free, pro
+
+
+def test_flashcard_decks_groups_by_collection_with_counts(api, token, decks):
+    free, pro = decks
+    body = api.get("/learn/flashcard/decks", token=token).json()
+
+    assert [c["code"] for c in body["collections"]] == ["popular", "oxford"]
+    assert body["continuing"] is None  # chưa mở bộ nào
+
+    popular = body["collections"][0]
+    assert popular["deck_count"] == 1
+    card = popular["decks"][0]
+    assert card["card_count"] == 3
+    assert card["learner_count"] == 354_000  # learner_base, chưa ai mở bộ
+    assert card["is_premium"] is False
+    assert card["cover_title"] == "Oxford 3000"
+    assert card["background_url"].endswith("images/decks/oxford-3000.png")
+    assert card["learned_count"] == 0
+
+    locked = body["collections"][1]["decks"][0]
+    assert locked["is_premium"] is True
+    assert locked["background_url"] == "https://cdn.example/ielts.png"  # URL đầy đủ giữ nguyên
+
+
+def test_flashcard_deck_detail_returns_all_cards_and_marks_continuing(api, token, decks):
+    free, _ = decks
+    body = api.get(f"/learn/flashcard/decks/{free.id}", token=token).json()
+
+    assert body["total"] == 3
+    assert len(body["cards"]) == 3
+    first = body["cards"][0]
+    assert first["headword"] == "deckword0"
+    assert first["ipa"] == "/us0/"  # accent mặc định US
+    assert first["state"] == 0 and first["due_at"] is None  # chưa ôn bao giờ
+    assert body["learned_count"] == 0
+
+    # mở bộ xong thì bộ đó thành "Đang học" và được tính là 1 học viên
+    listing = api.get("/learn/flashcard/decks", token=token).json()
+    assert listing["continuing"]["id"] == free.id
+    assert listing["collections"][0]["decks"][0]["learner_count"] == 354_001
+
+
+def test_flashcard_deck_detail_locked_for_free_user(api, token, decks):
+    _, pro = decks
+    response = api.get(f"/learn/flashcard/decks/{pro.id}", token=token)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "premium_required"
+
+
+def test_flashcard_deck_detail_404(api, token, decks):
+    assert api.get("/learn/flashcard/decks/999999", token=token).status_code == 404

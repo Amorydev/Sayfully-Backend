@@ -4,13 +4,10 @@ import pytest
 
 from apps.content.models import (
     Collocation,
-    GrammarExample,
     GrammarPoint,
-    IPASound,
     Lesson,
     LessonStep,
     Level,
-    PhrasalVerb,
     Reading,
     ReadingSentence,
     ShadowingDeck,
@@ -59,6 +56,8 @@ def vocab(levels):
         audio_us_path="audio/us/beautiful.mp3",
         frequency_rank=100,
         synonyms=["lovely", "gorgeous"],
+        antonyms=["ugly"],
+        definition_vi="Đẹp hoặc làm người khác cảm thấy dễ chịu.",
     )
     VocabularyExample.objects.create(
         vocabulary=v, order=0, text_en="A beautiful voice.", text_vi="Một giọng hát đẹp."
@@ -150,6 +149,27 @@ def test_lesson_detail_buoc_da_hinh(api, token, levels, vocab):
     assert body["steps"][1]["vocab"]["headword"] == "beautiful"
 
 
+def test_lesson_vocab_card_collocation_va_so_tay(api, token, user, levels, vocab):
+    """Thẻ từ trong bài: collocations + note_vi (payload) + notebook_entry_id (bookmark của người dùng)."""
+    from apps.learning.models import NotebookEntry
+
+    a1, _ = levels
+    lesson = _make_lesson(a1, vocab)
+    step = lesson.steps.get(kind="vocab")
+    step.payload = {"note_vi": "Ôn tập — đã học ở a1-u1-l0"}
+    step.save(update_fields=["payload"])
+    Collocation.objects.create(vocabulary=vocab, text_en="a beautiful smile", meaning_vi="nụ cười đẹp")
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+    r = api.get("/content/lessons/a1-u1-l1", token=token)
+    assert r.status_code == 200, r.content
+    card = r.json()["steps"][1]["vocab"]
+    assert {c["text_en"] for c in card["collocations"]} == {"beautiful day", "a beautiful smile"}
+    assert card["note_vi"].startswith("Ôn tập")
+    assert card["notebook_entry_id"] == entry.id
+    assert card["category"] == "word"
+    assert [s["text"] for s in card["syllables"]] == ["bjuː", "tɪ", "fəl"]
+
+
 def test_lesson_a2_khoa_voi_free_user(api, token, levels, vocab):
     _, a2 = levels
     _make_lesson(a2, vocab, code="a2-u1-l1")
@@ -183,6 +203,16 @@ def test_vocab_q_tim_theo_nghia(api, token, levels, vocab):
     assert api.get("/content/vocabulary?q=zzz", token=token).json()["count"] == 0
 
 
+def test_vocab_search_tra_trang_thai_da_luu(api, token, user, levels, vocab):
+    from apps.learning.models import NotebookEntry
+
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+    item = api.get("/content/vocabulary?q=beautiful", token=token).json()["items"][0]
+
+    assert item["is_saved"] is True
+    assert item["notebook_entry_id"] == entry.id
+
+
 def test_vocab_ipa_theo_accent(api, token, user, levels, vocab):
     api.get("/content/levels", token=token)  # ensure_profile (mặc định US)
     r_us = api.get(f"/content/vocabulary/{vocab.id}", token=token)
@@ -196,10 +226,34 @@ def test_vocab_ipa_theo_accent(api, token, user, levels, vocab):
 def test_vocab_detail_du_truong(api, token, levels, vocab):
     body = api.get(f"/content/vocabulary/{vocab.id}", token=token).json()
     assert body["synonyms"] == ["lovely", "gorgeous"]
+    assert body["antonyms"] == ["ugly"]
+    assert body["definition_vi"] == "Đẹp hoặc làm người khác cảm thấy dễ chịu."
     assert body["collocations"][0]["text_en"] == "beautiful day"
     assert body["examples"][0]["text_en"] == "A beautiful voice."
     assert len(body["syllables"]) == 3 and body["syllables"][0]["is_primary"] is True
     assert body["audio_us_url"].endswith("audio/us/beautiful.mp3")
+
+
+def test_vocab_detail_tra_metadata_tu_lien_quan_va_trang_thai_luu(api, token, user, levels, vocab):
+    from apps.learning.models import NotebookEntry
+
+    related = Vocabulary.objects.create(
+        headword="lovely", pos="adj", level=levels[0], meaning_vi="đáng yêu"
+    )
+    vocab.word_family.add(related)
+    entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
+
+    body = api.get(f"/content/vocabulary/{vocab.id}", token=token).json()
+
+    assert body["is_saved"] is True and body["notebook_entry_id"] == entry.id
+    assert body["synonym_items"][0] == {
+        "id": related.id,
+        "headword": "lovely",
+        "pos": "adj",
+        "meaning_vi": "đáng yêu",
+    }
+    assert body["antonym_items"][0]["headword"] == "ugly"
+    assert body["word_family_items"][0]["id"] == related.id
 
 
 def test_vocab_detail_404(api, token, levels):
@@ -214,30 +268,64 @@ def test_topics_word_count(api, token, levels, vocab):
 
 
 # --------------------------------------------------------------- ngữ pháp
-def test_grammar_list_va_detail(api, token, levels):
-    a1, _ = levels
-    gp = GrammarPoint.objects.create(
-        level=a1,
-        order=1,
-        category="Thì",
-        title_vi="to be",
-        formula="I + am",
-        explanation_vi="Động từ to be",
-        conjugation=[{"subject": "I", "form": "am"}],
+def test_grammar_list_va_detail(api, token, levels, user):
+    from apps.content.management.commands.seed_grammar import seed_grammar_points
+
+    assert seed_grammar_points() == 8
+    page = api.get("/content/grammar?level=A1", token=token).json()
+    assert page["count"] == 6 and page["completed"] == 0
+    assert page["categories"] == ["Thì", "Mạo từ", "Đại từ", "Câu hỏi", "Cấu trúc"]
+    assert page["tip_vi"].startswith("Nắm chắc bản chất")
+    first = page["items"][0]
+    assert (
+        first["title_vi"] == "Động từ to be (am/is/are)"
+        and first["subtitle_vi"] == "Khái niệm cốt lõi · 3 quy tắc"
     )
-    GrammarExample.objects.create(
-        grammar_point=gp, order=0, text_en="I am a student.", text_vi="Tôi là học sinh."
+    assert (
+        first["exercise_count"] == 8 and first["completed"] is False and first["is_locked"] is False
     )
-    assert api.get("/content/grammar?level=A1", token=token).json()["count"] == 1
-    body = api.get(f"/content/grammar/{gp.id}", token=token).json()
+    assert api.get("/content/grammar?level=A1&category=Mạo từ", token=token).json()["count"] == 1
+
+    body = api.get(f"/content/grammar/{first['id']}", token=token).json()
+    assert body["position"] == 1 and body["total_in_level"] == 6
+    assert body["formula"] == "S + be + N/Adj"
+    assert body["formula_parts"][1] == {"token": "be", "label_vi": "am / is / are"}
+    assert (
+        body["mistake_wrong"] == "She very beautiful"
+        and body["mistake_right"] == "She is very beautiful"
+    )
     assert body["conjugation"][0] == {"subject": "I", "form": "am"}
-    assert body["examples"][0]["text_en"] == "I am a student."
+    assert body["examples"][0]["text_en"] == "I am a student." and body["xp_reward"] == 30
+
+    ex = api.get(f"/content/grammar/{first['id']}/exercises", token=token).json()
+    assert len(ex) == 8 and ex[0]["options"] == ["am", "is", "are"] and ex[0]["answer_index"] == 0
+
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 5, "total": 10}, token=token
+    ).json()
+    assert r["percent"] == 50 and r["completed"] is False and r["xp_earned"] == 0
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 8, "total": 10}, token=token
+    ).json()
+    assert r["completed"] is True and r["newly_completed"] is True and r["xp_earned"] == 30
+    assert r["streak_days"] == 1
+    r = api.post(
+        f"/content/grammar/{first['id']}/practice", {"correct": 10, "total": 10}, token=token
+    ).json()
+    assert r["newly_completed"] is False and r["xp_earned"] == 0 and r["best_percent"] == 100
+    user.profile.refresh_from_db()
+    assert user.profile.xp_total == 30
+    page = api.get("/content/grammar?level=A1", token=token).json()
+    assert page["completed"] == 1 and page["items"][0]["completed"] is True
+    assert page["tip_vi"] != first["title_vi"] and page["tip_vi"].startswith("Nghe âm đầu")
 
 
 def test_grammar_a2_premium(api, token, levels):
     _, a2 = levels
     gp = GrammarPoint.objects.create(level=a2, order=1, title_vi="X", explanation_vi="Y")
     assert api.get(f"/content/grammar/{gp.id}", token=token).status_code == 403
+    assert api.get(f"/content/grammar/{gp.id}/exercises", token=token).status_code == 403
+    assert api.get("/content/grammar?level=A2", token=token).json()["items"][0]["is_locked"] is True
 
 
 # --------------------------------------------------------------- đọc / truyện
@@ -251,6 +339,9 @@ def test_reading_detail_va_premium(api, token, levels, vocab):
     body = api.get(f"/content/readings/{r1.id}", token=token).json()
     assert body["sentences"][0]["ipa"] == "/aɪ/"
     assert body["keywords"][0]["headword"] == "beautiful"
+    assert body["keywords"][0]["level"] == "A1"
+    assert body["keywords"][0]["audio_url"].endswith("audio/us/beautiful.mp3")
+    assert body["topic"] is None and body["cover_url"] is None
 
     r2 = Reading.objects.create(level=a2, order=1, title_en="X", title_vi="Y")
     assert api.get(f"/content/readings/{r2.id}", token=token).status_code == 403
@@ -272,7 +363,13 @@ def test_shadowing_list_detail(api, token, levels):
     a1, _ = levels
     dk = ShadowingDeck.objects.create(level=a1, order=1, title_en="Apple", focus_vi="Âm /æ/")
     ShadowingSentence.objects.create(
-        deck=dk, order=0, text_en="A red apple.", text_vi="Quả táo đỏ.", ipa="/æ/"
+        deck=dk,
+        order=0,
+        text_en="A red apple.",
+        text_vi="Quả táo đỏ.",
+        ipa="/æ/",
+        speaking_goal_vi="Nhấn rõ âm /æ/",
+        highlights=[{"text": "apple", "kind": "primary_stress"}],
     )
     assert (
         api.get("/content/shadowing?level=A1", token=token).json()["items"][0]["sentence_count"]
@@ -280,32 +377,198 @@ def test_shadowing_list_detail(api, token, levels):
     )
     body = api.get(f"/content/shadowing/{dk.id}", token=token).json()
     assert body["sentences"][0]["ipa"] == "/æ/"
+    assert body["sentences"][0]["speaking_goal_vi"] == "Nhấn rõ âm /æ/"
+    assert body["sentences"][0]["highlights"] == [{"text": "apple", "kind": "primary_stress"}]
 
 
 # --------------------------------------------------------------- tra cứu
-def test_roots_va_phrasal_ipa(api, token, levels, vocab):
-    a1, _ = levels
-    root = WordRoot.objects.create(
-        kind="prefix", text="un-", meaning_vi="không", group_vi="Phủ định"
-    )
-    root.examples.add(vocab)
-    assert api.get("/content/roots?kind=prefix", token=token).json()[0]["example_count"] == 1
-    assert (
-        api.get(f"/content/roots/{root.id}", token=token).json()["examples"][0]["headword"]
-        == "beautiful"
-    )
+def test_roots_va_phrasal_ipa(api, token, levels, vocab, settings):
+    from apps.content.management.commands.seed_roots import seed_word_roots
 
-    PhrasalVerb.objects.create(verb_group="get", text="get up", meaning_vi="thức dậy", level=a1)
-    assert api.get("/content/phrasal-verbs?verb_group=get", token=token).json()["count"] == 1
+    assert seed_word_roots() == 40
+    un = WordRoot.objects.get(kind="prefix", text="un-")
+    un.examples.add(vocab)  # "beautiful" liên kết tay → id có, split không tách được
+
+    board = api.get("/content/roots", token=token).json()  # mặc định prefix
+    assert board["total"] == 40 and board["learned"] == 0 and board["kind_total"] == 14
+    assert [g["title_vi"] for g in board["groups"]] == [
+        "Phủ định & Đối nghịch",
+        "Vị trí & Thời gian",
+        "Số lượng & Mức độ",
+    ]
+    first = board["groups"][0]["roots"][0]
+    assert first["text"] == "un-" and first["example_count"] == 6 and first["learned"] is False
+    assert api.get("/content/roots?kind=suffix", token=token).json()["kind_total"] == 12
+
+    detail = api.get(f"/content/roots/{un.id}", token=token).json()
+    assert detail["effect_vi"] == "Biến đổi nghĩa sang đối lập tức thì"
+    assert (
+        detail["examples"][0]["headword"] == "beautiful" and detail["examples"][0]["id"] == vocab.id
+    )
+    unhappy = detail["examples"][1]
+    assert unhappy == {
+        "id": None,
+        "headword": "unhappy",
+        "base": "happy",
+        "split": "un·happy",
+        "ipa": "/ʌnˈhæp.i/",
+        "meaning_vi": "không vui vẻ",
+        "audio_url": None,
+        "audio_us_url": None,
+        "audio_uk_url": None,
+    }
+    # từ liên kết lấy audio của Vocabulary; từ mẫu JSON lấy từ khoá audio_*_path (fallback giọng)
+    settings.R2_PUBLIC_BASE = "https://media.test"
+    vocab.audio_us_path = "audio/us/beautiful.mp3"
+    vocab.save(update_fields=["audio_us_path"])
+    linked = api.get(f"/content/roots/{un.id}", token=token).json()["examples"][0]
+    assert linked["audio_us_url"] == "https://media.test/audio/us/beautiful.mp3"
+    un.samples = [
+        {**x, "audio_uk_path": "audio/uk/unhappy.mp3"} if x["word"] == "unhappy" else x
+        for x in un.samples
+    ]
+    un.save(update_fields=["samples"])
+    unhappy = api.get(f"/content/roots/{un.id}", token=token).json()["examples"][1]
+    assert unhappy["audio_us_url"] is None
+    assert unhappy["audio_url"] == unhappy["audio_uk_url"] == "https://media.test/audio/uk/unhappy.mp3"
+    assert len(detail["distractors"]) >= 4 and "không vui vẻ" not in detail["distractors"]
+
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 5, "total": 10}, token=token
+    ).json()
+    assert r["percent"] == 50 and r["learned"] is False and r["total_learned"] == 0
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 8, "total": 10}, token=token
+    ).json()
+    assert r["learned"] is True and r["newly_learned"] is True and r["total_learned"] == 1
+    r = api.post(
+        f"/content/roots/{un.id}/practice", {"correct": 2, "total": 10}, token=token
+    ).json()
+    assert r["best_percent"] == 80 and r["newly_learned"] is False and r["attempts"] == 3
+    board = api.get("/content/roots", token=token).json()
+    assert board["learned"] == 1 and board["groups"][0]["roots"][0]["learned"] is True
+    assert api.get("/content/roots/999999", token=token).status_code == 404
 
 
 def test_ipa_sounds(api, token):
-    IPASound.objects.create(
-        symbol="iː",
-        kind="vowel",
-        description_vi="Nguyên âm dài",
-        articulation_vi="Môi dẹt",
-        sample_words=["sheep"],
+    from apps.content.management.commands.seed_ipa import seed_ipa_sounds
+
+    assert seed_ipa_sounds() == 44
+    body = api.get("/content/ipa-sounds", token=token).json()
+    assert body["total"] == 44 and body["mastered"] == 0
+    assert [g["code"] for g in body["groups"]] == [
+        "monophthong",
+        "diphthong",
+        "voiceless",
+        "voiced",
+        "nasal_approx",
+    ]
+    assert sum(len(g["sounds"]) for g in body["groups"]) == 44
+    first = body["groups"][0]["sounds"][0]
+    assert (
+        first["symbol"] == "iː" and first["sample_word"] == "sheep" and first["mastered"] is False
     )
-    body = api.get("/content/ipa-sounds?kind=vowel", token=token).json()
-    assert body[0]["symbol"] == "iː" and body[0]["articulation_vi"] == "Môi dẹt"
+
+    vowels = api.get("/content/ipa-sounds?kind=vowel", token=token).json()
+    assert [g["code"] for g in vowels["groups"]] == ["monophthong", "diphthong"]
+    assert vowels["total"] == 44  # tổng luôn là cả bảng để tính x/44
+
+    detail = api.get(f"/content/ipa-sounds/{first['id']}", token=token).json()
+    assert detail["category_en"] == "Long Vowel" and detail["lips_vi"] == "Bè dẹt"
+    assert detail["examples"][0] == {
+        "word": "sheep",
+        "ipa": "/ʃiːp/",
+        "meaning_vi": "con cừu",
+        "audio_uk_url": None,
+        "audio_us_url": None,
+    }
+    pair = detail["minimal_pair"]
+    assert pair["this"]["word"] == "sheep" and pair["other"]["symbol"] == "ɪ"
+    assert pair["other"]["category_vi"] == "Nguyên âm ngắn" and pair["other"]["id"]
+
+    # luyện: 60 chưa thuần thục, 85 → thuần thục, gọi lại không tính lại
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 60}, token=token).json()
+    assert r["mastered"] is False and r["attempts"] == 1 and r["total_mastered"] == 0
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 85}, token=token).json()
+    assert r["mastered"] is True and r["newly_mastered"] is True and r["total_mastered"] == 1
+    r = api.post(f"/content/ipa-sounds/{first['id']}/practice", {"score": 50}, token=token).json()
+    assert r["best_score"] == 85 and r["newly_mastered"] is False and r["attempts"] == 3
+
+    body = api.get("/content/ipa-sounds", token=token).json()
+    assert body["mastered"] == 1 and body["groups"][0]["sounds"][0]["mastered"] is True
+    assert api.get("/content/ipa-sounds/999999", token=token).status_code == 404
+
+
+def test_videos_featured_len_dau_va_loc_duoc(api, token, levels):
+    from apps.content.models import Video
+
+    a1 = levels[0]
+    plain = Video.objects.create(level=a1, youtube_id="aaaaaaaaaaa", title_vi="Thường", title_en="Plain")
+    hot = Video.objects.create(
+        level=a1, youtube_id="bbbbbbbbbbb", title_vi="Nổi bật", title_en="Hot", is_featured=True, featured_order=1
+    )
+    ids = [v["id"] for v in api.get("/content/videos", token=token).json()["items"]]
+    assert ids[:2] == [hot.id, plain.id]
+    only = api.get("/content/videos?featured=true", token=token).json()["items"]
+    assert [v["id"] for v in only] == [hot.id] and only[0]["is_featured"] is True
+
+
+def test_videos_tra_mo_ta_the_loai(api, token, levels):
+    from apps.content.models import Video, VideoCategory
+
+    VideoCategory.objects.create(name="Hội thoại", subtitle="Giao tiếp hàng ngày", order=1)
+    Video.objects.create(level=levels[0], youtube_id="ccccccccccc", title_vi="A", title_en="A", category="Hội thoại")
+    Video.objects.create(level=levels[0], youtube_id="ddddddddddd", title_vi="B", title_en="B", category="Khác")
+    items = {v["youtube_id"]: v for v in api.get("/content/videos", token=token).json()["items"]}
+    assert items["ccccccccccc"]["category_subtitle"] == "Giao tiếp hàng ngày"
+    assert items["ddddddddddd"]["category_subtitle"] == ""
+
+
+def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, vocab, settings):
+    """`audio_url` chọn theo UserProfile.accent, thiếu giọng nào thì lấy giọng còn lại; luôn kèm us/uk."""
+    from apps.accounts.services import ensure_profile
+    from apps.content.models import VocabularyExample
+
+    settings.R2_PUBLIC_BASE = "https://cdn.test"
+    v = vocab[0] if isinstance(vocab, (list, tuple)) else vocab
+    ex = VocabularyExample.objects.create(
+        vocabulary=v, text_en="I grow tomatoes.", text_vi="Tôi trồng cà chua.",
+        audio_us_path="audio/us/example/1.mp3", audio_uk_path="",
+    )
+    profile = ensure_profile(user)
+    profile.accent = "UK"
+    profile.save(update_fields=["accent"])
+
+    body = api.get(f"/content/vocabulary/{v.id}", token=token).json()
+    e = next(x for x in body["examples"] if x["text_en"] == ex.text_en)
+    assert e["audio_url"] == "https://cdn.test/audio/us/example/1.mp3"  # UK thiếu → dùng US
+    assert e["audio_us_url"] == "https://cdn.test/audio/us/example/1.mp3" and e["audio_uk_url"] is None
+
+    ex.audio_uk_path = "audio/uk/example/1.mp3"
+    ex.save(update_fields=["audio_uk_path"])
+    e = next(x for x in api.get(f"/content/vocabulary/{v.id}", token=token).json()["examples"] if x["text_en"] == ex.text_en)
+    assert e["audio_url"] == "https://cdn.test/audio/uk/example/1.mp3"
+
+
+def test_audio_sample_uu_tien_tu_quen_co_du_hai_giong(api, token, levels, vocab, settings):
+    settings.R2_PUBLIC_BASE = "https://cdn.test"
+    from apps.content.models import Vocabulary
+
+    # chỉ có "beautiful" (đủ hai giọng) → lấy nó
+    body = api.get("/content/audio/sample", token=token).json()
+    assert body == {
+        "word": "beautiful",
+        "ipa_us": vocab.ipa_us,
+        "ipa_uk": vocab.ipa_uk,
+        "audio_us_url": "https://cdn.test/audio/us/beautiful.mp3",
+        "audio_uk_url": "https://cdn.test/audio/uk/beautiful.mp3",
+    }
+    # "hello" xuất hiện với đủ hai giọng → được ưu tiên hơn
+    Vocabulary.objects.create(
+        headword="hello", pos="interj", level=vocab.level, meaning_vi="xin chào", ipa_uk="/həˈləʊ/", ipa_us="/həˈloʊ/",
+        audio_uk_path="audio/uk/hello.mp3", audio_us_path="audio/us/hello.mp3", frequency_rank=1,
+    )
+    assert api.get("/content/audio/sample", token=token).json()["word"] == "hello"
+    # không từ nào có audio → 404
+    Vocabulary.objects.update(audio_uk_path="", audio_us_path="")
+    assert api.get("/content/audio/sample", token=token).status_code == 404

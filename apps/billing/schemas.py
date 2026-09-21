@@ -5,24 +5,38 @@ from datetime import datetime
 from ninja import Schema
 
 
+class ProductFeatureOut(Schema):
+    title: str
+    description: str = ""
+    icon_url: str | None = None  # ảnh icon trên CDN để app render trực tiếp; trống → icon mặc định
+
+
 class ProductOut(Schema):
     code: str
     name_vi: str
+    kind: str = "premium"  # premium | coins
+    tier: str = "premium"  # premium | plus
+    coins: int = 0  # kind=coins: số xu nhận
     period: str
+    store_product_id: str  # mã sản phẩm trên RevenueCat/store để app khớp offering
     price: int
     original_price: int | None
     currency: str
     trial_days: int
     badge_vi: str
-    features: list[str]
+    features: list[ProductFeatureOut]
 
 
 class SubscriptionOut(Schema):
     is_premium: bool
+    tier: str = "premium"  # plus khi Premium+ còn hạn
+    premium_until: datetime | None = None  # null khi trọn đời (hoặc chưa Premium)
     product_code: str | None
     status: str | None
     provider: str | None
+    store: str | None = None  # play_store | app_store | web
     expires_at: datetime | None
+    will_renew: bool = False
 
 
 class RedeemIn(Schema):

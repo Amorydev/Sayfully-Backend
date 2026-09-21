@@ -5,46 +5,51 @@ không cộng đôi). Chi tiết A2–C2 cần Premium; bài khoá theo lộ tr�
 """
 
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Max, Prefetch, Sum
 from django.http import HttpResponse
 from django.utils import timezone as djtz
 from ninja import File, Query, Router
 from ninja.files import UploadedFile
 
 from apps.accounts.services import ensure_profile
-from apps.ai.models import RoleplayScenario
+from apps.ai.models import AIQuota
 from apps.common.exceptions import AppError, Forbidden, NotFound
 from apps.common.models import CEFR
 from apps.common.schemas import ErrorOut
+from apps.content import api as content_api
 from apps.content.models import (
-    Dialogue,
     GrammarPoint,
     IPASound,
     Lesson,
     LessonStep,
     Level,
     LevelMilestone,
+    ListeningTopic,
     Reading,
     ShadowingDeck,
-    Story,
+    ShadowingSentence,
     Topic,
     Unit,
     Video,
     Vocabulary,
+    VocabularyDeck,
+    WordRoot,
 )
-from apps.content.schemas import Page
 from apps.gamification import services as gami_services
+from apps.gamification import shop
 from apps.gamification.models import (
     Badge,
     Challenge,
     CoinTransaction,
     Game,
+    GameScore,
     LeagueMembership,
     ShopItem,
     UserBadge,
@@ -53,16 +58,21 @@ from apps.gamification.models import (
 from apps.notifications.models import Notification
 
 from . import schemas as s
-from . import services
+from . import services, video_practice
 from .models import (
     DailyActivity,
     LessonProgress,
+    ListeningTopicProgress,
     NotebookEntry,
     PlacementAttempt,
     PlacementQuestion,
+    ReadingDailyActivity,
+    ReadingProgress,
+    SpeakingTopicProgress,
     SRSCard,
     SRSReviewLog,
     UserSkill,
+    VocabularyDeckProgress,
 )
 
 _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
@@ -94,6 +104,13 @@ def _media(path: str | None) -> str | None:
     return f"{settings.R2_PUBLIC_BASE.rstrip('/')}/{path}" if path else None
 
 
+def _icon_url(value: str | None) -> str | None:
+    """Icon topic: URL đầy đủ (http…) giữ nguyên; path tương đối thì ghép R2 base."""
+    if not value:
+        return None
+    return value if value.startswith("http") else _media(value)
+
+
 def _gate(profile, level) -> None:
     if not level.is_free and not profile.is_premium:
         raise Forbidden("Nội dung này dành cho Premium", code="premium_required")
@@ -116,6 +133,8 @@ _PATH_TITLE_PREFIX = re.compile(r"^\s*Bài\s+\d+\s*[:·.\-]?\s*", re.IGNORECASE)
 def _path_display_title(lesson: Lesson) -> str:
     """Trả copy đã chuẩn hoá để client không phải tự ghép hoặc cắt title."""
     title = _PATH_TITLE_PREFIX.sub("", lesson.title_vi).strip() or lesson.title_vi
+    if lesson.kind == Lesson.Kind.CHECKPOINT:
+        return "Checkpoint · Kiểm tra unit"
     return f"Bài {lesson.order} · {title}"
 
 
@@ -187,7 +206,7 @@ def _stars(correct: int, total: int) -> int:
     return 3 if ratio >= 1 else (2 if ratio >= 0.8 else 1)
 
 
-def _week_progress(user, today) -> list[s.DayProgressOut]:
+def _week_progress(user, today, frozen_on=None) -> list[s.DayProgressOut]:
     monday = today - timedelta(days=today.weekday())
     active = set(
         DailyActivity.objects.filter(
@@ -197,8 +216,41 @@ def _week_progress(user, today) -> list[s.DayProgressOut]:
     out = []
     for i, label in enumerate(_WEEKDAYS):
         d = monday + timedelta(days=i)
-        out.append(s.DayProgressOut(label=label, active=d in active, is_today=d == today))
+        out.append(
+            s.DayProgressOut(
+                label=label, active=d in active, is_today=d == today, frozen=d == frozen_on
+            )
+        )
     return out
+
+
+def _streak_status(user, profile, today) -> s.StreakStatusOut:
+    """Trạng thái chuỗi trước hoạt động đầu tiên trong ngày: lỡ hôm qua = "at risk"."""
+    last = (
+        DailyActivity.objects.filter(user=user, date__lte=today)
+        .order_by("-date")
+        .values_list("date", flat=True)
+        .first()
+    )
+    at_risk = (
+        profile.streak_current > 0
+        and last is not None
+        and last < today
+        and last != today - timedelta(days=1)
+    )
+    return s.StreakStatusOut(
+        days=profile.streak_current,
+        freezes=profile.streak_freezes,
+        at_risk=at_risk,
+        frozen_yesterday=profile.streak_frozen_on == today - timedelta(days=1),
+    )
+
+
+def _checked_in_today(user, profile, today) -> bool:
+    start_today = datetime.combine(today, dtime.min, ZoneInfo(profile.timezone))
+    return CoinTransaction.objects.filter(
+        user=user, reason="checkin", created_at__gte=start_today
+    ).exists()
 
 
 def _milestone(user, streak: int) -> s.MilestoneOut | None:
@@ -238,10 +290,7 @@ def _review_card(card: SRSCard, accent: str) -> s.ReviewCardOut:
         definition_en=v.definition_en,
         audio_uk_url=_media(v.audio_uk_path),
         audio_us_url=_media(v.audio_us_path),
-        examples=[
-            s.ExampleOut(text_en=e.text_en, text_vi=e.text_vi, audio_url=_media(e.audio_path))
-            for e in v.examples.all()
-        ],
+        examples=[content_api._example(e, accent) for e in v.examples.all()],
         collocations=[
             s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
             for c in v.collocations.all()
@@ -269,12 +318,169 @@ def _key_vocab(lesson: Lesson, accent: str) -> list[s.KeyVocabOut]:
     return out
 
 
+def _home_rank(user) -> s.HomeRankOut | None:
+    from apps.gamification.api import _league_ranking  # noqa: PLC0415 — tránh import vòng
+
+    if not LeagueMembership.objects.filter(user=user).exists():
+        return None
+    group, _, _, my_rank, my_xp, _ = _league_ranking(user)
+    if my_rank == 0:
+        return None
+    return s.HomeRankOut(league_tier=group.get_tier_display(), rank=my_rank, xp_week=my_xp)
+
+
+HOME_VIDEO_LIMIT = 6
+HOME_VIDEO_NEW_DAYS = 14
+HOME_VIDEO_POPULAR_MIN = 5
+
+
+def _home_videos() -> list[s.HomeVideoOut]:
+    """Nổi bật (admin ghim) → nhiều người đã luyện → mới tạo; chỉ video tuyển chọn đã sẵn sàng."""
+    now = djtz.now()
+    qs = (
+        Video.objects.filter(source=Video.Source.CURATED, status=Video.Status.READY)
+        .annotate(
+            sentence_count=Count("subtitles", distinct=True),
+            learner_count=Count("practice_results__user", distinct=True),
+        )
+        .filter(sentence_count__gt=0)
+        .order_by("-is_featured", "featured_order", "-learner_count", "-created_at", "id")[:HOME_VIDEO_LIMIT]
+    )
+    out = []
+    for vd in qs:
+        badge = None
+        if vd.is_featured:
+            badge = "featured"
+        elif vd.learner_count >= HOME_VIDEO_POPULAR_MIN:
+            badge = "popular"
+        elif now - vd.created_at <= timedelta(days=HOME_VIDEO_NEW_DAYS):
+            badge = "new"
+        out.append(
+            s.HomeVideoOut(
+                id=vd.id,
+                youtube_id=vd.youtube_id,
+                title_vi=vd.title_vi,
+                level=vd.level_id or "",
+                category=vd.category,
+                duration_sec=vd.duration_sec,
+                sentence_count=vd.sentence_count,
+                thumbnail_url=_media(vd.thumbnail_path),
+                learner_count=vd.learner_count,
+                badge=badge,
+            )
+        )
+    return out
+
+
+def _home_ai_tutor(profile, today) -> s.HomeAiTutorOut:
+    from apps.ai import services as ai_services  # noqa: PLC0415
+
+    limit = ai_services.quota_limit(profile)
+    used = (
+        AIQuota.objects.filter(user=profile.user, date=today)
+        .values_list("messages_used", flat=True)
+        .first()
+        or 0
+    )
+    return s.HomeAiTutorOut(
+        enabled=settings.AI_ENABLED,
+        quota_left=max(0, limit - used),
+        quota_limit=limit,
+        resets_at=(today + timedelta(days=1)).isoformat(),
+    )
+
+
+def _home_learning_tools(user) -> list[s.HomeLearningToolOut]:
+    notebook_total = NotebookEntry.objects.filter(user=user).count()
+    ipa_sounds = IPASound.objects.count()
+    word_roots = WordRoot.objects.count()
+    grammar_points = GrammarPoint.objects.filter(
+        level_id=ensure_profile(user).cefr_level or "A1"
+    ).count()
+    return [
+        s.HomeLearningToolOut(
+            code="ai_tutor",
+            title_vi="Gia sư AI 1:1",
+            description_vi="Trò chuyện tự do hoặc đóng vai, Long sửa lỗi tức thì",
+            action="ai_tutor" if settings.AI_ENABLED else "coming_soon",
+            is_premium=False,
+        ),
+        s.HomeLearningToolOut(
+            code="exam_prep",
+            title_vi="Luyện đề IELTS & TOEIC",
+            description_vi="Bộ đề sát thực tế kèm lời giải chi tiết",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="ipa",
+            title_vi=f"Bảng {ipa_sounds} âm IPA chuẩn",
+            description_vi="Khẩu hình miệng 3D và sóng âm mẫu",
+            action="ipa",
+            item_count=ipa_sounds,
+        ),
+        s.HomeLearningToolOut(
+            code="grammar",
+            title_vi="Ngữ pháp theo cấp",
+            description_vi="Công thức, ví dụ và bài thực hành",
+            action="grammar",
+            item_count=grammar_points,
+        ),
+        s.HomeLearningToolOut(
+            code="roots",
+            title_vi=f"{word_roots} gốc từ vựng",
+            description_vi="Nắm gốc từ, đoán nghĩa 1.000+ từ",
+            action="roots",
+            item_count=word_roots,
+        ),
+        s.HomeLearningToolOut(
+            code="video",
+            title_vi="Học qua Video ngắn",
+            description_vi="Phụ đề song ngữ tương tác tra từ",
+            action="video",
+        ),
+        s.HomeLearningToolOut(
+            code="notebook",
+            title_vi="Sổ từ của tôi",
+            description_vi=f"{notebook_total} từ đã lưu từ các bài đọc",
+            action="notebook",
+            item_count=notebook_total,
+        ),
+        s.HomeLearningToolOut(
+            code="dictionary",
+            title_vi="Từ điển Anh – Việt",
+            description_vi="Tra cứu IPA, phát âm và lưu từ mới",
+            action="dictionary",
+        ),
+        s.HomeLearningToolOut(
+            code="challenge",
+            title_vi="Thách đấu 1:1",
+            description_vi="Đua tốc độ từ vựng thời gian thực",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="hearing",
+            title_vi="Thẩm âm câu dài",
+            description_vi="Nhận diện nối âm, nuốt âm chuẩn bản xứ",
+            action="coming_soon",
+        ),
+        s.HomeLearningToolOut(
+            code="progress",
+            title_vi="Biểu đồ tiến độ chi tiết",
+            description_vi="Phân tích điểm mạnh và điểm cần cải thiện",
+            action="coming_soon",
+        ),
+    ]
+
+
 # =============================================================== /home
 @router.get(
     "/home",
     response={200: s.HomeOut, 401: ErrorOut},
     summary="Dữ liệu trang chủ (1 lần gọi)",
-    description="Hồ sơ tóm tắt, mục tiêu ngày, bài đang học, số từ đến hạn, thông báo chưa đọc.",
+    description=(
+        "Hồ sơ tóm tắt, mục tiêu ngày, bài đang học, số từ đến hạn, thông báo chưa đọc "
+        "và các công cụ học tập mở rộng."
+    ),
 )
 def home(request):
     user = request.auth
@@ -321,16 +527,12 @@ def home(request):
     daily_challenges = list(
         Challenge.objects.filter(scope=Challenge.Scope.DAILY, is_active=True).order_by("tier", "id")
     )
-    progress_by_id = dict(
-        UserChallenge.objects.filter(
-            user=user, period_key=today.isoformat(), challenge__in=daily_challenges
-        ).values_list("challenge_id", "progress")
-    )
+    dailies_today = [daily] if daily else []
     challenge_items = []
     challenges_done = 0
     challenges_reward = 0
     for ch in daily_challenges:
-        cur = progress_by_id.get(ch.id, 0)
+        cur = gami_services.challenge_progress(ch, dailies_today)
         if cur >= ch.target:
             challenges_done += 1
         challenges_reward += ch.reward_coins
@@ -338,16 +540,29 @@ def home(request):
             s.HomeChallengeOut(
                 id=ch.id,
                 title=ch.title_vi,
+                metric=ch.metric,
                 current=min(cur, ch.target),
                 target=ch.target,
                 reward_coins=ch.reward_coins,
             )
         )
 
+    home_games = list(Game.objects.filter(is_active=True).order_by("order", "id")[:4])
+    personal_best_by_game = dict(
+        GameScore.objects.filter(user=user, game__in=home_games)
+        .values("game_id")
+        .annotate(score=Max("score"))
+        .values_list("game_id", "score")
+    )
+
     return s.HomeOut(
+        checkin_done=_checked_in_today(user, profile, today),
+        streak=_streak_status(user, profile, today),
         profile=s.HomeProfileOut(
             name=user.full_name,
             avatar_url=_media(user.avatar_path),
+            avatar_frame_colors=shop.frame_colors(profile.avatar_frame),
+            avatar_frame=profile.avatar_frame or None,
             cefr_level=profile.cefr_level,
             level=profile.level,
             level_label="Học viên",
@@ -367,7 +582,25 @@ def home(request):
             reward_coins=challenges_reward,
             items=challenge_items,
         ),
-        rank=None,
+        rank=_home_rank(user),
+        games=[
+            s.HomeGameOut(
+                id=game.id,
+                code=game.code,
+                title_vi=game.title_vi,
+                description_vi=game.description_vi,
+                kind=game.kind,
+                icon_url=_media(game.icon_path),
+                min_level=game.min_level,
+                is_locked=_cefr_rank(profile.cefr_level) < _cefr_rank(game.min_level),
+                is_featured=game.is_featured,
+                personal_best=personal_best_by_game.get(game.id, 0),
+            )
+            for game in home_games
+        ],
+        learning_tools=_home_learning_tools(user),
+        ai_tutor=_home_ai_tutor(profile, today),
+        videos=_home_videos(),
     )
 
 
@@ -458,6 +691,7 @@ def learn_path(request, level: str):
                     id=ls.id,
                     code=ls.code,
                     order=ls.order,
+                    kind=ls.kind,
                     title_vi=ls.title_vi,
                     display_title_vi=_path_display_title(ls),
                     subtitle_vi=ls.path_subtitle_vi,
@@ -658,6 +892,10 @@ def complete_lesson(request, code: str, payload: s.LessonCompleteIn):
     if p and p.status == LessonProgress.Status.COMPLETED:
         return s.LessonResultOut(
             code=lesson.code,
+            lesson_order=lesson.order,
+            title_vi=lesson.title_vi,
+            unit_order=lesson.unit.order,
+            unit_title_vi=lesson.unit.title_vi,
             percent=100,
             correct_count=p.correct_count,
             total=p.total_questions,
@@ -704,6 +942,10 @@ def complete_lesson(request, code: str, payload: s.LessonCompleteIn):
 
     return s.LessonResultOut(
         code=lesson.code,
+        lesson_order=lesson.order,
+        title_vi=lesson.title_vi,
+        unit_order=lesson.unit.order,
+        unit_title_vi=lesson.unit.title_vi,
         percent=100,
         correct_count=correct,
         total=total,
@@ -818,20 +1060,38 @@ def review_stats(request):
 
 
 # =============================================================== vocab status + notebook
-def _notebook_out(entry: NotebookEntry, accent: str, srs: dict) -> s.NotebookEntryOut:
+def _notebook_mastery_percent(card: SRSCard | None) -> int:
+    """Một chỉ số ổn định cho UI notebook; không thay thế thuật toán FSRS."""
+    if card is None or card.state == SRSCard.State.SUSPENDED:
+        return 0
+    state_base = {
+        SRSCard.State.NEW: 0,
+        SRSCard.State.LEARNING: 30,
+        SRSCard.State.REVIEW: 80,
+        SRSCard.State.RELEARNING: 20,
+    }[card.state]
+    return max(0, min(100, state_base + min(card.reps * 4, 20) - card.lapses * 5))
+
+
+def _notebook_out(entry: NotebookEntry, accent: str, srs: dict[int, SRSCard]) -> s.NotebookEntryOut:
     v = entry.vocabulary
     if v is not None:
+        card = srs.get(v.id)
         return s.NotebookEntryOut(
             id=entry.id,
             vocab_id=v.id,
             headword=v.headword,
             ipa=v.ipa_us if accent == "US" else v.ipa_uk,
             meaning_vi=v.meaning_vi,
-            audio_url=_media(v.audio_us_path if accent == "US" else v.audio_uk_path),
             note=entry.note,
             tags=entry.tags or [],
-            srs_state=srs.get(v.id),
+            srs_state=card.state if card is not None else None,
+            mastery_percent=_notebook_mastery_percent(card),
+            reps=card.reps if card is not None else 0,
+            lapses=card.lapses if card is not None else 0,
+            due_at=card.due_at if card is not None else None,
             created_at=entry.created_at,
+            **content_api._accent_audio(v, accent),
         )
     return s.NotebookEntryOut(
         id=entry.id,
@@ -843,6 +1103,10 @@ def _notebook_out(entry: NotebookEntry, accent: str, srs: dict) -> s.NotebookEnt
         note=entry.note,
         tags=entry.tags or [],
         srs_state=None,
+        mastery_percent=0,
+        reps=0,
+        lapses=0,
+        due_at=None,
         created_at=entry.created_at,
     )
 
@@ -918,9 +1182,12 @@ def vocabulary_status(request, level: str):
 
 @router.get(
     "/learn/notebook",
-    response={200: Page[s.NotebookEntryOut], 401: ErrorOut},
+    response={200: s.NotebookListOut, 401: ErrorOut},
     summary="Sổ tay từ vựng",
-    description="Danh sách mục sổ tay (lọc theo `tag`), kèm trạng thái SRS mỗi từ.",
+    description=(
+        "Danh sách mục sổ tay (lọc theo `tag`), capacity entitlement, tag facets toàn bộ sổ "
+        "và trạng thái SRS mỗi từ."
+    ),
 )
 def notebook_list(
     request,
@@ -935,17 +1202,32 @@ def notebook_list(
         qs = qs.filter(tags__contains=[tag])
     qs = qs.order_by("-created_at")
     count = qs.count()
+    notebook_total = NotebookEntry.objects.filter(user=user).count()
     items = list(qs[offset : offset + limit])
-    srs = dict(
-        SRSCard.objects.filter(
+    srs = {
+        card.vocabulary_id: card
+        for card in SRSCard.objects.filter(
             user=user, vocabulary_id__in=[e.vocabulary_id for e in items if e.vocabulary_id]
-        ).values_list("vocabulary_id", "state")
+        )
+    }
+    tag_counts = Counter(
+        tag
+        for tags in NotebookEntry.objects.filter(user=user).values_list("tags", flat=True)
+        for tag in (tags or [])
+        if tag.strip()
     )
-    return Page(
+    return s.NotebookListOut(
         items=[_notebook_out(e, profile.accent, srs) for e in items],
         count=count,
+        notebook_total=notebook_total,
         limit=limit,
         offset=offset,
+        capacity=NOTEBOOK_LIMITS[profile.is_premium],
+        is_premium=profile.is_premium,
+        tag_facets=[
+            s.NotebookTagFacetOut(tag=tag, count=tag_count)
+            for tag, tag_count in sorted(tag_counts.items(), key=lambda item: (-item[1], item[0].lower()))
+        ],
     )
 
 
@@ -984,15 +1266,11 @@ def notebook_add(request, payload: s.NotebookCreateIn):
             "tags": payload.tags,
         },
     )
-    srs = {}
+    srs: dict[int, SRSCard] = {}
     if vocab is not None:
-        state = (
-            SRSCard.objects.filter(user=user, vocabulary=vocab)
-            .values_list("state", flat=True)
-            .first()
-        )
-        if state is not None:
-            srs[vocab.id] = state
+        card = SRSCard.objects.filter(user=user, vocabulary=vocab).first()
+        if card is not None:
+            srs[vocab.id] = card
     return _notebook_out(entry, profile.accent, srs)
 
 
@@ -1030,27 +1308,31 @@ def checkin(request):
     user = request.auth
     profile = ensure_profile(user)
     today = services.local_today(profile)
-    tz = ZoneInfo(profile.timezone)
-    start_today = datetime.combine(today, dtime.min, tz)
 
-    already = CoinTransaction.objects.filter(
-        user=user, reason="checkin", created_at__gte=start_today
-    ).exists()
-    if already:
+    if _checked_in_today(user, profile, today):
         return s.CheckinOut(
             already=True,
             xp_earned=0,
             coins_earned=0,
+            streak_before=profile.streak_current,
             streak_days=profile.streak_current,
-            week=_week_progress(user, today),
+            week=_week_progress(user, today, profile.streak_frozen_on),
+            milestone=_milestone(user, profile.streak_current),
+            freezes_left=profile.streak_freezes,
         )
+    streak_before = profile.streak_current
+    freezes_before = profile.streak_freezes
     reward = services.record(profile, xp=5, coins=10, coin_reason="checkin")
     return s.CheckinOut(
         already=False,
         xp_earned=reward.xp_earned,
         coins_earned=reward.coins_earned,
+        streak_before=streak_before,
         streak_days=reward.streak_days,
-        week=_week_progress(user, today),
+        week=_week_progress(user, today, profile.streak_frozen_on),
+        milestone=_milestone(user, reward.streak_days),
+        freeze_used=profile.streak_freezes < freezes_before,
+        freezes_left=profile.streak_freezes,
     )
 
 
@@ -1084,6 +1366,234 @@ def activity(
     ]
 
 
+# =============================================================== reading (C10a)
+def _reading_progress_out(
+    progress: ReadingProgress | None, question_count: int
+) -> s.ReadingCardProgressOut:
+    if progress is None:
+        return s.ReadingCardProgressOut(
+            status="not_started",
+            answered_count=0,
+            correct_count=0,
+            progress_percent=0,
+            score_percent=0,
+            xp_earned=0,
+        )
+    answered = min(progress.answered_count, question_count)
+    correct = min(progress.correct_count, answered)
+    return s.ReadingCardProgressOut(
+        status=progress.status,
+        answered_count=answered,
+        correct_count=correct,
+        progress_percent=round(answered / question_count * 100) if question_count else 0,
+        score_percent=round(correct / question_count * 100) if question_count else 0,
+        xp_earned=progress.xp_earned,
+    )
+
+
+def _reading_streak_days(user, profile) -> int:
+    """Đếm chuỗi ngày user thực sự mở/hoàn thành bài đọc, theo timezone của hồ sơ."""
+    active_days = set(
+        ReadingDailyActivity.objects.filter(user=user).values_list("date", flat=True)
+    )
+    if not active_days:
+        return 0
+    current = services.local_today(profile)
+    if current not in active_days:
+        current -= timedelta(days=1)
+    streak = 0
+    while current in active_days:
+        streak += 1
+        current -= timedelta(days=1)
+    return streak
+
+
+@router.get(
+    "/learn/readings",
+    response={200: s.ReadingListPageOut, 401: ErrorOut, 422: ErrorOut},
+    summary="Danh sách đọc hiểu theo tiến độ người học",
+    description=(
+        "C10a: danh sách bài đọc theo CEFR hiện tại, progress từng bài, topic facets, "
+        "khóa Premium và chỉ số hero."
+    ),
+)
+def reading_list(
+    request,
+    level: str | None = None,
+    topic_id: int | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    user = request.auth
+    profile = ensure_profile(user)
+    level_code = (level or profile.cefr_level).upper()
+    selected_level = Level.objects.filter(code=level_code).first()
+    if selected_level is None:
+        raise AppError(
+            "Cấp độ không hợp lệ",
+            code="invalid_level",
+            status_code=422,
+            details={"level": [level_code]},
+        )
+
+    base = (
+        Reading.objects.filter(level=selected_level)
+        .select_related("level", "topic")
+        .prefetch_related("keywords")
+        .annotate(question_count=Count("questions"))
+    )
+    all_reading_ids = list(base.values_list("id", flat=True))
+    progress_by_reading = {
+        progress.reading_id: progress
+        for progress in ReadingProgress.objects.filter(user=user, reading_id__in=all_reading_ids)
+    }
+    topic_facets = [
+        s.ReadingTopicFacetOut(
+            topic_id=row["topic_id"], name_vi=row["topic__name_vi"], count=row["count"]
+        )
+        for row in base.exclude(topic_id=None)
+        .values("topic_id", "topic__name_vi")
+        .annotate(count=Count("id", distinct=True))
+        .order_by("topic__order", "topic__name_vi")
+    ]
+    readings = base.filter(topic_id=topic_id) if topic_id is not None else base
+    count = readings.count()
+    page = readings.order_by("order")[offset : offset + limit]
+    completed_count = sum(
+        progress.status == ReadingProgress.Status.COMPLETED
+        for progress in progress_by_reading.values()
+    )
+    in_progress_count = sum(
+        progress.status == ReadingProgress.Status.IN_PROGRESS
+        for progress in progress_by_reading.values()
+    )
+
+    return s.ReadingListPageOut(
+        items=[
+            s.ReadingListItemOut(
+                id=reading.id,
+                level=reading.level_id,
+                order=reading.order,
+                title_en=reading.title_en,
+                title_vi=reading.title_vi,
+                topic_id=reading.topic_id,
+                topic=reading.topic.name_vi if reading.topic else None,
+                topic_icon_url=_icon_url(reading.topic.icon_url) if reading.topic else None,
+                est_minutes=reading.est_minutes,
+                cover_url=_media(reading.cover_path),
+                question_count=reading.question_count,
+                keyword_preview=[word.headword for word in reading.keywords.all()[:3]],
+                is_locked=not reading.level.is_free and not profile.is_premium,
+                progress=_reading_progress_out(
+                    progress_by_reading.get(reading.id), reading.question_count
+                ),
+            )
+            for reading in page
+        ],
+        count=count,
+        limit=limit,
+        offset=offset,
+        overview=s.ReadingListOverviewOut(
+            level=selected_level.code,
+            level_label=selected_level.name_vi,
+            reading_streak_days=_reading_streak_days(user, profile),
+            total=len(all_reading_ids),
+            completed=completed_count,
+            in_progress=in_progress_count,
+            progress_percent=round(completed_count / len(all_reading_ids) * 100)
+            if all_reading_ids
+            else 0,
+        ),
+        topic_facets=topic_facets,
+    )
+
+
+@router.post(
+    "/learn/readings/{reading_id}/progress",
+    response={200: s.ReadingProgressResultOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut},
+    summary="Ghi nhận tiến độ đọc hiểu",
+    description=(
+        "Lưu số câu đã làm/đúng theo bài đọc; hoàn thành lần đầu mới cộng XP và skill Đọc. "
+        "Payload được kiểm tra không vượt quá số câu hỏi."
+    ),
+)
+def update_reading_progress(request, reading_id: int, payload: s.ReadingProgressIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    reading = (
+        Reading.objects.filter(id=reading_id)
+        .select_related("level")
+        .annotate(question_count=Count("questions"))
+        .first()
+    )
+    if reading is None:
+        raise NotFound("Không tìm thấy bài đọc")
+    _gate(profile, reading.level)
+    if payload.answered_count > reading.question_count:
+        raise AppError(
+            "Số câu đã làm vượt quá số câu hỏi của bài đọc",
+            code="invalid_reading_progress",
+            status_code=422,
+            details={"answered_count": [str(reading.question_count)]},
+        )
+    if payload.correct_count > payload.answered_count:
+        raise AppError(
+            "Số câu đúng không thể lớn hơn số câu đã làm",
+            code="invalid_reading_progress",
+            status_code=422,
+            details={"correct_count": ["Không được lớn hơn answered_count"]},
+        )
+    if payload.completed and (
+        reading.question_count > 0 and payload.answered_count < reading.question_count
+    ):
+        raise AppError(
+            "Cần hoàn thành toàn bộ câu hỏi trước khi kết thúc bài đọc",
+            code="invalid_reading_progress",
+            status_code=422,
+            details={"answered_count": [str(reading.question_count)]},
+        )
+
+    with transaction.atomic():
+        progress, _ = ReadingProgress.objects.select_for_update().get_or_create(
+            user=user, reading=reading
+        )
+        progress.answered_count = max(progress.answered_count, payload.answered_count)
+        progress.correct_count = max(progress.correct_count, payload.correct_count)
+        is_complete = progress.status == ReadingProgress.Status.COMPLETED or payload.completed or (
+            reading.question_count > 0 and progress.answered_count == reading.question_count
+        )
+        xp_awarded = 0
+        if is_complete:
+            if progress.status != ReadingProgress.Status.COMPLETED:
+                progress.status = ReadingProgress.Status.COMPLETED
+                progress.completed_at = djtz.now()
+                score_percent = (
+                    round(progress.correct_count / reading.question_count * 100)
+                    if reading.question_count
+                    else 100
+                )
+                xp_awarded = max(1, min(20, round(score_percent / 5)))
+                progress.xp_earned = xp_awarded
+                services.record(
+                    profile,
+                    xp=xp_awarded,
+                    ref_type="reading",
+                    ref_id=reading.id,
+                    minutes=round(payload.duration_sec / 60),
+                )
+                services.bump_skill(user, "reading", xp_awarded)
+        else:
+            progress.status = ReadingProgress.Status.IN_PROGRESS
+        progress.save()
+        ReadingDailyActivity.objects.get_or_create(user=user, date=services.local_today(profile))
+
+    return s.ReadingProgressResultOut(
+        progress=_reading_progress_out(progress, reading.question_count),
+        xp_awarded=xp_awarded,
+        reading_streak_days=_reading_streak_days(user, profile),
+    )
+
+
 @router.post(
     "/learn/practice",
     response={200: s.PracticeResultOut, 401: ErrorOut, 422: ErrorOut},
@@ -1099,15 +1609,46 @@ def practice(request, payload: s.PracticeIn):
             profile,
             xp=xp,
             speaking=1 if payload.kind in ("speaking", "shadowing") else 0,
+            listening=1 if payload.kind in ("listening", "dictation") else 0,
             minutes=round(payload.duration_sec / 60),
         )
         skill = services.bump_skill(user, payload.kind, xp)
+        if payload.deck_id and payload.kind in ("speaking", "shadowing"):
+            _bump_speaking_topic(user, payload.deck_id)
+        if payload.listening_topic_id and payload.kind in ("listening", "dictation"):
+            _bump_listening_topic(user, payload.listening_topic_id, payload.kind)
+        video_ref = video_practice.parse_ref(payload.ref_id)
+        if video_ref and payload.kind in ("shadowing", "dictation"):
+            video_practice.record_result(user, video_ref[0], payload.kind, video_ref[1], payload.score)
     return s.PracticeResultOut(
         xp_earned=xp,
         skill=skill.kind if skill else None,
         skill_level=skill.level if skill else None,
         skill_percent=services.skill_percent(skill.xp) if skill else None,
     )
+
+
+def _bump_speaking_topic(user, deck_id: int) -> None:
+    """Cộng 1 câu đã luyện cho chủ đề (ShadowingDeck), chặn trần theo số câu của deck."""
+    deck = ShadowingDeck.objects.filter(id=deck_id).annotate(n=Count("sentences")).first()
+    if not deck:
+        return
+    prog, _ = SpeakingTopicProgress.objects.get_or_create(user=user, deck_id=deck_id)
+    if prog.done_count < deck.n:
+        prog.done_count += 1
+        prog.save(update_fields=["done_count", "updated_at"])
+
+
+def _bump_listening_topic(user, topic_id: int, kind: str) -> None:
+    """Cộng 1 câu đã nghe cho chủ đề theo mode ('listening'→choose, 'dictation'→dictation)."""
+    topic = ListeningTopic.objects.filter(id=topic_id).annotate(n=Count("items")).first()
+    if not topic:
+        return
+    mode = ListeningTopicProgress.Mode.CHOOSE if kind == "listening" else ListeningTopicProgress.Mode.DICTATION
+    prog, _ = ListeningTopicProgress.objects.get_or_create(user=user, topic_id=topic_id, mode=mode)
+    if prog.done_count < topic.n:
+        prog.done_count += 1
+        prog.save(update_fields=["done_count", "updated_at"])
 
 
 @router.get(
@@ -1137,77 +1678,146 @@ def skills(request):
 
 
 @router.get(
-    "/learn/practice-hub",
-    response={200: s.PracticeHubOut, 401: ErrorOut},
-    summary="Trung tâm luyện tập (C19) — gộp 1 lần gọi",
-    description="Hồ sơ tóm tắt, hội thoại AI nổi bật, tiến độ kỹ năng, số liệu (từ ôn/sổ tay) "
-    "và danh sách trò chơi cho tab Luyện tập.",
+    "/learn/speaking/topics",
+    response={200: s.SpeakingTopicsOut, 401: ErrorOut},
+    summary="Chủ đề luyện nói (C8a)",
+    description="Mỗi ShadowingDeck = 1 chủ đề: số câu, phút ước tính, cờ Premium và tiến độ x/y. "
+    "Chia 2 tab: 'Gợi ý' (chủ đề chưa xong, không khoá) và 'Cơ bản' (tất cả); 'Theo bài học' "
+    "để trống ở v1. Hero đếm số câu đã luyện nói trong 7 ngày gần nhất.",
 )
-def practice_hub(request):
+def speaking_topics(request):
     user = request.auth
     profile = ensure_profile(user)
-
-    existing = {sk.kind: sk for sk in UserSkill.objects.filter(user=user)}
-    skills_out = [
-        s.SkillProgressOut(
-            kind=kind,
-            percent=services.skill_percent(existing[kind].xp if kind in existing else 0),
-            level=existing[kind].level if kind in existing else 1,
+    decks = (
+        ShadowingDeck.objects.select_related("level")
+        .annotate(n=Count("sentences"))
+        .prefetch_related(
+            Prefetch(
+                "sentences",
+                queryset=ShadowingSentence.objects.order_by("order"),
+                to_attr="ordered_sentences",
+            )
         )
-        for kind in ["speaking", "listening", "reading", "writing"]
-    ]
-
-    scenario = RoleplayScenario.objects.order_by("-is_premium", "id").first()
-    featured = (
-        s.PracticeFeaturedOut(
-            title_vi=scenario.title_vi,
-            topic=scenario.topic,
-            description_vi=scenario.description_vi,
-            is_premium=scenario.is_premium,
-            thumbnail_url=_media(scenario.thumbnail_path),
-        )
-        if scenario
-        else None
+        .order_by("level__order", "order")
     )
-
-    dialogues = Dialogue.objects.count()
-    videos = Video.objects.count()
-    readings = Reading.objects.count()
-    counts = s.PracticeCountsOut(
-        vocab_due=SRSCard.objects.filter(user=user, due_at__lte=djtz.now()).exclude(state=4).count(),
-        notebook_total=NotebookEntry.objects.filter(user=user).count(),
-        ipa_sounds=IPASound.objects.count(),
-        videos=videos,
-        skills=s.PracticeSkillCountsOut(
-            speaking=ShadowingDeck.objects.count() + dialogues,
-            listening=dialogues + videos,
-            reading=readings + Story.objects.count(),
-            writing=GrammarPoint.objects.count(),
-        ),
-    )
-
-    games = [
-        s.PracticeGameOut(
-            id=g.id,
-            code=g.code,
-            title_vi=g.title_vi,
-            description_vi=g.description_vi,
-            kind=g.kind,
-            icon_url=_media(g.icon_path),
-            is_featured=g.is_featured,
+    progress = {p.deck_id: p.done_count for p in SpeakingTopicProgress.objects.filter(user=user)}
+    basic = []
+    for d in decks:
+        total = d.n
+        done = min(progress.get(d.id, 0), total)
+        est_minutes = max(1, round(d.est_seconds / 60)) if d.est_seconds else max(1, total)
+        basic.append(
+            s.SpeakingTopicOut(
+                id=d.id,
+                level=d.level_id,
+                title_en=d.title_en,
+                title_vi=d.title_vi or d.title_en,
+                phrase_preview=d.ordered_sentences[0].text_en if d.ordered_sentences else "",
+                focus_vi=d.focus_vi,
+                icon=d.icon,
+                icon_url=_icon_url(d.icon_url),
+                background_url=_icon_url(d.background_url),
+                color=d.color,
+                sentence_count=total,
+                est_minutes=est_minutes,
+                is_premium=not d.is_free,
+                done=done,
+                total=total,
+                percent=round(done * 100 / total) if total else 0,
+            )
         )
-        for g in Game.objects.filter(is_active=True).order_by("order", "id")
-    ]
+    # Gợi ý: chủ đề chưa xong & không khoá, ưu tiên đang luyện dở, tối đa 3
+    suggested = sorted(
+        (t for t in basic if not t.is_premium and t.done < t.total),
+        key=lambda t: (t.done == 0, -t.percent),
+    )[:3]
+    today = services.local_today(profile)
+    week_practiced = (
+        DailyActivity.objects.filter(
+            user=user, date__gte=today - timedelta(days=6), date__lte=today
+        ).aggregate(n=Sum("speaking_count"))["n"]
+        or 0
+    )
+    return s.SpeakingTopicsOut(week_practiced=week_practiced, suggested=suggested, basic=basic)
 
-    return s.PracticeHubOut(
-        streak_days=profile.streak_current,
-        coins=profile.coins,
-        hearts=profile.hearts,
-        is_premium=profile.is_premium,
-        featured=featured,
-        skills=skills_out,
-        counts=counts,
-        games=games,
+
+@router.get(
+    "/learn/listening/topics",
+    response={200: s.ListeningTopicsOut, 401: ErrorOut},
+    summary="Chủ đề luyện nghe (C9a)",
+    description="Chủ đề nghe + tiến độ theo 2 mode (Chọn từ / Chép chính tả). "
+    "Chia tab Gợi ý/Cơ bản; 'Theo bài học' trống ở v1. Hero đếm câu đã nghe 7 ngày gần nhất.",
+)
+def listening_topics(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    topics_qs = ListeningTopic.objects.annotate(n=Count("items")).order_by("level__order", "order")
+    prog = {(p.topic_id, p.mode): p.done_count for p in ListeningTopicProgress.objects.filter(user=user)}
+    basic = []
+    for t in topics_qs:
+        total = t.n
+        basic.append(
+            s.ListeningTopicOut(
+                id=t.id,
+                title_vi=t.title_vi,
+                icon=t.icon,
+                icon_url=_icon_url(t.icon_url),
+                color=t.color,
+                item_count=total,
+                est_minutes=max(1, round(t.est_seconds / 60)) if t.est_seconds else max(1, total),
+                is_premium=not t.is_free,
+                done_choose=min(prog.get((t.id, "choose"), 0), total),
+                done_dictation=min(prog.get((t.id, "dictation"), 0), total),
+            )
+        )
+    suggested = [
+        t
+        for t in basic
+        if not t.is_premium and (t.done_choose < t.item_count or t.done_dictation < t.item_count)
+    ][:3]
+    today = services.local_today(profile)
+    week_practiced = (
+        DailyActivity.objects.filter(
+            user=user, date__gte=today - timedelta(days=6), date__lte=today
+        ).aggregate(n=Sum("listening_count"))["n"]
+        or 0
+    )
+    return s.ListeningTopicsOut(week_practiced=week_practiced, suggested=suggested, basic=basic)
+
+
+@router.get(
+    "/learn/listening/topics/{topic_id}",
+    response={200: s.ListeningItemsOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Câu luyện nghe theo mode (C9)",
+    description="mode=choose trả kèm blank_index + options + answer_index (điền chỗ trống, chấm ở máy); "
+    "mode=dictation chỉ câu + audio để gõ lại.",
+)
+def listening_items(request, topic_id: int, mode: str = Query("choose")):
+    profile = ensure_profile(request.auth)
+    topic = ListeningTopic.objects.filter(id=topic_id).first()
+    if not topic:
+        raise NotFound("Không tìm thấy chủ đề luyện nghe")
+    if not topic.is_free and not profile.is_premium:
+        raise Forbidden("Nội dung này dành cho Premium", code="premium_required")
+    is_choose = mode != "dictation"
+    items = []
+    for it in topic.items.all():
+        base = {
+            "order": it.order,
+            "text_en": it.text_en,
+            "text_vi": it.text_vi,
+            **content_api._accent_audio(it, profile.accent),
+        }
+        if is_choose:
+            base.update(
+                blank_index=it.blank_index, options=it.options, answer_index=it.answer_index
+            )
+        items.append(s.ListeningItemOut(**base))
+    return s.ListeningItemsOut(
+        topic_id=topic.id,
+        mode="choose" if is_choose else "dictation",
+        total=len(items),
+        items=items,
     )
 
 
@@ -1271,6 +1881,8 @@ def profile_overview(request):
         handle=_handle_for(user),
         member_id=_member_id_for(user),
         avatar_url=_media(user.avatar_path),
+        avatar_frame_colors=shop.frame_colors(profile.avatar_frame),
+        avatar_frame=profile.avatar_frame or None,
         date_joined=user.date_joined,
         is_active=user.is_active,
         is_premium=profile.is_premium,
@@ -1294,19 +1906,12 @@ def profile_overview(request):
 
 
 # =============================================================== challenges overview (C6)
-_TIER_WEEK_TARGET = {1: 600, 2: 900, 3: 1200, 4: 1500, 5: 1800}
-_NEXT_TIER_LABEL = {1: "Bạc", 2: "Vàng", 3: "Bạch kim", 4: "Kim cương", 5: "Huyền Thoại"}
-_DIVISIONS = ["I", "II", "III", "IV", "V"]
+# Bảng mục tiêu tuần / bậc nằm ở gamification.services để /leaderboard dùng cùng số.
+_TIER_WEEK_TARGET = gami_services.TIER_WEEK_TARGET
+_NEXT_TIER_LABEL = gami_services.NEXT_TIER_LABEL
 _SPEAKING_TARGET = 15
 _CHECKIN_XP = 5
 _CHECKIN_COINS = 10
-
-
-def _division(xp_week: int, target: int) -> str:
-    if target <= 0:
-        return _DIVISIONS[0]
-    idx = min(len(_DIVISIONS), int(min(1.0, xp_week / target) * len(_DIVISIONS)) + 1)
-    return _DIVISIONS[idx - 1]
 
 
 def _week_left_sec() -> int:
@@ -1335,7 +1940,7 @@ def challenges_overview(request):
     league = s.ChallengeLeagueOut(
         tier=group.tier,
         tier_label=group.get_tier_display(),
-        division=_division(xp_week, week_target),
+        division=gami_services.division(xp_week, week_target),
         rank=rank,
         percentile=max(1, round(rank / size * 100)),
         time_left_sec=_week_left_sec(),
@@ -1590,4 +2195,158 @@ def placement_submit(request, payload: list[s.PlacementAnswerIn]):
             for k, v in by_skill.items()
         ],
         days_saved=skipped * 2,
+    )
+
+
+# =============================================================== flashcard decks (C7a → C7)
+_DECK_NOTFOUND = "Không tìm thấy bộ thẻ"
+_LEARNED_STATES = (SRSCard.State.REVIEW, SRSCard.State.RELEARNING)
+
+
+def _deck_out(deck, *, card_count: int, learner_count: int, learned_count: int) -> s.FlashcardDeckOut:
+    return s.FlashcardDeckOut(
+        id=deck.id,
+        code=deck.code,
+        title_vi=deck.title_vi,
+        cover_title=deck.cover_title or deck.title_vi,
+        badge_vi=deck.badge_vi,
+        background_url=_icon_url(deck.background_url),
+        icon=deck.icon,
+        accent_color=deck.accent_color,
+        level=deck.level_id,
+        card_count=card_count,
+        learner_count=learner_count,
+        is_premium=not deck.is_free,
+        learned_count=min(learned_count, card_count),
+    )
+
+
+@router.get(
+    "/learn/flashcard/decks",
+    response={200: s.FlashcardDecksOut, 401: ErrorOut},
+    summary="Thư viện bộ thẻ flashcard (C7a)",
+    description="Bộ thẻ nhóm theo bộ sưu tập + cover, số thẻ, số học viên, cờ PRO. "
+    "`continuing` là bộ mở gần nhất để vẽ thẻ 'Đang học'. Chưa kèm thẻ — bấm vào bộ mới gọi chi tiết.",
+)
+def flashcard_decks(request):
+    user = request.auth
+    decks = (
+        VocabularyDeck.objects.select_related("collection", "level")
+        .annotate(n_cards=Count("items", distinct=True), n_learners=Count("progress", distinct=True))
+        .order_by("collection__order", "order")
+    )
+    progress = {p.deck_id: p for p in VocabularyDeckProgress.objects.filter(user=user)}
+    collections: list[s.FlashcardDeckCollectionOut] = []
+    by_code: dict[str, s.FlashcardDeckCollectionOut] = {}
+    for deck in decks:
+        out = _deck_out(
+            deck,
+            card_count=deck.n_cards,
+            learner_count=deck.learner_base + deck.n_learners,
+            learned_count=progress[deck.id].learned_count if deck.id in progress else 0,
+        )
+        group = by_code.get(deck.collection.code)
+        if group is None:
+            group = s.FlashcardDeckCollectionOut(
+                code=deck.collection.code,
+                title_vi=deck.collection.title_vi,
+                chip_label_vi=deck.collection.chip_label_vi or deck.collection.title_vi,
+                deck_count=0,
+                decks=[],
+            )
+            by_code[deck.collection.code] = group
+            collections.append(group)
+        group.decks.append(out)
+        group.deck_count += 1
+
+    continuing = None
+    last = (
+        VocabularyDeckProgress.objects.filter(user=user)
+        .select_related("deck__collection", "deck__level")
+        .order_by("-updated_at")
+        .first()
+    )
+    if last is not None:
+        for group in collections:
+            for out in group.decks:
+                if out.id == last.deck_id:
+                    continuing = out
+                    break
+    return s.FlashcardDecksOut(continuing=continuing, collections=collections)
+
+
+@router.get(
+    "/learn/flashcard/decks/{deck_id}",
+    response={200: s.FlashcardDeckDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Toàn bộ thẻ của 1 bộ (C7)",
+    description="Gọi khi người dùng bấm vào bộ ở C7a — trả hết thẻ (IPA, âm tiết, audio, ví dụ, "
+    "collocation, word family) kèm trạng thái SRS nếu đã ôn. Bộ `is_free=False` cần Premium.",
+)
+def flashcard_deck_detail(request, deck_id: int):
+    user = request.auth
+    profile = ensure_profile(user)
+    deck = (
+        VocabularyDeck.objects.filter(id=deck_id).select_related("level").first()
+    )
+    if deck is None:
+        raise NotFound(_DECK_NOTFOUND)
+    if not deck.is_free and not profile.is_premium:
+        raise Forbidden("Nội dung này dành cho Premium", code="premium_required")
+
+    items = (
+        deck.items.select_related("vocabulary__level")
+        .prefetch_related(
+            "vocabulary__examples", "vocabulary__collocations", "vocabulary__word_family"
+        )
+        .order_by("order")
+    )
+    vocabs = [it.vocabulary for it in items]
+    srs = {
+        c.vocabulary_id: c
+        for c in SRSCard.objects.filter(user=user, vocabulary__in=vocabs)
+    }
+    accent = profile.accent
+    cards = []
+    for v in vocabs:
+        card = srs.get(v.id)
+        cards.append(
+            s.FlashcardDeckCardOut(
+                vocab_id=v.id,
+                headword=v.headword,
+                pos=v.pos,
+                level=v.level_id,
+                ipa=v.ipa_us if accent == "US" else v.ipa_uk,
+                syllables=_syllables(v),
+                meaning_vi=v.meaning_vi,
+                definition_en=v.definition_en,
+                audio_uk_url=_media(v.audio_uk_path),
+                audio_us_url=_media(v.audio_us_path),
+                examples=[content_api._example(e, accent) for e in v.examples.all()],
+                collocations=[
+                    s.CollocationOut(text_en=c.text_en, meaning_vi=c.meaning_vi)
+                    for c in v.collocations.all()
+                ],
+                word_family=[w.headword for w in v.word_family.all()],
+                due_at=card.due_at if card else None,
+                state=card.state if card else 0,
+            )
+        )
+
+    learned = sum(1 for v in vocabs if (c := srs.get(v.id)) and c.state in _LEARNED_STATES)
+    progress, _ = VocabularyDeckProgress.objects.get_or_create(user=user, deck=deck)
+    if progress.learned_count != learned:
+        progress.learned_count = learned
+        progress.save(update_fields=["learned_count", "updated_at"])
+    else:
+        progress.save(update_fields=["updated_at"])  # đẩy bộ này lên đầu "Đang học"
+
+    return s.FlashcardDeckDetailOut(
+        id=deck.id,
+        code=deck.code,
+        title_vi=deck.title_vi,
+        background_url=_icon_url(deck.background_url),
+        level=deck.level_id,
+        total=len(cards),
+        learned_count=learned,
+        cards=cards,
     )

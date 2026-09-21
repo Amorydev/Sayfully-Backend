@@ -3,7 +3,19 @@ from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import CEFR
-from apps.content.models import Lesson, Unit, Vocabulary
+from apps.content.models import (
+    GrammarPoint,
+    IPASound,
+    Lesson,
+    ListeningTopic,
+    Reading,
+    ShadowingDeck,
+    Unit,
+    Video,
+    Vocabulary,
+    VocabularyDeck,
+    WordRoot,
+)
 
 
 class LessonProgress(models.Model):
@@ -121,6 +133,8 @@ class DailyActivity(models.Model):
     lessons_completed = models.PositiveSmallIntegerField(default=0)
     words_reviewed = models.PositiveIntegerField(default=0)
     speaking_count = models.PositiveSmallIntegerField(default=0)
+    listening_count = models.PositiveSmallIntegerField(default=0)
+    ai_turns = models.PositiveSmallIntegerField(default=0)  # lượt nói với Gia sư AI
     minutes = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
@@ -175,6 +189,68 @@ class UserSkill(models.Model):
         return f"{self.user_id} · {self.kind} · Lv{self.level}"
 
 
+class IPASoundProgress(models.Model):
+    """Tiến độ luyện từng âm IPA (C43). Thuần thục khi điểm tốt nhất ≥ MASTERY_SCORE."""
+
+    MASTERY_SCORE = 80
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ipa_progress")
+    sound = models.ForeignKey(IPASound, on_delete=models.CASCADE, related_name="progress")
+    best_score = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    mastered_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "sound"], name="uniq_user_ipa_sound")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · /{self.sound.symbol}/ · {self.best_score}"
+
+
+class WordRootProgress(models.Model):
+    LEARNED_PERCENT = 70
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="root_progress")
+    root = models.ForeignKey(WordRoot, on_delete=models.CASCADE, related_name="progress")
+    best_percent = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    learned_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "root"], name="uniq_user_word_root")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.root.text} · {self.best_percent}%"
+
+
+class GrammarProgress(models.Model):
+    COMPLETE_PERCENT = 70
+    XP_REWARD = 30
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="grammar_progress")
+    grammar_point = models.ForeignKey(
+        GrammarPoint, on_delete=models.CASCADE, related_name="progress"
+    )
+    best_percent = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveIntegerField(default=0)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "grammar_point"], name="uniq_user_grammar_point"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.grammar_point_id} · {self.best_percent}%"
+
+
 class PlacementQuestion(models.Model):
     """Bài kiểm tra xếp lớp 3 phút (C23) — ~12 câu, không thuộc đề thi nào."""
 
@@ -212,3 +288,142 @@ class PlacementAttempt(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} → {self.suggested_level}"
+
+
+class SpeakingTopicProgress(models.Model):
+    """Tiến độ luyện nói theo chủ đề (mỗi ShadowingDeck = 1 chủ đề) — hiển thị 'x/y' ở C8a."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="speaking_topic_progress")
+    deck = models.ForeignKey(ShadowingDeck, on_delete=models.CASCADE, related_name="topic_progress")
+    done_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "deck"], name="uniq_speaking_topic_progress")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · deck{self.deck_id} · {self.done_count}"
+
+
+class ListeningTopicProgress(models.Model):
+    """Tiến độ luyện nghe theo chủ đề & mode (C9a) — 'x/y câu' cho mode đang chọn."""
+
+    class Mode(models.TextChoices):
+        CHOOSE = "choose", "Chọn từ"
+        DICTATION = "dictation", "Chép chính tả"
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="listening_topic_progress"
+    )
+    topic = models.ForeignKey(
+        ListeningTopic, on_delete=models.CASCADE, related_name="topic_progress"
+    )
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    done_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "topic", "mode"], name="uniq_listening_topic_progress"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · topic{self.topic_id} · {self.mode} · {self.done_count}"
+
+
+class ReadingProgress(models.Model):
+    """Tiến độ đọc theo bài: trạng thái, số câu đã làm và phần thưởng chỉ nhận một lần."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "Đang đọc"
+        COMPLETED = "completed", "Hoàn thành"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reading_progress")
+    reading = models.ForeignKey(Reading, on_delete=models.CASCADE, related_name="reading_progress")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.IN_PROGRESS)
+    answered_count = models.PositiveSmallIntegerField(default=0)
+    correct_count = models.PositiveSmallIntegerField(default=0)
+    xp_earned = models.PositiveSmallIntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_read_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "reading"], name="uniq_reading_progress")
+        ]
+        indexes = [
+            models.Index(fields=["user", "status"], name="readprog_user_status_idx"),
+            models.Index(fields=["user", "-last_read_at"], name="readprog_user_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · reading{self.reading_id} · {self.status}"
+
+
+class ReadingDailyActivity(models.Model):
+    """Nguồn sự thật cho chuỗi ngày đọc; một hàng cho mỗi user/ngày theo timezone hồ sơ."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reading_daily_activity")
+    date = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "date"], name="uniq_reading_daily_activity")
+        ]
+        indexes = [models.Index(fields=["user", "-date"], name="readact_user_date_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.date.isoformat()}"
+
+
+class VocabularyDeckProgress(models.Model):
+    """Người dùng đã mở bộ thẻ nào (C7a) — nuôi thẻ "Đang học" và đếm số học viên của bộ."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="deck_progress")
+    deck = models.ForeignKey(VocabularyDeck, on_delete=models.CASCADE, related_name="progress")
+    learned_count = models.PositiveIntegerField(default=0)  # số thẻ đã thuộc trong bộ
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "deck"], name="uniq_user_deck_progress")
+        ]
+        indexes = [models.Index(fields=["user", "-updated_at"], name="deck_prog_recent_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.deck_id}"
+
+
+class VideoPracticeResult(models.Model):
+    """Kết quả tốt nhất của một câu video theo mode (Luyện đọc / Chép chính tả) — để card ghi
+    "Đã luyện x/N" và mở lại video thấy câu đã chấm. Upsert từ `POST /learn/practice`
+    khi `ref_id = video:<id>:<order>`."""
+
+    class Mode(models.TextChoices):
+        SHADOWING = "shadowing", "Luyện đọc"
+        DICTATION = "dictation", "Chép chính tả"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="video_practice_results")
+    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="practice_results")
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    order = models.PositiveIntegerField()  # VideoSubtitle.order
+    percent = models.PositiveSmallIntegerField(default=0)  # điểm tốt nhất 0..100
+    attempts = models.PositiveSmallIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "video", "mode", "order"], name="uniq_video_practice_result"
+            )
+        ]
+        indexes = [models.Index(fields=["user", "video", "mode"], name="vpr_user_video_mode_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · video{self.video_id} · {self.mode} #{self.order} = {self.percent}%"

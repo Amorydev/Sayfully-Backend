@@ -16,6 +16,7 @@ _DAILY_FIELD = {
     "words": "words_reviewed",
     "lessons": "lessons_completed",
     "speaking": "speaking_count",
+    "ai_turns": "ai_turns",
 }
 
 
@@ -96,6 +97,24 @@ def ensure_league_membership(user):
         or 0
     )
     return LeagueMembership.objects.create(group=group, user=user, xp_week=xp0)
+
+
+# Mục tiêu XP tuần theo bậc liên đoàn và cách chia bậc I–V — dùng chung cho
+# /challenges/overview và /leaderboard để hai màn hiện cùng một con số.
+TIER_WEEK_TARGET = {1: 600, 2: 900, 3: 1200, 4: 1500, 5: 1800}
+NEXT_TIER_LABEL = {1: "Bạc", 2: "Vàng", 3: "Bạch kim", 4: "Kim cương", 5: "Huyền Thoại"}
+DIVISIONS = ["I", "II", "III", "IV", "V"]
+
+
+def week_target(tier: int) -> int:
+    return TIER_WEEK_TARGET.get(tier, 1800)
+
+
+def division(xp_week: int, target: int) -> str:
+    if target <= 0:
+        return DIVISIONS[0]
+    idx = min(len(DIVISIONS), int(min(1.0, xp_week / target) * len(DIVISIONS)) + 1)
+    return DIVISIONS[idx - 1]
 
 
 def league_rank(user):

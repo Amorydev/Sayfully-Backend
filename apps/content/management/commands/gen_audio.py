@@ -51,13 +51,60 @@ def upload_r2(key: str, data: bytes) -> str:
     return key
 
 
+# Bảng câu dùng AccentAudio: (model, hàm lấy text, tiền tố key R2)
+def _sentence_targets():
+    from apps.content.models import (  # noqa: PLC0415
+        DialogueLine,
+        GrammarExample,
+        ListeningItem,
+        ReadingSentence,
+        ShadowingSentence,
+        StorySentence,
+        VocabularyExample,
+    )
+
+    return {
+        "vocab_example": (VocabularyExample, "example"),
+        "grammar_example": (GrammarExample, "grammar"),
+        "dialogue": (DialogueLine, "dialogue"),
+        "reading": (ReadingSentence, "reading"),
+        "story": (StorySentence, "story"),
+        "shadowing": (ShadowingSentence, "shadowing"),
+        "listening": (ListeningItem, "listening"),
+    }
+
+
+_TARGET_CHOICES = [
+    "vocab",
+    "vocab_example",
+    "grammar_example",
+    "dialogue",
+    "reading",
+    "story",
+    "shadowing",
+    "listening",
+    "root_sample",
+    "all",
+]
+
+
 class Command(BaseCommand):
-    help = "Sinh audio TTS US/UK, upload R2, ghi đường dẫn (idempotent)."
+    help = (
+        "Sinh audio TTS US/UK cho từ vựng và mọi bảng câu, upload R2, ghi đường dẫn (idempotent)."
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--level")
+        parser.add_argument("--level", help="Chỉ áp dụng cho từ vựng (Vocabulary.level).")
         parser.add_argument("--accent", default="US,UK", help="US, UK hoặc 'US,UK'.")
-        parser.add_argument("--limit", type=int, help="Chỉ xử lý N từ (nghe thử mẻ nhỏ).")
+        parser.add_argument(
+            "--target",
+            default="vocab",
+            help="vocab | vocab_example | grammar_example | dialogue | reading | story | shadowing | listening "
+            "| root_sample | all; phân cách bằng dấu phẩy.",
+        )
+        parser.add_argument(
+            "--limit", type=int, help="Chỉ xử lý N bản ghi mỗi bảng (nghe thử mẻ nhỏ)."
+        )
         parser.add_argument("--force", action="store_true")
         parser.add_argument("--dry-run", action="store_true")
 
@@ -66,31 +113,98 @@ class Command(BaseCommand):
         bad = [a for a in accents if a not in _ACCENTS]
         if bad:
             raise CommandError(f"Accent không hợp lệ: {bad}. Chỉ US, UK.")
+        targets = [t.strip() for t in opts["target"].split(",") if t.strip()]
+        bad = [t for t in targets if t not in _TARGET_CHOICES]
+        if bad:
+            raise CommandError(f"Target không hợp lệ: {bad}. Chọn trong {_TARGET_CHOICES}.")
+        if "all" in targets:
+            targets = [t for t in _TARGET_CHOICES if t != "all"]
 
         dry = opts["dry_run"]
         total = 0
         for accent in accents:
             field = _ACCENTS[accent]
-            qs = Vocabulary.objects.all()
-            if opts["level"]:
-                qs = qs.filter(level_id=opts["level"].upper())
-            if not opts["force"]:
-                qs = qs.filter(**{field: ""})
-            qs = qs.order_by("frequency_rank", "headword")
-            if opts["limit"]:
-                qs = qs[: opts["limit"]]
-
-            n = 0
-            for vocab in qs:
-                path = f"audio/{accent.lower()}/{vocab.headword.lower()}.mp3"
-                if not dry:
-                    data = synthesize(vocab.headword, accent)
-                    upload_r2(path, data)
-                    setattr(vocab, field, path)
-                    vocab.save(update_fields=[field])
-                n += 1
-            total += n
-            self.stdout.write(f"{accent}: {n} từ")
+            if "vocab" in targets:
+                total += self._vocab(accent, field, opts, dry)
+            for key, (model, prefix) in _sentence_targets().items():
+                if key in targets:
+                    total += self._sentences(model, prefix, accent, field, opts, dry)
+            if "root_sample" in targets:
+                total += self._root_samples(accent, field, opts, dry)
 
         tag = "[DRY-RUN] " if dry else ""
         self.stdout.write(self.style.SUCCESS(f"{tag}Tổng {total} audio."))
+
+    def _vocab(self, accent, field, opts, dry) -> int:
+        qs = Vocabulary.objects.all()
+        if opts["level"]:
+            qs = qs.filter(level_id=opts["level"].upper())
+        if not opts["force"]:
+            qs = qs.filter(**{field: ""})
+        qs = qs.order_by("frequency_rank", "headword")
+        if opts["limit"]:
+            qs = qs[: opts["limit"]]
+        n = 0
+        for vocab in qs:
+            path = f"audio/{accent.lower()}/{vocab.headword.lower()}.mp3"
+            if not dry:
+                data = synthesize(vocab.headword, accent)
+                upload_r2(path, data)
+                setattr(vocab, field, path)
+                vocab.save(update_fields=[field])
+            n += 1
+        self.stdout.write(f"{accent} vocab: {n}")
+        return n
+
+    def _root_samples(self, accent, field, opts, dry) -> int:
+        """Từ mẫu JSON của WordRoot. Cùng key với từ vựng (audio/<accent>/<word>.mp3) nên
+        từ đã có trong kho Vocabulary chỉ chép lại đường dẫn, không tổng hợp lại."""
+        from apps.content.models import WordRoot
+
+        n = 0
+        for root in WordRoot.objects.order_by("id"):
+            changed = False
+            for sample in root.samples or []:
+                word = str(sample.get("word", "")).strip()
+                if not word or (sample.get(field) and not opts["force"]):
+                    continue
+                vocab = Vocabulary.objects.filter(headword__iexact=word).only(field).first()
+                existing = getattr(vocab, field, "") if vocab else ""
+                path = existing or f"audio/{accent.lower()}/{word.lower()}.mp3"
+                if not dry:
+                    if not existing:
+                        upload_r2(path, synthesize(word, accent))
+                    sample[field] = path
+                    changed = True
+                n += 1
+                if opts["limit"] and n >= opts["limit"]:
+                    break
+            if changed:
+                root.save(update_fields=["samples"])
+            if opts["limit"] and n >= opts["limit"]:
+                break
+        self.stdout.write(f"{accent} root_sample: {n}")
+        return n
+
+    def _sentences(self, model, prefix, accent, field, opts, dry) -> int:
+        """Key R2: audio/<accent>/<prefix>/<id>.mp3 — id ổn định nên chạy lại là idempotent."""
+        qs = model.objects.all()
+        if not opts["force"]:
+            qs = qs.filter(**{field: ""})
+        qs = qs.order_by("id")
+        if opts["limit"]:
+            qs = qs[: opts["limit"]]
+        n = 0
+        for row in qs:
+            text = (row.text_en or "").strip()
+            if not text:
+                continue
+            path = f"audio/{accent.lower()}/{prefix}/{row.id}.mp3"
+            if not dry:
+                data = synthesize(text, accent)
+                upload_r2(path, data)
+                setattr(row, field, path)
+                row.save(update_fields=[field])
+            n += 1
+        self.stdout.write(f"{accent} {prefix}: {n}")
+        return n

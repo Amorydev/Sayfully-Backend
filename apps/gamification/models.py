@@ -1,3 +1,5 @@
+import math
+
 from django.db import models
 
 from apps.accounts.models import User
@@ -17,6 +19,7 @@ class Challenge(models.Model):
         DAYS = "days", "Ngày học"
         SPEAKING = "speaking", "Câu đã nói"
         EXAMS = "exams", "Đề thi"
+        AI_TURNS = "ai_turns", "Lượt nói với Long"
 
     code = models.SlugField(max_length=48, unique=True)
     scope = models.CharField(max_length=10, choices=Scope.choices)
@@ -119,16 +122,85 @@ class LeagueMembership(models.Model):
 
 
 class ShopItem(models.Model):
+    class Category(models.TextChoices):
+        BOOSTER = "booster", "Bổ trợ"
+        BUNDLE = "bundle", "Combo"
+        COSMETIC = "cosmetic", "Trang trí"
+        SPECIAL = "special", "Đặc biệt"
+
     code = models.SlugField(max_length=48, unique=True)  # refill_hearts | streak_freeze | gift_box
     title_vi = models.CharField(max_length=128)
     description_vi = models.CharField(max_length=255)
     cost_coins = models.PositiveIntegerField()
-    effect = models.JSONField(default=dict)  # {"hearts":5} | {"streak_freeze":1}
+    # Hiệu ứng server áp dụng khi mua; combo = nhiều khoá. Khoá hỗ trợ: xem gamification.shop.
+    # {"hearts":5} | {"streak_freeze":1} | {"xp_boost":15} | {"streak_repair":1}
+    # | {"premium_days":1} | {"mystery_box":1} | {"cosmetic":1}
+    effect = models.JSONField(default=dict)
     icon_path = models.CharField(max_length=255, blank=True)
+    category = models.CharField(max_length=10, choices=Category.choices, default=Category.BOOSTER)
+    # Khuyến mãi: giảm % tới `sale_until` (null = không hạn). Giá bán = cost * (100 - pct) / 100.
+    discount_pct = models.PositiveSmallIntegerField(default=0)
+    sale_until = models.DateTimeField(null=True, blank=True)
+    # Trang trí: {"slot": "avatar_frame", "colors": ["#FFD54F", "#FF8F00"]}
+    meta = models.JSONField(default=dict, blank=True)
+    order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["order", "code"]
 
     def __str__(self) -> str:
         return str(self.code)
+
+
+class ShopReceipt(models.Model):
+    """Biên lai mua hàng — idempotent theo (user, idempotency_key); lưu hiệu ứng thực nhận
+    (rương may mắn là ngẫu nhiên nên phải trả lại đúng kết quả cũ khi gọi lại)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shop_receipts")
+    item = models.ForeignKey(ShopItem, on_delete=models.PROTECT, related_name="receipts")
+    idempotency_key = models.CharField(max_length=64)
+    coins_spent = models.PositiveIntegerField()
+    balance_after = models.PositiveIntegerField()
+    granted = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "idempotency_key"], name="shop_receipt_uniq")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.item_id} -{self.coins_spent}"
+
+
+class UserCosmetic(models.Model):
+    """Vật phẩm trang trí đã sở hữu (mua 1 lần, không mất). Đang trang bị: UserProfile.avatar_frame."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="cosmetics")
+    item = models.ForeignKey(ShopItem, on_delete=models.CASCADE, related_name="owners")
+    acquired_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "item"], name="user_cosmetic_uniq")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.item_id}"
+
+
+class ShopWishlist(models.Model):
+    """Muốn mua: báo 1 lần khi số dư đủ (notified_at). Reset khi người dùng bỏ rồi thêm lại."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shop_wishlist")
+    item = models.ForeignKey(ShopItem, on_delete=models.CASCADE, related_name="wishers")
+    notified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "item"], name="shop_wishlist_uniq")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} ♥ {self.item_id}"
 
 
 class CoinTransaction(models.Model):
@@ -156,6 +228,7 @@ class Game(models.Model):
         REFLEX = "reflex", "Phản xạ"
         MEMORY = "memory", "Ghi nhớ"
         LISTENING = "listening", "Nghe hiểu"
+        SPEAKING = "speaking", "Luyện nói"
 
     code = models.SlugField(max_length=32, unique=True)  # word_rain | stress_master | match_pairs
     title_vi = models.CharField(max_length=64)
@@ -183,6 +256,9 @@ class GameScore(models.Model):
     score = models.PositiveIntegerField()
     accuracy = models.FloatField(default=0)  # 0..1
     coins_earned = models.PositiveSmallIntegerField(default=0)
+    # Verdict Play Integrity lúc nộp (apps.gamification.integrity). Rỗng = ván ghi trước
+    # khi có kiểm tra.
+    integrity = models.CharField(max_length=16, blank=True, default="")
     played_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -194,3 +270,162 @@ class GameScore(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} · {self.game_id} · {self.score}"
+
+
+class GameStageProgress(models.Model):
+    """
+    Tiến độ path map của mini-game: mỗi cấp CEFR chia thành các chặng liên tiếp
+    (mặc định 25 từ/chặng), cắt từ danh sách từ vựng của cấp theo thứ tự cố định
+    ``(frequency_rank, headword)`` — trùng thứ tự của ``GET /content/vocabulary``,
+    nên ``stage_index`` luôn ánh xạ về đúng ``offset = stage_index * stage_size``.
+
+    Một dòng = một chặng người dùng đã hoàn thành. Chặng kế tiếp mở khoá khi
+    chặng liền trước có dòng ở đây.
+    """
+
+    STAGE_SIZE = 25
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="game_stages")
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="stages")
+    level = models.CharField(max_length=2, choices=CEFR.choices)
+    stage_index = models.PositiveSmallIntegerField()  # 0-based
+    best_score = models.PositiveIntegerField(default=0)
+    best_accuracy = models.FloatField(default=0)  # 0..1
+    play_count = models.PositiveSmallIntegerField(default=0)
+    completed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "game", "level", "stage_index"],
+                name="uniq_user_game_level_stage",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "game", "level"], name="gsp_user_level_idx"),
+        ]
+        ordering = ["level", "stage_index"]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.game_id} · {self.level}#{self.stage_index}"
+
+
+class MatchPairsStageQuerySet(models.QuerySet):
+    def with_pair_count(self):
+        # distinct=True: ChangeList.distinct() chạy sau GROUP BY nên không bảo vệ
+        # aggregate; lọc qua `progress__` trong admin sẽ nhân đôi nếu thiếu nó.
+        return self.annotate(pair_count=models.Count("pairs", distinct=True))
+
+    def playable(self):
+        """
+        Nơi duy nhất định nghĩa "chơi được": đang bật và đủ cặp cho Siêu cấp.
+
+        Sắp xếp ngay tại đây (`order`, `id`) vì Django bỏ `Meta.ordering` trên
+        truy vấn có GROUP BY (do `with_pair_count()` gây ra) — không tự sắp thì
+        thứ tự tuỳ ý, làm hỏng chuỗi mở khoá.
+        """
+        return (
+            self.filter(is_active=True)
+            .with_pair_count()
+            .filter(pair_count__gte=self.model.MIN_PAIRS)
+            .order_by("order", "id")
+        )
+
+
+class MatchPairsStage(models.Model):
+    """
+    Một chặng của Ghép cặp. Nội dung biên tập tay, không cắt từ kho từ vựng chung:
+    một ván cần các từ tiếng Anh phân biệt *và* các nghĩa tiếng Việt phân biệt, điều
+    mà lát cắt từ vựng theo tần suất không bảo đảm được.
+    """
+
+    MIN_PAIRS = 12
+
+    code = models.SlugField(max_length=48, unique=True)
+    title_vi = models.CharField(max_length=64)
+    subtitle_vi = models.CharField(max_length=96, blank=True)
+    symbol = models.CharField(max_length=4, blank=True)  # ✦ ◈ ➜ — vẽ ở mặt sau thẻ
+    level = models.CharField(max_length=2, choices=CEFR.choices, default=CEFR.A1)
+    order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    objects = MatchPairsStageQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self) -> str:
+        return str(self.title_vi)
+
+
+class MatchPairsWord(models.Model):
+    """Một cặp Anh–Việt thuộc một chặng."""
+
+    stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="pairs")
+    order = models.PositiveSmallIntegerField(default=0)
+    english = models.CharField(max_length=48)
+    vietnamese = models.CharField(max_length=64)
+
+    class Meta:
+        ordering = ["order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["stage", "english"], name="uniq_stage_english"),
+            models.UniqueConstraint(fields=["stage", "vietnamese"], name="uniq_stage_vietnamese"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.english} · {self.vietnamese}"
+
+
+class MatchPairsProgress(models.Model):
+    """Sao của một (người dùng, chặng, độ khó). Chỉ nâng, không hạ."""
+
+    class Difficulty(models.TextChoices):
+        EASY = "easy", "Dễ"
+        MEDIUM = "medium", "Trung bình"
+        HARD = "hard", "Khó"
+        EXPERT = "expert", "Siêu cấp"
+
+    _PAIRS = {"easy": 6, "medium": 8, "hard": 10, "expert": 12}
+    MAX_MOVES = (
+        32767  # trần của PositiveSmallIntegerField `best_moves`; vượt là 422, không phải 500
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="match_pairs_progress")
+    stage = models.ForeignKey(MatchPairsStage, on_delete=models.CASCADE, related_name="progress")
+    difficulty = models.CharField(max_length=6, choices=Difficulty.choices)
+    stars = models.PositiveSmallIntegerField(default=0)  # 1..3
+    best_moves = models.PositiveSmallIntegerField(default=0)
+    play_count = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "stage", "difficulty"], name="uniq_user_stage_difficulty"
+            )
+        ]
+        indexes = [models.Index(fields=["user", "stage"], name="mpp_user_stage_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.stage_id} · {self.difficulty} · {self.stars}★"
+
+    @classmethod
+    def pairs_for(cls, difficulty: str) -> int:
+        return cls._PAIRS[str(difficulty)]
+
+    @classmethod
+    def thresholds_for(cls, difficulty: str) -> tuple[int, int]:
+        """(mốc 3 sao, mốc 2 sao) — tỉ lệ thuận số cặp; 12 cặp giữ đúng 15/21 client đang dùng."""
+        pairs = cls.pairs_for(difficulty)
+        return math.ceil(pairs * 1.25), math.ceil(pairs * 1.75)
+
+    @classmethod
+    def stars_for(cls, difficulty: str, moves: int) -> int:
+        three, two = cls.thresholds_for(difficulty)
+        if moves <= three:
+            return 3
+        if moves <= two:
+            return 2
+        return 1

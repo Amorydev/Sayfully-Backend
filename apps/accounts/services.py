@@ -167,4 +167,8 @@ def soft_delete_account(user: User) -> None:
 
 def ensure_profile(user: User) -> UserProfile:
     profile, _ = UserProfile.objects.get_or_create(user=user)
+    if profile.is_premium:
+        from apps.billing.services import expire_lapsed  # noqa: PLC0415 — tránh import vòng
+
+        expire_lapsed(profile)
     return profile

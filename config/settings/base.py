@@ -12,6 +12,18 @@ env = environ.Env(
     ACCESS_TOKEN_MINUTES=(int, 30),
     REFRESH_TOKEN_DAYS=(int, 60),
     AI_ENABLED=(bool, False),
+    AI_FREE_TURNS=(int, 20),
+    AI_PREMIUM_TURNS=(int, 200),
+    VIDEO_IMPORT_ENABLED=(bool, True),
+    VIDEO_IMPORT_MAX_SEC=(int, 1200),
+    VIDEO_IMPORT_DAILY_LIMIT=(int, 5),
+    VIDEO_IMPORT_SYNC=(bool, False),
+    AI_TIMEOUT=(int, 30),
+    PLAY_INTEGRITY_MAX_AGE_SEC=(int, 600),
+    REVENUECAT_WEBHOOK_SECRET=(str, ""),
+    REVENUECAT_API_KEY=(str, ""),
+    PAYOS_WEBHOOK_SECRET=(str, ""),
+    PAYOS_API_KEY=(str, ""),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -146,7 +158,45 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Sayfully <no-reply@sayfu
 # Trang đặt lại mật khẩu ở phía frontend (Next.js)
 PASSWORD_RESET_URL = env("PASSWORD_RESET_URL", default="http://localhost:3000/reset-password")
 
+# Chỉ dùng trong pipeline nội dung, không gọi khi người học bật nút Dịch.
+GOOGLE_TRANSLATE_API_KEY = env("GOOGLE_TRANSLATE_API_KEY", default="")
+
 AI_ENABLED = env("AI_ENABLED")
+# Gia sư AI: provider `openai_compat` gọi endpoint chat/completions tương thích OpenAI
+# (DeepSeek trực tiếp hoặc qua OpenRouter); `mock` trả lời mẫu để dựng UI không cần key.
+AI_PROVIDER = env("AI_PROVIDER", default="mock")
+AI_BASE_URL = env("AI_BASE_URL", default="https://openrouter.ai/api/v1")
+AI_MODEL = env("AI_MODEL", default="deepseek/deepseek-v4-flash")
+# Model thử lại một lần khi AI_MODEL lỗi mạng/timeout/429/5xx; để trống = không dự phòng.
+AI_FALLBACK_MODEL = env("AI_FALLBACK_MODEL", default="")
+AI_API_KEY = env("AI_API_KEY", default="")
+AI_TIMEOUT = env("AI_TIMEOUT")
+AI_FREE_TURNS = env("AI_FREE_TURNS")
+AI_PREMIUM_TURNS = env("AI_PREMIUM_TURNS")
+
+# Play Integrity cho điểm game (chống sửa điểm / app repack). Client Android gửi
+# `X-Integrity-Token`; máy chủ giải mã qua Play Integrity API bằng service account.
+#   off     → bỏ qua header
+#   log     → giải mã và ghi verdict vào GameScore.integrity, không chặn (mặc định:
+#             iOS chưa có App Attest, build dev/sideload không được Play nhận diện)
+#   enforce → từ chối 403 nếu token thiếu hoặc verdict không đạt
+PLAY_INTEGRITY_MODE = env("PLAY_INTEGRITY_MODE", default="log")
+PLAY_INTEGRITY_PACKAGE_NAME = env("PLAY_INTEGRITY_PACKAGE_NAME", default="amoryzenith.sayfully.app")
+PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE = env("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE", default="")
+PLAY_INTEGRITY_MAX_AGE_SEC = env("PLAY_INTEGRITY_MAX_AGE_SEC")
+
+# Người dùng Premium dán link YouTube → tạo video học (apps.content.video_import).
+VIDEO_IMPORT_ENABLED = env("VIDEO_IMPORT_ENABLED")
+VIDEO_IMPORT_MAX_SEC = env("VIDEO_IMPORT_MAX_SEC")        # từ chối video dài hơn (mặc định 20 phút)
+VIDEO_IMPORT_DAILY_LIMIT = env("VIDEO_IMPORT_DAILY_LIMIT")  # số video mỗi người mỗi ngày
+VIDEO_IMPORT_SYNC = env("VIDEO_IMPORT_SYNC")              # True: xử lý ngay trong request (dev/test)
+
+# Thanh toán (apps.billing). RevenueCat gửi secret trong header `Authorization`;
+# PayOS ký payload bằng checksum key. Trống → webhook trả 401, checkout trả 503.
+REVENUECAT_WEBHOOK_SECRET = env("REVENUECAT_WEBHOOK_SECRET")
+REVENUECAT_API_KEY = env("REVENUECAT_API_KEY")  # secret v1 key cho POST /billing/sync
+PAYOS_WEBHOOK_SECRET = env("PAYOS_WEBHOOK_SECRET")
+PAYOS_API_KEY = env("PAYOS_API_KEY")
 
 LANGUAGE_CODE = "vi"
 TIME_ZONE = "UTC"                      # DB lưu UTC; đổi sang giờ user khi tính streak

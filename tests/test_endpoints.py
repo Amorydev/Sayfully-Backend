@@ -175,3 +175,120 @@ def test_rate_limit_chan_do_mat_khau(api, user, settings):
     codes = [api.post("/auth/token", {"email": user.email, "password": "sai"}).status_code
              for _ in range(7)]
     assert 429 in codes, f"phải bị chặn sau vài lần, nhận được: {codes}"
+
+
+# ------------------------------------------------------------------ luyện nói theo chủ đề (C8a)
+def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
+    from apps.content.models import Level, ShadowingDeck, ShadowingSentence
+
+    lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
+    deck = ShadowingDeck.objects.create(
+        level=lv, order=1, title_en="Greetings", title_vi="Chào hỏi",
+        icon="greeting", background_url="speaking/greeting.webp",
+        est_seconds=180, is_free=True,
+    )
+    for j in range(4):
+        ShadowingSentence.objects.create(deck=deck, order=j, text_en=f"s{j}", text_vi=f"c{j}")
+    premium = ShadowingDeck.objects.create(
+        level=lv, order=2, title_en="Interview", title_vi="Phỏng vấn", is_free=False,
+    )
+    ShadowingSentence.objects.create(deck=premium, order=0, text_en="x", text_vi="y")
+
+    access = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+
+    body = api.get("/learn/speaking/topics", token=access).json()
+    assert body["week_practiced"] == 0
+    assert body["by_lesson"] == []  # tab "Theo bài học" trống ở v1
+    basic = {t["title_vi"]: t for t in body["basic"]}
+    assert basic["Chào hỏi"]["sentence_count"] == 4
+    assert basic["Chào hỏi"]["est_minutes"] == 3
+    assert basic["Chào hỏi"]["level"] == "A1"
+    assert basic["Chào hỏi"]["title_en"] == "Greetings"
+    assert basic["Chào hỏi"]["phrase_preview"] == "s0"
+    assert basic["Chào hỏi"]["background_url"].endswith("/speaking/greeting.webp")
+    assert basic["Chào hỏi"]["is_premium"] is False
+    assert basic["Chào hỏi"]["done"] == 0 and basic["Chào hỏi"]["total"] == 4
+    assert basic["Phỏng vấn"]["is_premium"] is True
+    # Gợi ý: chỉ chủ đề chưa xong & không khoá → có "Chào hỏi", không có "Phỏng vấn" (khoá)
+    suggested_titles = {t["title_vi"] for t in body["suggested"]}
+    assert "Chào hỏi" in suggested_titles and "Phỏng vấn" not in suggested_titles
+
+    # luyện 1 câu của chủ đề → tiến độ 1/4, hero tuần +1
+    r = api.post(
+        "/learn/practice",
+        {"kind": "speaking", "score": 80, "duration_sec": 30, "deck_id": deck.id},
+        token=access,
+    )
+    assert r.status_code == 200
+    body2 = api.get("/learn/speaking/topics", token=access).json()
+    greet = next(t for t in body2["basic"] if t["title_vi"] == "Chào hỏi")
+    assert greet["done"] == 1 and greet["percent"] == 25
+    assert body2["week_practiced"] == 1
+
+
+# ------------------------------------------------------------------ luyện nghe (C9a/C9)
+def test_listening_topics_va_2_mode(api, user, password):
+    from apps.content.models import Level, ListeningItem, ListeningTopic
+
+    lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
+    topic = ListeningTopic.objects.create(
+        level=lv, order=1, title_vi="Chào hỏi", icon="greeting", est_seconds=240, is_free=True,
+    )
+    for j in range(3):
+        ListeningItem.objects.create(
+            topic=topic, order=j, text_en="Hello, nice to meet you.", text_vi="Xin chào.",
+            audio_us_path=f"audio/listen/greet_{j}.mp3",
+            blank_index=3, options=["meet", "meat", "mit", "meal"], answer_index=0,
+        )
+    premium = ListeningTopic.objects.create(
+        level=lv, order=2, title_vi="Phỏng vấn", icon="interview", is_free=False,
+    )
+    ListeningItem.objects.create(
+        topic=premium, order=0, text_en="Tell me about yourself.", text_vi="Giới thiệu.",
+        blank_index=3, options=["yourself", "myself", "itself", "herself"], answer_index=0,
+    )
+
+    access = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
+
+    body = api.get("/learn/listening/topics", token=access).json()
+    assert body["week_practiced"] == 0
+    assert body["by_lesson"] == []
+    basic = {t["title_vi"]: t for t in body["basic"]}
+    assert basic["Chào hỏi"]["item_count"] == 3
+    assert basic["Chào hỏi"]["est_minutes"] == 4
+    assert basic["Chào hỏi"]["done_choose"] == 0 and basic["Chào hỏi"]["done_dictation"] == 0
+    assert basic["Phỏng vấn"]["is_premium"] is True
+    assert "Chào hỏi" in {t["title_vi"] for t in body["suggested"]}
+
+    # mode choose → có blank_index + options + answer_index
+    ch = api.get(f"/learn/listening/topics/{topic.id}?mode=choose", token=access).json()
+    assert ch["mode"] == "choose" and ch["total"] == 3
+    assert ch["items"][0]["blank_index"] == 3
+    assert ch["items"][0]["options"] == ["meet", "meat", "mit", "meal"]
+    assert ch["items"][0]["answer_index"] == 0
+
+    # mode dictation → KHÔNG kèm blank/options
+    di = api.get(f"/learn/listening/topics/{topic.id}?mode=dictation", token=access).json()
+    assert di["mode"] == "dictation"
+    assert di["items"][0]["blank_index"] is None and di["items"][0]["options"] == []
+
+    # premium topic → 403
+    assert api.get(f"/learn/listening/topics/{premium.id}?mode=choose", token=access).status_code == 403
+
+    # nộp 1 câu mode choose → done_choose 1/3, week +1
+    r = api.post(
+        "/learn/practice",
+        {"kind": "listening", "score": 90, "duration_sec": 20, "listening_topic_id": topic.id},
+        token=access,
+    )
+    assert r.status_code == 200
+    # nộp 1 câu mode dictation → done_dictation 1/3
+    api.post(
+        "/learn/practice",
+        {"kind": "dictation", "score": 80, "duration_sec": 25, "listening_topic_id": topic.id},
+        token=access,
+    )
+    body2 = api.get("/learn/listening/topics", token=access).json()
+    greet = next(t for t in body2["basic"] if t["title_vi"] == "Chào hỏi")
+    assert greet["done_choose"] == 1 and greet["done_dictation"] == 1
+    assert body2["week_practiced"] == 2

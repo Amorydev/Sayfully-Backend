@@ -5,7 +5,9 @@ Quy ước: `audio_url` là URL đầy đủ (ghép R2_PUBLIC_BASE ở tầng bu
 người dùng thuộc G4.
 """
 
-from ninja import Schema
+from typing import Literal
+
+from ninja import Field, Schema
 
 
 class Page[T](Schema):
@@ -21,17 +23,24 @@ class SyllableOut(Schema):
     is_secondary: bool
 
 
-class ExampleOut(Schema):
+class AccentAudioOut(Schema):
+    """`audio_url` = giọng theo hồ sơ (thiếu thì giọng còn lại); `audio_us_url`/`audio_uk_url`
+    để client đổi giọng tại chỗ không cần gọi lại."""
+
+    audio_url: str | None
+    audio_us_url: str | None = None
+    audio_uk_url: str | None = None
+
+
+class ExampleOut(AccentAudioOut):
     text_en: str
     text_vi: str
-    audio_url: str | None
 
 
-class SentenceOut(Schema):
+class SentenceOut(AccentAudioOut):
     text_en: str
     ipa: str | None
     text_vi: str
-    audio_url: str | None
 
 
 # --------------------------------------------------------------- 2.1 Lộ trình
@@ -60,6 +69,7 @@ class LessonBriefOut(Schema):
     id: int
     code: str
     order: int
+    kind: str = "lesson"  # lesson | checkpoint
     title_vi: str
     title_en: str
     est_minutes: int
@@ -90,6 +100,11 @@ class IntroStepOut(Schema):
     preview: list[SentenceOut]
 
 
+class CollocationOut(Schema):
+    text_en: str
+    meaning_vi: str
+
+
 class VocabCardOut(Schema):
     id: int
     headword: str
@@ -101,6 +116,13 @@ class VocabCardOut(Schema):
     audio_uk_url: str | None
     audio_us_url: str | None
     examples: list[ExampleOut]
+    # từ đã gặp ở bài trước: "Nghĩa mới của từ đã học (…)" / "Ôn tập — đã học ở …"
+    note_vi: str = ""
+    # "Cụm từ hay gặp" trên thẻ từ (crawl/framework/collocations.json)
+    collocations: list[CollocationOut] = []
+    # đã lưu vào sổ tay (bookmark) → id để xoá; None = chưa lưu
+    notebook_entry_id: int | None = None
+    category: str = "word"  # word | phrasal_verb | phrase | idiom → chip loại từ
 
 
 class ConjugationRowOut(Schema):
@@ -116,18 +138,19 @@ class GrammarStepOut(Schema):
     note_vi: str
     explanation_vi: str
     common_mistake_vi: str
+    mistake_wrong: str = ""  # cặp ✗/✓ dưới "Mẹo phản xạ"
+    mistake_right: str = ""
     conjugation: list[ConjugationRowOut]
     examples: list[SentenceOut]
 
 
-class DialogueLineOut(Schema):
+class DialogueLineOut(AccentAudioOut):
     order: int
     speaker: str
     is_native: bool
     text_en: str
     ipa: str | None
     text_vi: str
-    audio_url: str | None
 
 
 class DialogueStepOut(Schema):
@@ -135,15 +158,15 @@ class DialogueStepOut(Schema):
     title_en: str
     title_vi: str
     context_vi: str
-    lines: list[DialogueLineOut]
+    lines: list[DialogueLineOut]  # chỉ trích đoạn khi hội thoại gốc dài (VOA); xem total_lines
+    total_lines: int = 0  # số lượt của cả bài gốc; > len(lines) nghĩa là đang xem trích đoạn
 
 
-class SpellingStepOut(Schema):
+class SpellingStepOut(AccentAudioOut):
     vocab_id: int | None
     word: str
     meaning_vi: str
     ipa: str | None
-    audio_url: str | None
     hint_vi: str
 
 
@@ -151,14 +174,27 @@ class QuizOptionOut(Schema):
     text: str
 
 
-class QuizStepOut(Schema):
+class QuizStepOut(AccentAudioOut):
+    """`kind` quyết định màn quiz của app:
+    listening — phát audio lượt thoại (`sentence_en`/`speaker`), hỏi `question_word`, chọn 1/4;
+    vocab — `question_word` là từ (+`question_ipa`, loa), chọn nghĩa VI;
+    cloze — `sentence_en` có ____ (audio câu đầy đủ), chọn 1/4 từ; `sentence_vi` dịch, `hint_vi` nghĩa từ;
+    grammar — `hint_vi` tên điểm ngữ pháp + `formula`, chọn 1/4 câu; `sentence_en` ngữ cảnh (nếu có);
+    reorder — `options` là token đã xáo, đúng khi ghép lại = `sentence_en` (`correct_index` bỏ qua)."""
+
+    kind: str = "listening"
     prompt_vi: str
     question_word: str
+    question_vi: str = ""  # listening/grammar: câu hỏi dịch VI hiện dưới câu hỏi EN
     question_ipa: str | None
-    audio_url: str | None
     options: list[QuizOptionOut]
     correct_index: int
     explanation_vi: str
+    sentence_en: str = ""
+    sentence_vi: str = ""
+    speaker: str = ""
+    hint_vi: str = ""
+    formula: str = ""
     xp: int
 
 
@@ -184,6 +220,7 @@ class LessonStepOut(Schema):
 class LessonDetailOut(Schema):
     code: str
     order: int
+    kind: str = "lesson"  # checkpoint: không từ mới/ngữ pháp/hội thoại, chỉ intro + quiz
     unit: UnitRefOut
     level: str
     title_vi: str
@@ -198,7 +235,17 @@ class LessonDetailOut(Schema):
 
 
 # --------------------------------------------------------------- 2.2 Từ vựng
-class VocabListOut(Schema):
+class AudioSampleOut(Schema):
+    """Từ mẫu để nghe thử giọng thật (Cài đặt › Giọng phát âm) — có cả hai giọng khi kho đã sinh đủ."""
+
+    word: str
+    ipa_us: str
+    ipa_uk: str
+    audio_us_url: str | None
+    audio_uk_url: str | None
+
+
+class VocabListOut(AccentAudioOut):
     id: int
     headword: str
     pos: str
@@ -206,12 +253,15 @@ class VocabListOut(Schema):
     meaning_vi: str
     ipa: str
     syllables: list[SyllableOut]
-    audio_url: str | None
+    is_saved: bool = False
+    notebook_entry_id: int | None = None
 
 
-class CollocationOut(Schema):
-    text_en: str
-    meaning_vi: str
+class RelatedWordOut(Schema):
+    id: int | None = None
+    headword: str
+    pos: str = ""
+    meaning_vi: str = ""
 
 
 class VocabDetailOut(Schema):
@@ -225,11 +275,18 @@ class VocabDetailOut(Schema):
     syllables: list[SyllableOut]
     meaning_vi: str
     definition_en: str
+    definition_vi: str
     audio_uk_url: str | None
     audio_us_url: str | None
     frequency_rank: int | None
     synonyms: list[str]
+    antonyms: list[str]
     word_family: list[str]
+    synonym_items: list[RelatedWordOut]
+    antonym_items: list[RelatedWordOut]
+    word_family_items: list[RelatedWordOut]
+    is_saved: bool = False
+    notebook_entry_id: int | None = None
     examples: list[ExampleOut]
     collocations: list[CollocationOut]
 
@@ -247,23 +304,82 @@ class TopicOut(Schema):
 class GrammarListOut(Schema):
     id: int
     level: str
+    order: int
     category: str
     title_vi: str
     title_en: str
+    subtitle_vi: str
     formula: str
+    exercise_count: int
+    completed: bool
+    is_locked: bool  # cấp cần Premium mà tài khoản chưa có
+
+
+class GrammarPageOut(Schema):
+    items: list[GrammarListOut]
+    count: int
+    limit: int
+    offset: int
+    categories: list[str]  # chip lọc theo cấp đang xem
+    completed: int  # số điểm đã hoàn thành trong cấp
+    tip_vi: str  # "Mẹo vàng" — note của điểm chưa hoàn thành đầu tiên
+
+
+class FormulaPartOut(Schema):
+    token: str
+    label_vi: str
 
 
 class GrammarDetailOut(Schema):
     id: int
     level: str
+    order: int
+    position: int  # thứ tự trong cấp (1-based) → "Bài 04 / 12"
+    total_in_level: int
     category: str
     title_vi: str
     title_en: str
+    subtitle_vi: str
+    form_vi: str
     formula: str
+    formula_parts: list[FormulaPartOut]
+    note_vi: str
     explanation_vi: str
     common_mistake_vi: str
+    mistake_wrong: str
+    mistake_right: str
     conjugation: list[ConjugationRowOut]
     examples: list[SentenceOut]
+    exercise_count: int
+    xp_reward: int
+    completed: bool
+    best_percent: int
+    attempts: int
+
+
+class GrammarExerciseOut(Schema):
+    id: int
+    order: int
+    prompt_en: str
+    prompt_vi: str
+    options: list[str]
+    answer_index: int
+    explanation_vi: str
+
+
+class GrammarPracticeIn(Schema):
+    correct: int = Field(..., ge=0)
+    total: int = Field(..., ge=1)
+
+
+class GrammarPracticeOut(Schema):
+    percent: int
+    best_percent: int
+    attempts: int
+    completed: bool
+    newly_completed: bool
+    xp_earned: int
+    streak_days: int
 
 
 # --------------------------------------------------------------- 2.4 Đọc & truyện
@@ -288,9 +404,10 @@ class ReadingQuestionOut(Schema):
     explanation_vi: str
 
 
-class ReadingKeywordOut(Schema):
+class ReadingKeywordOut(AccentAudioOut):
     id: int
     headword: str
+    level: str
     ipa: str
     pos: str
     meaning_vi: str
@@ -302,7 +419,9 @@ class ReadingDetailOut(Schema):
     level: str
     title_en: str
     title_vi: str
+    topic: str | None
     est_minutes: int
+    cover_url: str | None
     sentences: list[SentenceOut]
     keywords: list[ReadingKeywordOut]
     questions: list[ReadingQuestionOut]
@@ -320,11 +439,10 @@ class StoryListOut(Schema):
     scene_count: int
 
 
-class StorySentenceOut(Schema):
+class StorySentenceOut(AccentAudioOut):
     order: int
     text_en: str
     text_vi: str
-    audio_url: str | None
 
 
 class StorySceneOut(Schema):
@@ -353,6 +471,26 @@ class StoryDetailOut(Schema):
 
 
 # --------------------------------------------------------------- 2.5 Video & shadowing
+class VideoPracticeSummaryOut(Schema):
+    """Cho sheet "Chọn cách học": số câu đã luyện theo mode + mode dùng gần nhất."""
+
+    shadowing_done: int = 0
+    dictation_done: int = 0
+    last_mode: Literal["shadowing", "dictation"] | None = None
+
+
+class VideoSentenceResultOut(Schema):
+    order: int
+    percent: int
+
+
+class VideoPracticeOut(VideoPracticeSummaryOut):
+    """Cho màn xem: kết quả tốt nhất từng câu theo mode."""
+
+    shadowing: list[VideoSentenceResultOut] = []
+    dictation: list[VideoSentenceResultOut] = []
+
+
 class VideoListOut(Schema):
     id: int
     youtube_id: str
@@ -360,9 +498,14 @@ class VideoListOut(Schema):
     title_vi: str
     title_en: str
     category: str
+    # Mô tả thể loại (từ VideoCategory), rỗng nếu thể loại chưa khai báo.
+    category_subtitle: str = ""
     duration_sec: int
     thumbnail_url: str | None
     is_free: bool
+    is_featured: bool = False
+    sentence_count: int = 0
+    practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
 
 
 class VideoSubtitleOut(Schema):
@@ -383,6 +526,54 @@ class VideoDetailOut(Schema):
     category: str
     duration_sec: int
     subtitles: list[VideoSubtitleOut]
+    source: Literal["curated", "user"] = "curated"
+    status: Literal["pending", "processing", "ready", "failed"] = "ready"
+    error_code: str = ""
+    practice: VideoPracticeOut = VideoPracticeOut()
+
+
+class VideoImportIn(Schema):
+    url: str = Field(..., min_length=5, max_length=300)
+
+
+class VideoPreviewOut(Schema):
+    """Xem trước link trước khi tạo: client bật nút khi `reject_code` rỗng."""
+
+    youtube_id: str
+    title: str
+    channel: str
+    duration_sec: int
+    has_english_captions: bool
+    thumbnail_url: str
+    reject_code: str = ""
+    reject_message: str = ""
+
+
+class UserVideoOut(Schema):
+    id: int
+    youtube_id: str
+    title: str
+    channel: str
+    duration_sec: int
+    level: str | None
+    status: Literal["pending", "processing", "ready", "failed"]
+    error_code: str = ""
+    error_message: str = ""
+    thumbnail_url: str
+    added_label: str = ""
+    sentence_count: int = 0
+    practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
+
+
+class VideoQuotaOut(Schema):
+    left: int
+    limit: int
+
+
+class UserVideoListOut(Schema):
+    items: list[UserVideoOut]
+    quota: VideoQuotaOut
+    can_import: bool
 
 
 class ShadowingDeckOut(Schema):
@@ -397,12 +588,13 @@ class ShadowingDeckOut(Schema):
     is_free: bool
 
 
-class ShadowingSentenceOut(Schema):
+class ShadowingSentenceOut(AccentAudioOut):
     order: int
     text_en: str
     ipa: str
     text_vi: str
-    audio_url: str | None
+    speaking_goal_vi: str
+    highlights: list[dict]
 
 
 class ShadowingDetailOut(Schema):
@@ -422,11 +614,29 @@ class WordRootOut(Schema):
     meaning_vi: str
     group_vi: str
     example_count: int
+    learned: bool = False
 
 
-class RootExampleOut(Schema):
-    id: int
+class WordRootGroupOut(Schema):
+    kind: str
+    title_vi: str
+    order: int
+    roots: list[WordRootOut]
+
+
+class WordRootBoardOut(Schema):
+    total: int  # toàn bộ gốc từ (mọi kind) — "Đã học x/40"
+    learned: int
+    kind_total: int  # trong kind đang lọc
+    kind_learned: int
+    groups: list[WordRootGroupOut]
+
+
+class RootExampleOut(AccentAudioOut):
+    id: int | None  # Vocabulary id nếu có trong kho (mở từ điển)
     headword: str
+    base: str  # phần còn lại sau khi bỏ tiền tố / hậu tố
+    split: str  # "un·happy"
     ipa: str
     meaning_vi: str
 
@@ -437,8 +647,28 @@ class WordRootDetailOut(Schema):
     text: str
     meaning_vi: str
     group_vi: str
+    effect_vi: str
     mnemonic_vi: str
     examples: list[RootExampleOut]
+    distractors: list[str]  # nghĩa của từ thuộc gốc khác — làm đáp án nhiễu cho bài luyện
+    learned: bool
+    best_percent: int
+    attempts: int
+
+
+class WordRootPracticeIn(Schema):
+    correct: int = Field(..., ge=0)
+    total: int = Field(..., ge=1)
+
+
+class WordRootPracticeOut(Schema):
+    percent: int
+    best_percent: int
+    attempts: int
+    learned: bool
+    newly_learned: bool
+    total_learned: int
+    total: int
 
 
 class PhrasalVerbOut(Schema):
@@ -452,17 +682,91 @@ class PhrasalVerbOut(Schema):
     examples: list[dict]
 
 
+class IPAExampleOut(Schema):
+    word: str
+    ipa: str
+    meaning_vi: str
+    audio_uk_url: str | None = None
+    audio_us_url: str | None = None
+
+
 class IPASoundOut(Schema):
+    """Một ô trên bảng âm."""
+
     id: int
     symbol: str
     kind: str
+    group: str  # monophthong | diphthong | voiceless | voiced | nasal_approx
+    category_vi: str
     description_vi: str
-    articulation_vi: str
-    mouth_image_url: str | None
-    sample_words: list[str]
-    minimal_pair: dict
+    sample_word: str  # từ mẫu ngắn hiện dưới ký hiệu
+    sample_meaning_vi: str = ""
+    mastered: bool
+    best_score: int
     audio_uk_url: str | None
     audio_us_url: str | None
+
+
+class IPAGroupOut(Schema):
+    code: str
+    title_vi: str
+    sounds: list[IPASoundOut]
+
+
+class IPABoardOut(Schema):
+    total: int
+    mastered: int
+    groups: list[IPAGroupOut]
+
+
+class IPAPairSideOut(Schema):
+    id: int | None
+    symbol: str
+    category_vi: str
+    word: str
+    audio_uk_url: str | None = None
+    audio_us_url: str | None = None
+
+
+class IPAMinimalPairOut(Schema):
+    hint_vi: str
+    this: IPAPairSideOut
+    other: IPAPairSideOut
+
+
+class IPASoundDetailOut(Schema):
+    id: int
+    symbol: str
+    kind: str
+    group: str
+    category_vi: str
+    category_en: str
+    description_vi: str
+    articulation_vi: str
+    lips_vi: str
+    tongue_vi: str
+    tip_vi: str
+    mouth_image_url: str | None
+    audio_uk_url: str | None
+    audio_us_url: str | None
+    examples: list[IPAExampleOut]
+    minimal_pair: IPAMinimalPairOut | None
+    mastered: bool
+    best_score: int
+    attempts: int
+
+
+class IPAPracticeIn(Schema):
+    score: int = Field(..., ge=0, le=100)
+
+
+class IPAPracticeOut(Schema):
+    best_score: int
+    attempts: int
+    mastered: bool
+    newly_mastered: bool
+    total_mastered: int
+    total: int
 
 
 # --------------------------------------------------------------- 2.7 Bundle manifest (G5)

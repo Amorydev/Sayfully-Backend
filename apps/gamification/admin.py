@@ -50,7 +50,26 @@ class LeagueGroupAdmin(admin.ModelAdmin):
 
 @admin.register(m.ShopItem)
 class ShopItemAdmin(admin.ModelAdmin):
-    list_display = ("code", "title_vi", "cost_coins", "is_active")
+    list_display = ("code", "title_vi", "category", "cost_coins", "discount_pct", "sale_until", "order", "is_active")
+    list_filter = ("category", "is_active")
+
+
+@admin.register(m.ShopReceipt)
+class ShopReceiptAdmin(admin.ModelAdmin):
+    list_display = ("user", "item", "coins_spent", "balance_after", "created_at")
+    raw_id_fields = ("user",)
+
+
+@admin.register(m.UserCosmetic)
+class UserCosmeticAdmin(admin.ModelAdmin):
+    list_display = ("user", "item", "acquired_at")
+    raw_id_fields = ("user",)
+
+
+@admin.register(m.ShopWishlist)
+class ShopWishlistAdmin(admin.ModelAdmin):
+    list_display = ("user", "item", "notified_at", "created_at")
+    raw_id_fields = ("user",)
 
 
 @admin.register(m.CoinTransaction)
@@ -70,4 +89,32 @@ class GameAdmin(admin.ModelAdmin):
 class GameScoreAdmin(admin.ModelAdmin):
     list_display = ("user", "game", "level", "score", "accuracy", "coins_earned", "played_at")
     list_filter = ("game", "level")
+    raw_id_fields = ("user",)
+
+
+class MatchPairsWordInline(admin.TabularInline):
+    model = m.MatchPairsWord
+    extra = 0
+
+
+@admin.register(m.MatchPairsStage)
+class MatchPairsStageAdmin(admin.ModelAdmin):
+    list_display = ("order", "code", "title_vi", "pair_count", "level", "is_active")
+    list_filter = ("level", "is_active")
+    search_fields = ("code", "title_vi")
+    inlines = [MatchPairsWordInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_pair_count()
+
+    @admin.display(description="Cặp", ordering="pair_count")
+    def pair_count(self, obj):
+        n = obj.pair_count
+        return n if n >= m.MatchPairsStage.MIN_PAIRS else f"{n} ⚠"
+
+
+@admin.register(m.MatchPairsProgress)
+class MatchPairsProgressAdmin(admin.ModelAdmin):
+    list_display = ("user", "stage", "difficulty", "stars", "best_moves", "play_count")
+    list_filter = ("difficulty", "stars")
     raw_id_fields = ("user",)

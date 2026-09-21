@@ -69,12 +69,32 @@ class ProfileOut(Schema):
     hearts: int
     streak_current: int
     streak_best: int
+    streak_freezes: int
     accent: str
     show_ipa: bool
     daily_goal_xp: int
+    daily_goal_words: int
     timezone: str
+    ui_language: str
+    reminder_enabled: bool
+    reminder_time: str  # "HH:MM"
+    streak_reminder: bool
+    event_notifications: bool
     is_premium: bool
     premium_until: datetime | None = None
+    xp_boost_until: datetime | None = None
+    avatar_frame: str = ""
+    avatar_frame_colors: list[str] = []
+
+    @staticmethod
+    def resolve_reminder_time(obj) -> str:
+        return obj.reminder_time.strftime("%H:%M")
+
+    @staticmethod
+    def resolve_avatar_frame_colors(obj) -> list[str]:
+        from apps.gamification.shop import frame_colors  # noqa: PLC0415 — tránh import vòng
+
+        return frame_colors(getattr(obj, "avatar_frame", ""))
 
 
 class MeOut(Schema):

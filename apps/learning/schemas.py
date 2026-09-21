@@ -7,13 +7,15 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import Field
 
-from apps.content.schemas import CollocationOut, ExampleOut, SyllableOut
+from apps.content.schemas import AccentAudioOut, CollocationOut, ExampleOut, SyllableOut
 
 
 # --------------------------------------------------------------- home (C1, §5.7)
 class HomeProfileOut(Schema):
     name: str
     avatar_url: str | None
+    avatar_frame_colors: list[str] = []  # khung avatar đang trang bị (C50)
+    avatar_frame: str | None = None
     cefr_level: str
     level: int
     level_label: str
@@ -45,6 +47,7 @@ class CurrentLessonOut(Schema):
 class HomeChallengeOut(Schema):
     id: int
     title: str
+    metric: str = ""  # xp | words | lessons | days | speaking | exams | ai_turns
     current: int
     target: int
     reward_coins: int
@@ -63,7 +66,63 @@ class HomeRankOut(Schema):
     xp_week: int
 
 
+class HomeGameOut(Schema):
+    id: int
+    code: str
+    title_vi: str
+    description_vi: str
+    kind: str
+    icon_url: str | None
+    min_level: str
+    is_locked: bool
+    is_featured: bool
+    personal_best: int
+
+
+class HomeLearningToolOut(Schema):
+    code: str
+    title_vi: str
+    description_vi: str
+    action: Literal[
+        "coming_soon", "notebook", "dictionary", "video", "ipa", "roots", "grammar", "ai_tutor"
+    ]
+    is_premium: bool = False
+    item_count: int | None = None
+
+
+class StreakStatusOut(Schema):
+    days: int
+    freezes: int  # băng dự phòng còn lại
+    at_risk: bool  # lỡ hôm qua, chưa hoạt động hôm nay → hoạt động kế tiếp sẽ tiêu băng / mất chuỗi
+    frozen_yesterday: bool  # hôm qua đã được băng che (băng đã tiêu)
+
+
+class HomeAiTutorOut(Schema):
+    enabled: bool
+    quota_left: int
+    quota_limit: int
+    resets_at: str  # ISO date (giờ hồ sơ)
+
+
+class HomeVideoOut(Schema):
+    """Thẻ trong block "Video nổi bật" ở Trang chủ."""
+
+    id: int
+    youtube_id: str
+    title_vi: str
+    level: str
+    category: str
+    duration_sec: int
+    sentence_count: int
+    thumbnail_url: str | None
+    learner_count: int
+    # featured: admin ghim · new: tạo ≤ 14 ngày · popular: ≥ HOME_VIDEO_POPULAR_MIN người đã luyện
+    badge: Literal["featured", "new", "popular"] | None = None
+
+
 class HomeOut(Schema):
+    checkin_done: bool = False  # đã điểm danh hôm nay → app không hiện dialog điểm danh
+    streak: StreakStatusOut | None = None
     profile: HomeProfileOut
     unread_notifications: int
     due_review_count: int
@@ -71,6 +130,10 @@ class HomeOut(Schema):
     current_lesson: CurrentLessonOut | None
     challenges: HomeChallengesOut
     rank: HomeRankOut | None
+    games: list[HomeGameOut]
+    learning_tools: list[HomeLearningToolOut]
+    ai_tutor: HomeAiTutorOut
+    videos: list[HomeVideoOut] = []
 
 
 # --------------------------------------------------------------- learn path (C2)
@@ -97,6 +160,7 @@ class PathLessonOut(Schema):
     id: int
     code: str
     order: int
+    kind: str = "lesson"  # lesson | checkpoint
     title_vi: str
     display_title_vi: str
     subtitle_vi: str
@@ -188,6 +252,7 @@ class DayProgressOut(Schema):
     label: str
     active: bool
     is_today: bool
+    frozen: bool = False  # ngày lỡ được Băng streak che
 
 
 class MilestoneOut(Schema):
@@ -205,6 +270,10 @@ class KeyVocabOut(Schema):
 
 class LessonResultOut(Schema):
     code: str
+    lesson_order: int
+    title_vi: str
+    unit_order: int
+    unit_title_vi: str
     percent: int
     correct_count: int
     total: int
@@ -302,17 +371,36 @@ class VocabStatusOut(Schema):
 
 
 # --------------------------------------------------------------- notebook (C47)
-class NotebookEntryOut(Schema):
+class NotebookEntryOut(AccentAudioOut):
     id: int
     vocab_id: int | None
     headword: str
     ipa: str
     meaning_vi: str
-    audio_url: str | None
     note: str
     tags: list[str]
     srs_state: int | None
+    mastery_percent: int
+    reps: int
+    lapses: int
+    due_at: datetime | None
     created_at: datetime
+
+
+class NotebookTagFacetOut(Schema):
+    tag: str
+    count: int
+
+
+class NotebookListOut(Schema):
+    items: list[NotebookEntryOut]
+    count: int
+    notebook_total: int
+    limit: int
+    offset: int
+    capacity: int
+    is_premium: bool
+    tag_facets: list[NotebookTagFacetOut]
 
 
 class NotebookCreateIn(Schema):
@@ -328,8 +416,12 @@ class CheckinOut(Schema):
     already: bool
     xp_earned: int
     coins_earned: int
+    streak_before: int  # streak trước khi điểm danh — app hiện "Ngày 12 → Ngày 13"
     streak_days: int
     week: list[DayProgressOut]
+    milestone: MilestoneOut | None = None  # cột mốc streak kế tiếp (badge metric=streak)
+    freeze_used: bool = False  # lần điểm danh này đã tiêu 1 băng để giữ chuỗi
+    freezes_left: int = 0
 
 
 class DailyActivityOut(Schema):
@@ -347,6 +439,8 @@ class PracticeIn(Schema):
     score: int = Field(ge=0, le=100)
     duration_sec: int = 0
     ref_id: str = ""
+    deck_id: int | None = None  # chủ đề luyện nói (ShadowingDeck) để cộng tiến độ C8a
+    listening_topic_id: int | None = None  # chủ đề luyện nghe (ListeningTopic) để cộng tiến độ C9a
 
 
 class PracticeResultOut(Schema):
@@ -354,6 +448,136 @@ class PracticeResultOut(Schema):
     skill: str | None
     skill_level: int | None
     skill_percent: int | None
+
+
+class SpeakingTopicOut(Schema):
+    id: int
+    level: str
+    title_en: str
+    title_vi: str
+    phrase_preview: str
+    focus_vi: str  # trọng tâm phát âm/ngữ điệu của deck, hiện dưới tiêu đề thẻ
+    icon: str  # token dự phòng
+    icon_url: str | None  # ảnh icon để app render trực tiếp
+    background_url: str | None  # ảnh nền card; app dùng placeholder nếu trống/lỗi
+    color: str  # màu hex "#RRGGBB", rỗng nếu chưa đặt
+    sentence_count: int
+    est_minutes: int
+    is_premium: bool
+    done: int
+    total: int
+    percent: int
+
+
+class SpeakingTopicsOut(Schema):
+    week_practiced: int  # số câu đã luyện nói trong 7 ngày gần nhất (hero C8a)
+    suggested: list[SpeakingTopicOut]  # tab "Gợi ý": chủ đề chưa xong, không khoá
+    basic: list[SpeakingTopicOut]  # tab "Cơ bản": toàn bộ chủ đề
+    by_lesson: list[SpeakingTopicOut] = []  # tab "Theo bài học": để trống ở v1
+
+
+class ListeningTopicOut(Schema):
+    id: int
+    title_vi: str
+    icon: str  # token dự phòng
+    icon_url: str | None  # ảnh icon để app render trực tiếp
+    color: str  # màu hex "#RRGGBB"
+    item_count: int  # tổng số câu của chủ đề
+    est_minutes: int
+    is_premium: bool
+    done_choose: int  # số câu đã xong ở mode "Chọn từ"
+    done_dictation: int  # số câu đã xong ở mode "Chép chính tả"
+
+
+class ListeningTopicsOut(Schema):
+    week_practiced: int  # số câu đã luyện nghe 7 ngày gần nhất (hero C9a)
+    suggested: list[ListeningTopicOut]  # tab "Gợi ý"
+    basic: list[ListeningTopicOut]  # tab "Cơ bản"
+    by_lesson: list[ListeningTopicOut] = []  # tab "Theo bài học": để trống ở v1
+
+
+class ListeningItemOut(Schema):
+    order: int
+    text_en: str  # câu đầy đủ (client tự che từ ở blank_index cho mode choose)
+    text_vi: str
+    audio_url: str | None
+    audio_us_url: str | None = None
+    audio_uk_url: str | None = None
+    blank_index: int | None = None  # chỉ có ở mode "choose"
+    options: list[str] = []  # chỉ có ở mode "choose"
+    answer_index: int | None = None  # chỉ có ở mode "choose" (chấm tại máy)
+
+
+class ListeningItemsOut(Schema):
+    topic_id: int
+    mode: str  # "choose" | "dictation"
+    total: int
+    items: list[ListeningItemOut]
+
+
+# --------------------------------------------------------------- reading list (C10a)
+class ReadingCardProgressOut(Schema):
+    status: Literal["not_started", "in_progress", "completed"]
+    answered_count: int
+    correct_count: int
+    progress_percent: int
+    score_percent: int
+    xp_earned: int
+
+
+class ReadingListItemOut(Schema):
+    id: int
+    level: str
+    order: int
+    title_en: str
+    title_vi: str
+    topic_id: int | None
+    topic: str | None
+    topic_icon_url: str | None = None  # icon chủ đề (Topic.icon_url); app dùng placeholder nếu trống
+    est_minutes: int
+    cover_url: str | None
+    question_count: int
+    keyword_preview: list[str]
+    is_locked: bool
+    progress: ReadingCardProgressOut
+
+
+class ReadingTopicFacetOut(Schema):
+    topic_id: int
+    name_vi: str
+    count: int
+
+
+class ReadingListOverviewOut(Schema):
+    level: str
+    level_label: str
+    reading_streak_days: int
+    total: int
+    completed: int
+    in_progress: int
+    progress_percent: int
+
+
+class ReadingListPageOut(Schema):
+    items: list[ReadingListItemOut]
+    count: int
+    limit: int
+    offset: int
+    overview: ReadingListOverviewOut
+    topic_facets: list[ReadingTopicFacetOut]
+
+
+class ReadingProgressIn(Schema):
+    answered_count: int = Field(default=0, ge=0)
+    correct_count: int = Field(default=0, ge=0)
+    completed: bool = False
+    duration_sec: int = Field(default=0, ge=0)
+
+
+class ReadingProgressResultOut(Schema):
+    progress: ReadingCardProgressOut
+    xp_awarded: int
+    reading_streak_days: int
 
 
 class SkillProgressOut(Schema):
@@ -372,51 +596,6 @@ class PracticeSuggestionOut(Schema):
 class SkillsOverviewOut(Schema):
     skills: list[SkillProgressOut]
     suggestion: PracticeSuggestionOut | None
-
-
-# --------------------------------------------------------------- practice hub (C19)
-class PracticeFeaturedOut(Schema):
-    title_vi: str
-    topic: str
-    description_vi: str
-    is_premium: bool
-    thumbnail_url: str | None
-
-
-class PracticeGameOut(Schema):
-    id: int
-    code: str
-    title_vi: str
-    description_vi: str
-    kind: str
-    icon_url: str | None
-    is_featured: bool
-
-
-class PracticeSkillCountsOut(Schema):
-    speaking: int   # số bài luyện nói sẵn sàng ("12 bài sẵn sàng")
-    listening: int  # số bài luyện nghe
-    reading: int    # số bài đọc ("5 bài mới")
-    writing: int    # số bài luyện viết/ngữ pháp
-
-
-class PracticeCountsOut(Schema):
-    vocab_due: int        # "24 từ cần ôn"
-    notebook_total: int   # "348 từ đã lưu"
-    ipa_sounds: int       # "44 âm IPA"
-    videos: int
-    skills: PracticeSkillCountsOut
-
-
-class PracticeHubOut(Schema):
-    streak_days: int
-    coins: int
-    hearts: int
-    is_premium: bool
-    featured: PracticeFeaturedOut | None
-    skills: list[SkillProgressOut]
-    counts: PracticeCountsOut
-    games: list[PracticeGameOut]
 
 
 # --------------------------------------------------------------- profile overview (C48)
@@ -444,6 +623,8 @@ class ProfileOverviewOut(Schema):
     handle: str
     member_id: str
     avatar_url: str | None
+    avatar_frame_colors: list[str] = []
+    avatar_frame: str | None = None
     date_joined: datetime
     is_active: bool
     is_premium: bool
@@ -593,3 +774,69 @@ class PlacementResultOut(Schema):
     start_unit_code: str | None
     skill_scores: list[PlacementSkillScoreOut]
     days_saved: int
+
+
+# --------------------------------------------------------------- flashcard decks (C7a → C7)
+class FlashcardDeckOut(Schema):
+    """1 ô trong lưới thư viện. Đủ để vẽ card, chưa kèm thẻ."""
+
+    id: int
+    code: str
+    title_vi: str
+    cover_title: str
+    badge_vi: str
+    background_url: str | None
+    icon: str
+    accent_color: str
+    level: str | None
+    card_count: int
+    learner_count: int
+    is_premium: bool
+    learned_count: int  # thẻ đã thuộc của người dùng hiện tại (0 nếu chưa học)
+
+
+class FlashcardDeckCollectionOut(Schema):
+    code: str
+    title_vi: str
+    chip_label_vi: str
+    deck_count: int
+    decks: list[FlashcardDeckOut]
+
+
+class FlashcardDecksOut(Schema):
+    continuing: FlashcardDeckOut | None  # thẻ "Đang học" ở hero; null nếu chưa mở bộ nào
+    collections: list[FlashcardDeckCollectionOut]
+
+
+class FlashcardDeckCardOut(Schema):
+    """1 thẻ trong bộ. Cùng hình dạng `ReviewCardOut` để app dùng chung màn C7;
+    `due_at`/`state` rỗng với thẻ người dùng chưa từng ôn."""
+
+    vocab_id: int
+    headword: str
+    pos: str
+    level: str
+    ipa: str
+    syllables: list[SyllableOut]
+    meaning_vi: str
+    definition_en: str
+    audio_uk_url: str | None
+    audio_us_url: str | None
+    examples: list[ExampleOut]
+    collocations: list[CollocationOut]
+    word_family: list[str]
+    due_at: datetime | None = None
+    state: int = 0
+
+
+class FlashcardDeckDetailOut(Schema):
+    """Toàn bộ dữ liệu 1 bộ thẻ — gọi khi người dùng bấm vào ô."""
+
+    id: int
+    code: str
+    title_vi: str
+    background_url: str | None
+    level: str | None
+    total: int
+    learned_count: int
+    cards: list[FlashcardDeckCardOut]

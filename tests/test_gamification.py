@@ -134,6 +134,35 @@ def test_leaderboard_league(api, token, user):
     assert body["tier"] == "Đồng" and body["my_rank"] == 1
     assert body["entries"][0]["is_me"] is True and body["entries"][0]["xp_week"] == 100
     assert body["promote_top"] == 5 and body["time_left_sec"] > 0
+    # Tiến độ tuần của hạng Đồng: mục tiêu 600 XP, 100/600 → bậc I, một mình trong nhóm → top 100%.
+    assert body["xp_week_target"] == 600 and body["division"] == "I" and body["percentile"] == 100
+
+
+def test_leaderboard_week_left_uses_user_timezone(api, token, user):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone as djtz
+
+    body = api.get("/leaderboard?scope=league", token=token).json()
+    local = djtz.now().astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+    next_monday = (local + timedelta(days=7 - local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    expected = int((next_monday - local).total_seconds())
+    assert abs(body["time_left_sec"] - expected) < 5
+
+
+def test_leaderboard_global_all_time(api, token, user):
+    from apps.accounts.services import ensure_profile
+
+    p = ensure_profile(user)
+    p.xp_total = 1234
+    p.save(update_fields=["xp_total"])
+    body = api.get("/leaderboard?scope=global&period=all", token=token).json()
+    assert body["scope"] == "global" and body["period"] == "all"
+    assert body["my_rank"] == 1 and body["my_xp"] == 1234
+    assert body["entries"][0]["xp_week"] == 1234 and body["entries"][0]["is_me"] is True
 
 
 def test_leaderboard_me(api, token, user):
@@ -184,6 +213,7 @@ def test_shop_purchase(client, token, user):
 def test_shop_purchase_idempotent(client, token, user):
     item = _item(cost=100)
     user.profile.coins = 200
+    user.profile.hearts = 1  # tim đầy thì bị chặn hearts_full
     user.profile.save()
     _purchase(client, token, item.id, "key1")
     _purchase(client, token, item.id, "key1")  # cùng key
@@ -208,6 +238,7 @@ def test_shop_thieu_idempotency_key_400(api, token, user):
 def test_coin_transactions(client, api, token, user):
     item = _item(cost=100)
     user.profile.coins = 200
+    user.profile.hearts = 1
     user.profile.save()
     _purchase(client, token, item.id, "key1")
     body = api.get("/coins/transactions", token=token).json()
@@ -252,6 +283,99 @@ def test_submit_score_khong_ky_luc(api, token, user):
 
 def test_submit_score_game_khong_ton_tai_404(api, token, user):
     assert api.post("/games/nope/scores", {"score": 100}, token=token).status_code == 404
+
+
+def test_speed_say_stage_score_records_progress(api, token, user):
+    from apps.gamification.models import GameStageProgress
+
+    game = _game("speed_say")
+    body = api.post(
+        "/games/speed_say/scores",
+        {
+            "score": 1200,
+            "duration_sec": 45,
+            "level": "A1",
+            "stage_index": 0,
+            "accuracy": 0.84,
+        },
+        token=token,
+    ).json()
+
+    assert body["score"] == 1200
+    progress = GameStageProgress.objects.get(user=user, game=game, level="A1", stage_index=0)
+    assert progress.best_score == 1200 and progress.best_accuracy == 0.84
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"score": 2751, "duration_sec": 45, "level": "A1", "stage_index": 0},
+        {"score": 1000, "duration_sec": 10, "level": "A1", "stage_index": 0},
+        {"score": 1000, "duration_sec": 10, "level": "A1", "cleared": False},
+        {"score": 1000, "duration_sec": 30, "level": "A1"},
+    ],
+)
+def test_speed_say_rejects_implausible_score_without_writing(api, token, user, payload):
+    from apps.gamification.models import GameScore
+
+    _game("speed_say")
+    response = api.post("/games/speed_say/scores", payload, token=token)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "implausible_score"
+    assert not GameScore.objects.filter(user=user, game__code="speed_say").exists()
+
+
+def test_score_limits_do_not_apply_to_other_games(api, token, user):
+    from apps.gamification.models import GameScore
+
+    game = _game()
+    response = api.post(
+        "/games/word_rain/scores",
+        {"score": 2751, "duration_sec": 10, "level": "A1", "stage_index": 0},
+        token=token,
+    )
+
+    assert response.status_code == 200
+    assert GameScore.objects.filter(user=user, game=game).exists()
+
+
+def _profile(user):
+    from apps.accounts.services import ensure_profile
+
+    return ensure_profile(user)
+
+
+def test_game_lost_round_costs_one_heart(api, token, user):
+    _game()
+    assert _profile(user).hearts == 5
+    body = api.post("/games/word_rain/scores", {"score": 120, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is True and body["hearts"] == 4 and body["hearts_max"] == 5
+    assert body["hearts_next_at"] is not None
+    # Thắng ván không mất tim; payload cũ (không có `cleared`) cũng coi là thắng.
+    body = api.post("/games/word_rain/scores", {"score": 900}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 4
+    wallet = api.get("/shop/wallet", token=token).json()
+    assert wallet["hearts"] == 4 and wallet["hearts_next_at"] is not None
+
+
+def test_game_lost_round_at_zero_hearts_stays_zero(api, token, user):
+    _game()
+    p = _profile(user)
+    p.hearts = 0
+    p.save(update_fields=["hearts"])
+    body = api.post("/games/word_rain/scores", {"score": 50, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 0
+
+
+def test_premium_never_loses_hearts(api, token, user):
+    _game()
+    p = _profile(user)
+    p.is_premium = True
+    p.premium_until = None
+    p.save(update_fields=["is_premium", "premium_until"])
+    body = api.post("/games/word_rain/scores", {"score": 50, "cleared": False}, token=token).json()
+    assert body["heart_lost"] is False and body["hearts"] == 5 and body["hearts_next_at"] is None
 
 
 def test_game_leaderboard(api, token, user):
@@ -309,3 +433,35 @@ def test_register_device_upsert(api, token, user):
     api.post("/devices", {"fcm_token": "tok123", "platform": "android"}, token=token)  # cùng token
     assert Device.objects.filter(fcm_token="tok123").count() == 1
     assert Device.objects.get(fcm_token="tok123").platform == "android"
+
+
+def test_games_hub(api, token, user, django_user_model):
+    from apps.gamification.models import Game, GameScore
+
+    g = _game()
+    Game.objects.create(
+        code="speed_type", title_vi="Gõ nhanh", description_vi="x", kind="reflex", min_level="B2"
+    )
+    other = django_user_model.objects.create_user(
+        email="other@example.com", password="x", full_name="Thu Hà"
+    )
+    _profile(other)
+    GameScore.objects.create(user=user, game=g, level="A1", score=500, coins_earned=5)
+    GameScore.objects.create(user=user, game=g, level="A1", score=300, coins_earned=3)
+    GameScore.objects.create(user=other, game=g, level="A1", score=900)
+    GameScore.objects.create(user=other, game=g, level="A1", score=400)
+
+    body = api.get("/games/hub", token=token).json()
+    codes = {x["code"]: x for x in body["games"]}
+    assert codes["word_rain"]["personal_best"] == 500 and codes["word_rain"]["is_locked"] is False
+    assert codes["speed_type"]["is_locked"] is True
+    # Đã chơi Mưa từ hôm nay; Gõ nhanh bị khoá → nhiệm vụ rơi về trò đầu và báo xong.
+    assert body["mission"]["game_code"] == "word_rain" and body["mission"]["done"] is True
+    # Feed chỉ có người khác, mới nhất trước; 900 là kỷ lục của họ và vượt 500 của tôi.
+    assert [r["score"] for r in body["recent"]] == [400, 900]
+    assert body["recent"][1]["is_record"] is True and body["recent"][1]["beats_me"] is True
+    assert body["recent"][0]["is_record"] is False and body["recent"][0]["name"] == "Thu Hà"
+    # Lịch sử của tôi: ván mới nhất trước, đánh dấu ván kỷ lục.
+    assert [h["score"] for h in body["history"]] == [300, 500]
+    assert body["history"][1]["is_best"] is True and body["history"][0]["is_best"] is False
+    assert body["history"][1]["coins_earned"] == 5
