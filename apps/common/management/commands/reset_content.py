@@ -10,6 +10,7 @@ user/tiến độ khác mất. Không có `--yes` thì chỉ in ra sẽ làm gì
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.accounts.services import ensure_profile
 
@@ -46,26 +47,28 @@ class Command(BaseCommand):
                 "Chạy lại với --yes để thực hiện."
             )
         self.stdout.write(f"Xoá toàn bộ DB ({total} user)…")
-        call_command("flush", interactive=False, verbosity=0)
-        import_opts = {"xlsx": opts["xlsx"]} if opts["xlsx"] else {}
-        call_command("import_review_skills", **import_opts)
-        call_command("seed_catalog")  # nhiệm vụ · huy hiệu · cửa hàng · game · gói · mã quà
-        call_command("seed_scenarios")  # kịch bản đóng vai Gia sư AI
-        call_command("seed_match_pairs")  # chặng Ghép cặp
-        for k in kept:
-            u = user_model(
-                email=k["email"],
-                full_name=k["full_name"],
-                is_staff=k["is_staff"],
-                is_superuser=k["is_superuser"],
-            )
-            u.password = k["password"]  # hash cũ, mật khẩu không đổi
-            u.save()
-            profile = ensure_profile(u)
-            profile.cefr_level = k["cefr_level"]
-            profile.accent = k["accent"]
-            profile.onboarding_completed = True
-            profile.save(update_fields=["cefr_level", "accent", "onboarding_completed"])
+        # Một transaction: workbook lỗi giữa chừng thì DB (kể cả user) vẫn nguyên.
+        with transaction.atomic():
+            call_command("flush", interactive=False, verbosity=0)
+            import_opts = {"xlsx": opts["xlsx"]} if opts["xlsx"] else {}
+            call_command("import_review_skills", **import_opts)
+            call_command("seed_catalog")  # nhiệm vụ · huy hiệu · cửa hàng · game · gói · mã quà
+            call_command("seed_scenarios")  # kịch bản đóng vai Gia sư AI
+            call_command("seed_match_pairs")  # chặng Ghép cặp
+            for k in kept:
+                u = user_model(
+                    email=k["email"],
+                    full_name=k["full_name"],
+                    is_staff=k["is_staff"],
+                    is_superuser=k["is_superuser"],
+                )
+                u.password = k["password"]  # hash cũ, mật khẩu không đổi
+                u.save()
+                profile = ensure_profile(u)
+                profile.cefr_level = k["cefr_level"]
+                profile.accent = k["accent"]
+                profile.onboarding_completed = True
+                profile.save(update_fields=["cefr_level", "accent", "onboarding_completed"])
         self.stdout.write(
             self.style.SUCCESS(
                 f"Xong. Giữ lại {len(kept)} tài khoản: {', '.join(k['email'] for k in kept)}"
