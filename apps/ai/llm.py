@@ -43,9 +43,11 @@ class Completion:
     tokens_out: int
     model: str = ""
     latency_ms: int = 0
+    # finish_reason == "length": output chạm max_tokens, JSON gần như chắc chắn đứt.
+    truncated: bool = False
 
 
-def complete(system: str, messages: list[dict], *, max_tokens: int = 600) -> Completion:
+def complete(system: str, messages: list[dict], *, max_tokens: int = 1200) -> Completion:
     """`messages` = [{"role": "user"|"assistant", "content": str}, ...]; trả về text JSON."""
     provider = settings.AI_PROVIDER
     if provider == "mock":
@@ -107,17 +109,23 @@ def _chat_completion(model: str, system: str, messages: list[dict], *, max_token
         )
     body = resp.json()
     try:
-        text = body["choices"][0]["message"]["content"]
+        choice = body["choices"][0]
+        text = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise AIUpstreamError("Phản hồi AI không hợp lệ", retryable=True) from exc
     usage = body.get("usage") or {}
-    logger.info("ai completion model=%s latency_ms=%s tokens=%s/%s", model, latency_ms, usage.get("prompt_tokens"), usage.get("completion_tokens"))
+    truncated = choice.get("finish_reason") == "length"
+    logger.info(
+        "ai completion model=%s latency_ms=%s tokens=%s/%s%s",
+        model, latency_ms, usage.get("prompt_tokens"), usage.get("completion_tokens"), " TRUNCATED" if truncated else "",
+    )
     return Completion(
         text=text,
         tokens_in=int(usage.get("prompt_tokens") or 0),
         tokens_out=int(usage.get("completion_tokens") or 0),
         model=model,
         latency_ms=latency_ms,
+        truncated=truncated,
     )
 
 

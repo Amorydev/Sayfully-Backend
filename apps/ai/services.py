@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 HISTORY_TURNS = 12
 MAX_TURNS = 15
+# Một lượt đầy đủ (reply + reply_vi + sửa lỗi + 3 gợi ý song ngữ) ~500–700 token; lần thử lại nới gấp đôi.
+TURN_MAX_TOKENS = 1200
 # Lạc đề liên tiếp bấy nhiêu lượt thì server chèn lời nhắc quay lại chủ đề (không kết thúc phiên).
 OFF_TOPIC_NUDGE_AFTER = 3
 MIN_TURNS_FOR_REWARD = 6
@@ -221,7 +223,10 @@ def _parse_json(text: str) -> dict:
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end < 0:
             raise llm.AIUpstreamError("Phản hồi AI không hợp lệ") from None
-        data = json.loads(text[start : end + 1])
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            raise llm.AIUpstreamError("Phản hồi AI không hợp lệ") from None
     if not isinstance(data, dict) or not isinstance(data.get("reply_en"), str):
         raise llm.AIUpstreamError("Phản hồi AI không hợp lệ")
     return data
@@ -292,12 +297,17 @@ def _ask(
             {"role": "user", "content": f"(Reminder: the conversation topic is {topic['opening_en']}. Reply only about it.)"},
             history[-1],
         ]
-    comp = llm.complete(system, messages)
+    comp = llm.complete(system, messages, max_tokens=TURN_MAX_TOKENS)
     try:
+        if comp.truncated:
+            raise llm.AIUpstreamError("Phản hồi AI bị cắt")
         data = _parse_json(comp.text)
     except llm.AIUpstreamError:
+        # JSON đứt (thường do chạm max_tokens): nhắc gọn lại và nới trần token.
         comp = llm.complete(
-            system + "\nYour previous answer was not valid JSON. Return valid JSON only.", messages
+            system + "\nYour previous answer was not valid or complete JSON. Return valid JSON only, keep every field short.",
+            messages,
+            max_tokens=TURN_MAX_TOKENS * 2,
         )
         data = _parse_json(comp.text)
     return _normalise_turn(data, conv, profile.cefr_level or "A1"), comp

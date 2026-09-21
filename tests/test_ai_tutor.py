@@ -6,6 +6,7 @@ import pytest
 
 from apps.accounts.services import ensure_profile
 from apps.ai import llm
+from apps.ai import services as svc
 from apps.ai.management.commands.seed_scenarios import seed_roleplay_scenarios
 from apps.ai.models import AIConversation, AIQuota, RoleplayScenario
 from apps.content.models import GrammarPoint, Level
@@ -275,6 +276,31 @@ def test_llm_khong_co_model_du_phong_chi_goi_mot_lan(settings, monkeypatch):
     with pytest.raises(llm.AIUpstreamError):
         llm.complete("sys", [{"role": "user", "content": "hi"}])
     assert calls == ["main"]
+
+
+def test_luot_bi_cat_thu_lai_voi_tran_token_lon_hon(api, token, user, monkeypatch):
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
+    calls = []
+
+    def fake(system, messages, **kw):
+        calls.append(kw.get("max_tokens"))
+        if len(calls) == 1:
+            return llm.Completion(text='{"reply_en": "Nice! Tell me', tokens_in=1, tokens_out=600, truncated=True)
+        assert "keep every field short" in system
+        return _turn()
+
+    monkeypatch.setattr(llm, "complete", fake)
+    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "hi", "client_msg_id": "t1", "via": "voice"}, token=token)
+    assert r.status_code == 200, r.json()
+    assert calls == [svc.TURN_MAX_TOKENS, svc.TURN_MAX_TOKENS * 2]
+
+
+def test_json_hong_ca_hai_lan_tra_502(api, token, user, monkeypatch):
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
+    monkeypatch.setattr(llm, "complete", lambda *a, **kw: llm.Completion(text='{"reply_en": "x", bad}', tokens_in=1, tokens_out=1))
+    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "hi", "client_msg_id": "t2", "via": "voice"}, token=token)
+    assert r.status_code == 502
+    assert r.json()["error"]["code"] == "ai_upstream"
 
 
 def test_het_quota_tra_429(api, token, user):
