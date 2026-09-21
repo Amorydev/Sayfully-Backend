@@ -7,6 +7,7 @@ from .base import env
 DEBUG = False
 
 SECURE_SSL_REDIRECT = True
+SECURE_REDIRECT_EXEMPT = [r"^health/$"]  # healthcheck trong container gọi HTTP thẳng gunicorn
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
