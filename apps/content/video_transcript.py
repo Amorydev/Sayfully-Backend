@@ -183,12 +183,21 @@ def enrich_ipa(drafts: list[SubtitleDraft]) -> tuple[list[SubtitleDraft], list[s
 
 
 def translate_texts_to_vi(texts: list[str]) -> list[str]:
-    """Translate a batch through Google Cloud Translation Basic (v2)."""
+    """Google Translate nếu có key, không thì provider AI của app (DeepSeek/OpenRouter)."""
     if not texts:
         return []
-    api_key = getattr(settings, "GOOGLE_TRANSLATE_API_KEY", "")
-    if not api_key:
-        raise CommandError("Thiếu GOOGLE_TRANSLATE_API_KEY để dùng --translate.")
+    if getattr(settings, "GOOGLE_TRANSLATE_API_KEY", ""):
+        return _translate_google(texts)
+    if settings.AI_ENABLED and settings.AI_PROVIDER != "mock":
+        return translate_texts_via_llm(texts)
+    raise CommandError(
+        "Cần GOOGLE_TRANSLATE_API_KEY hoặc AI_ENABLED + AI_PROVIDER=openai_compat để dùng --translate."
+    )
+
+
+def _translate_google(texts: list[str]) -> list[str]:
+    """Translate a batch through Google Cloud Translation Basic (v2)."""
+    api_key = settings.GOOGLE_TRANSLATE_API_KEY
     url = "https://translation.googleapis.com/language/translate/v2?" + urllib.parse.urlencode(
         {"key": api_key}
     )
@@ -196,9 +205,7 @@ def translate_texts_to_vi(texts: list[str]) -> list[str]:
     # Translation Basic accepts at most 128 `q` values per request.
     for offset in range(0, len(texts), 128):
         chunk = texts[offset : offset + 128]
-        body = json.dumps(
-            {"q": chunk, "source": "en", "target": "vi", "format": "text"}
-        ).encode()
+        body = json.dumps({"q": chunk, "source": "en", "target": "vi", "format": "text"}).encode()
         request = urllib.request.Request(
             url, data=body, headers={"Content-Type": "application/json"}
         )
@@ -211,11 +218,52 @@ def translate_texts_to_vi(texts: list[str]) -> list[str]:
         except (urllib.error.URLError, TimeoutError) as exc:
             raise CommandError("Không kết nối được Google Translation.") from exc
         rows = payload.get("data", {}).get("translations", [])
-        translations.extend(
-            html.unescape(row.get("translatedText", "")).strip() for row in rows
-        )
+        translations.extend(html.unescape(row.get("translatedText", "")).strip() for row in rows)
     if len(translations) != len(texts) or any(not value for value in translations):
         raise CommandError("Google Translation trả về thiếu câu; database chưa được thay đổi.")
+    return translations
+
+
+_LLM_SYSTEM = (
+    "Bạn là biên dịch viên phụ đề Anh–Việt cho app học tiếng Anh. Dịch TỪNG câu sang tiếng Việt tự "
+    "nhiên, ngắn gọn, giữ nguyên ý và sắc thái hội thoại; giữ tên riêng. Mỗi câu dịch độc lập, không "
+    "gộp/tách. Chỉ trả về JSON: một mảng chuỗi, cùng số phần tử và thứ tự với mảng đầu vào."
+)
+_LLM_CHUNK = 40
+
+
+def translate_texts_via_llm(texts: list[str]) -> list[str]:
+    """Dịch qua provider AI của app (AI_PROVIDER=openai_compat) khi không có Google Translate."""
+    from apps.ai.llm import complete  # noqa: PLC0415 — tránh kéo apps.ai khi chỉ import caption
+
+    translations: list[str] = []
+
+    def ask(chunk: list[str]) -> list[str]:
+        for attempt in range(2):
+            result = complete(
+                _LLM_SYSTEM,
+                [{"role": "user", "content": json.dumps(chunk, ensure_ascii=False)}],
+                max_tokens=max(600, 60 * len(chunk)),
+            )
+            text = result.text.strip()
+            match = re.search(r"\[.*\]", text, re.S)
+            try:
+                out = json.loads(match.group(0) if match else text)
+            except (ValueError, AttributeError):
+                out = None
+            if (
+                isinstance(out, list)
+                and len(out) == len(chunk)
+                and all(isinstance(x, str) and x.strip() for x in out)
+            ):
+                return [x.strip() for x in out]
+            if attempt == 0 and len(chunk) > 8:  # lệch số câu → chia nhỏ rồi thử lại
+                half = len(chunk) // 2
+                return ask(chunk[:half]) + ask(chunk[half:])
+        raise CommandError("AI dịch trả về lệch số câu; database chưa được thay đổi.")
+
+    for offset in range(0, len(texts), _LLM_CHUNK):
+        translations.extend(ask(texts[offset : offset + _LLM_CHUNK]))
     return translations
 
 
