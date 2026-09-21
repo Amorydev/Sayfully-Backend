@@ -982,7 +982,7 @@ def list_videos(
                 category=vd.category,
                 category_subtitle=subtitles.get(vd.category, ""),
                 duration_sec=vd.duration_sec,
-                thumbnail_url=_media(vd.thumbnail_path),
+                thumbnail_url=_media(vd.thumbnail_path) or _yt_thumb(vd.youtube_id),
                 is_free=vd.is_free,
                 is_featured=vd.is_featured,
                 sentence_count=vd.sentence_count,
