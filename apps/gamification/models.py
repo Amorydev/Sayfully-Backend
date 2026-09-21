@@ -228,6 +228,7 @@ class Game(models.Model):
         REFLEX = "reflex", "Phản xạ"
         MEMORY = "memory", "Ghi nhớ"
         LISTENING = "listening", "Nghe hiểu"
+        SPEAKING = "speaking", "Luyện nói"
 
     code = models.SlugField(max_length=32, unique=True)  # word_rain | stress_master | match_pairs
     title_vi = models.CharField(max_length=64)

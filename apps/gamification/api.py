@@ -307,6 +307,7 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
         )
         for i, mm in enumerate(ranked)
     ]
+    target = services.week_target(group.tier)
     return s.LeaderboardOut(
         scope="league",
         tier=group.get_tier_display(),
@@ -316,6 +317,9 @@ def leaderboard(request, scope: str = "league", period: str = "week"):
         my_rank=my_rank,
         my_xp=my_xp,
         xp_to_promote=xp_to_promote,
+        division=services.division(my_xp, target),
+        percentile=max(1, round(my_rank / max(len(ranked), 1) * 100)) if my_rank else 0,
+        xp_week_target=target,
         entries=entries,
     )
 
@@ -650,6 +654,150 @@ def games(request):
     ]
 
 
+GAME_MISSION_COINS = 15  # tối đa mỗi ván theo điểm — khớp `shop_earn`
+_CEFR_ORDER = list(CEFR.values)
+_SCORE_LIMITS: dict[str, tuple[int, int, tuple[int, int]]] = {
+    # max điểm chặng, thời lượng chặng tối thiểu, khoảng thời lượng chơi tự do
+    "speed_say": (2750, 20, (55, 70)),
+}
+
+
+def _cefr_rank(code: str) -> int:
+    return _CEFR_ORDER.index(code) if code in _CEFR_ORDER else 0
+
+
+def _check_plausible(code: str, payload: s.GameScoreIn) -> None:
+    limits = _SCORE_LIMITS.get(code)
+    if limits is None:
+        return
+    max_stage_score, min_stage_duration, free_play_duration = limits
+    is_stage_play = payload.stage_index is not None or not payload.cleared
+    invalid = (
+        is_stage_play
+        and (payload.score > max_stage_score or payload.duration_sec < min_stage_duration)
+    ) or (
+        not is_stage_play
+        and not free_play_duration[0] <= payload.duration_sec <= free_play_duration[1]
+    )
+    if invalid:
+        raise AppError("Điểm không hợp lệ", code="implausible_score", status_code=422)
+
+
+@router.get(
+    "/games/hub",
+    response={200: s.GamesHubOut, 401: ErrorOut},
+    summary="Sảnh trò chơi",
+    description="Tab Trò chơi: danh sách trò (kèm khoá theo cấp + kỷ lục), nhiệm vụ hôm nay, "
+    "ván người khác vừa chơi và lịch sử của tôi. Xếp hạng lấy ở `/games/leaderboard`.",
+)
+def games_hub(request):
+    user = request.auth
+    profile = ensure_profile(user)
+    games = list(Game.objects.filter(is_active=True).order_by("order"))
+    my_best = dict(
+        GameScore.objects.filter(user=user)
+        .values_list("game")
+        .annotate(m=Max("score"))
+        .values_list("game", "m")
+    )
+    my_rank = _cefr_rank(profile.cefr_level)
+    games_out = [
+        s.GameOut(
+            id=g.id,
+            code=g.code,
+            title_vi=g.title_vi,
+            description_vi=g.description_vi,
+            kind=g.kind,
+            icon_url=_media(g.icon_path),
+            min_level=g.min_level,
+            is_featured=g.is_featured,
+            personal_best=my_best.get(g.id, 0),
+            is_locked=my_rank < _cefr_rank(g.min_level),
+        )
+        for g in games
+    ]
+
+    # Nhiệm vụ: trò đang mở đầu tiên chưa chơi hôm nay; chơi hết rồi thì báo xong ở trò đầu.
+    today = learn.local_today(profile)
+    start_today = datetime.combine(today, dtime.min, ZoneInfo(profile.timezone))
+    played_today = set(
+        GameScore.objects.filter(user=user, played_at__gte=start_today).values_list(
+            "game_id", flat=True
+        )
+    )
+    open_games = [g for g in games_out if not g.is_locked] or games_out
+    mission = None
+    if open_games:
+        target = next((g for g in open_games if g.id not in played_today), open_games[0])
+        done = target.id in played_today
+        mission = s.GameMissionOut(
+            game_code=target.code,
+            title_vi=f"Chơi 1 ván {target.title_vi}",
+            reward_coins=GAME_MISSION_COINS,
+            current=1 if done else 0,
+            target=1,
+            done=done,
+        )
+
+    # Feed: ván mới nhất của người khác; kỷ lục cá nhân của họ tính trong một truy vấn gộp.
+    recent_rows = list(
+        GameScore.objects.filter(game__is_active=True)
+        .exclude(user=user)
+        .select_related("user", "user__profile", "game")
+        .order_by("-played_at")[:8]
+    )
+    their_best = {}
+    if recent_rows:
+        their_best = {
+            (uid, gid): m
+            for uid, gid, m in GameScore.objects.filter(
+                user_id__in={r.user_id for r in recent_rows},
+                game_id__in={r.game_id for r in recent_rows},
+            )
+            .values_list("user_id", "game_id")
+            .annotate(m=Max("score"))
+            .values_list("user_id", "game_id", "m")
+        }
+    colors = shop.frame_colors_map(
+        getattr(getattr(r.user, "profile", None), "avatar_frame", "") for r in recent_rows
+    )
+    recent = []
+    for r in recent_rows:
+        prof = getattr(r.user, "profile", None)
+        frame = (prof.avatar_frame if prof else "") or None
+        recent.append(
+            s.GameRecentPlayOut(
+                name=r.user.full_name,
+                avatar_url=_media(r.user.avatar_path),
+                avatar_frame=frame,
+                avatar_frame_colors=colors.get(frame, []) if frame else [],
+                game_code=r.game.code,
+                game_title_vi=r.game.title_vi,
+                score=r.score,
+                is_record=r.score >= their_best.get((r.user_id, r.game_id), r.score),
+                beats_me=r.score > my_best.get(r.game_id, 0),
+                played_at=r.played_at,
+            )
+        )
+
+    history = [
+        s.GameHistoryOut(
+            id=h.id,
+            game_code=h.game.code,
+            game_title_vi=h.game.title_vi,
+            score=h.score,
+            accuracy=h.accuracy,
+            coins_earned=h.coins_earned,
+            is_best=h.score >= my_best.get(h.game_id, 0),
+            played_at=h.played_at,
+        )
+        for h in GameScore.objects.filter(user=user, game__is_active=True)
+        .select_related("game")
+        .order_by("-played_at")[:10]
+    ]
+    return s.GamesHubOut(games=games_out, mission=mission, recent=recent, history=history)
+
+
 @router.post(
     "/games/{code}/scores",
     response={
@@ -658,6 +806,7 @@ def games(request):
     summary="Nộp điểm ván chơi",
     description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile. "
     "`cleared=false` (thua ván) trừ 1 tim hồ sơ — Premium được miễn; trả `hearts` sau ván. "
+    "Các trò có giới hạn chống gian lận sẽ từ chối điểm hoặc thời lượng bất khả thi. "
     "Android gửi kèm `X-Integrity-Token` (Play Integrity, requestHash = "
     "`code|score|duration_sec|level|stage_index|cleared`); 403 `integrity_failed` khi máy chủ "
     "bật enforce và token thiếu/không đạt.",
@@ -669,6 +818,7 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
     game = Game.objects.filter(code=code, is_active=True).first()
     if game is None:
         raise NotFound("Không tìm thấy trò chơi")
+    _check_plausible(code, payload)
     verdict = integrity.check(
         request,
         integrity.score_request_hash(
@@ -815,12 +965,15 @@ def game_leaderboard(request, code: str, period: str = "week"):
     users = {
         u.id: u for u in User.objects.filter(id__in=[r[0] for r in rows]).select_related("profile")
     }
+    colors = shop.frame_colors_map(
+        getattr(getattr(u, "profile", None), "avatar_frame", "") for u in users.values()
+    )
     entries, my_rank = [], 0
     for i, (uid, best) in enumerate(rows):
         u = users.get(uid)
         if u is None:
             continue
-        entries.append(_entry(i + 1, u, getattr(u, "profile", None), best, user.id))
+        entries.append(_entry(i + 1, u, getattr(u, "profile", None), best, user.id, colors))
         if uid == user.id:
             my_rank = i + 1
     return s.LeaderboardOut(

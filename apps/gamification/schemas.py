@@ -59,6 +59,11 @@ class LeaderboardOut(Schema):
     # XP của tôi theo period — để hiện thanh "Bạn" kể cả khi ngoài top 50.
     my_xp: int = 0
     xp_to_promote: int
+    # Chỉ scope=league: bậc I–V trong hạng, top % nhóm và mục tiêu XP tuần của hạng
+    # (cùng số với /challenges/overview) — thẻ hạng ở màn Bảng xếp hạng vẽ tiến độ tuần.
+    division: str = ""
+    percentile: int = 0
+    xp_week_target: int = 0
     entries: list[LeaderboardEntryOut]
 
 
@@ -174,6 +179,55 @@ class GameOut(Schema):
     min_level: str
     is_featured: bool
     personal_best: int
+    # Khoá theo CEFR hồ sơ (như `HomeGameOut`); `/games` cũ luôn False.
+    is_locked: bool = False
+
+
+class GameMissionOut(Schema):
+    """Nhiệm vụ trong ngày ở tab Trò chơi: chơi 1 ván trò còn chưa chơi hôm nay."""
+
+    game_code: str
+    title_vi: str
+    reward_coins: int
+    current: int
+    target: int
+    done: bool
+
+
+class GameRecentPlayOut(Schema):
+    """Một ván người chơi khác vừa hoàn thành (feed "Vừa chơi xong")."""
+
+    name: str
+    avatar_url: str | None
+    avatar_frame: str | None = None
+    avatar_frame_colors: list[str] = []
+    game_code: str
+    game_title_vi: str
+    score: int
+    # Ván này là kỷ lục cá nhân của chính người đó.
+    is_record: bool
+    # Điểm ván này cao hơn kỷ lục của tôi ở trò đó.
+    beats_me: bool
+    played_at: datetime
+
+
+class GameHistoryOut(Schema):
+    id: int
+    game_code: str
+    game_title_vi: str
+    score: int
+    accuracy: float
+    coins_earned: int
+    # Ván đạt kỷ lục cá nhân hiện tại.
+    is_best: bool
+    played_at: datetime
+
+
+class GamesHubOut(Schema):
+    games: list[GameOut]
+    mission: GameMissionOut | None
+    recent: list[GameRecentPlayOut]
+    history: list[GameHistoryOut]
 
 
 class GameScoreIn(Schema):
