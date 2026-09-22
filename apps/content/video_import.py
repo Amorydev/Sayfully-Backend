@@ -47,7 +47,7 @@ _YT_BARE_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _CREDIT_RE = re.compile(
     r"^\s*(?:translator|reviewer|transcriber|subtitles?\s+by|captions?\s+by)\s*:", re.I
 )
-_LLM_BATCH = 40
+_LLM_BATCH = 25  # tiếng Việt ~2,5 token/từ: 25 câu ≈ 2–3k token output, dưới trần model
 _LLM_PARALLEL = 4  # số lô dịch gọi song song trong 1 job (I/O-bound, không tốn CPU worker)
 _PREVIEW_TTL = (
     6 * 3600
@@ -401,28 +401,39 @@ def translate_with_llm(
     Ném ``AIUpstreamError`` khi lỗi."""
     batches = [drafts[offset : offset + _LLM_BATCH] for offset in range(0, len(drafts), _LLM_BATCH)]
 
-    def translate_batch(index: int) -> tuple[list[str], str, str]:
-        batch = batches[index]
-        payload = {"title": title if index == 0 else "", "sentences": [d.text_en for d in batch]}
+    def translate_sentences(sentences: list[str], *, with_meta: bool) -> tuple[list[str], str, str]:
+        """Một lời gọi LLM; output đứt (max_tokens) hoặc lệch số câu → chia đôi lô rồi gọi lại."""
+        payload = {"title": title if with_meta else "", "sentences": sentences}
         completion = llm.complete(
             _TRANSLATE_SYSTEM,
             [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-            max_tokens=4000,
+            max_tokens=6000,
             use="video",
         )
-        try:
-            data = json.loads(completion.text)
-            items = {int(item["i"]): str(item["vi"]).strip() for item in data["items"]}
-        except (ValueError, KeyError, TypeError) as exc:
-            raise llm.AIUpstreamError("Phản hồi dịch không hợp lệ") from exc
-        vis = [items.get(i, "") for i in range(len(batch))]
-        if not all(vis):
-            raise llm.AIUpstreamError("Thiếu bản dịch cho một số câu")
-        return (
-            vis,
-            str(data.get("title_vi") or "").strip(),
-            str(data.get("level") or "").strip().upper(),
-        )
+        vis: list[str] = []
+        data: dict = {}
+        if not completion.truncated:
+            try:
+                data = json.loads(completion.text)
+                items = {int(item["i"]): str(item["vi"]).strip() for item in data["items"]}
+                vis = [items.get(i, "") for i in range(len(sentences))]
+            except (ValueError, KeyError, TypeError):
+                vis = []
+        if vis and all(vis):
+            return (
+                vis,
+                str(data.get("title_vi") or "").strip(),
+                str(data.get("level") or "").strip().upper(),
+            )
+        if len(sentences) <= 4:
+            raise llm.AIUpstreamError("Phản hồi dịch không hợp lệ")
+        half = len(sentences) // 2
+        left = translate_sentences(sentences[:half], with_meta=with_meta)
+        right = translate_sentences(sentences[half:], with_meta=False)
+        return left[0] + right[0], left[1], left[2]
+
+    def translate_batch(index: int) -> tuple[list[str], str, str]:
+        return translate_sentences([d.text_en for d in batches[index]], with_meta=index == 0)
 
     with ThreadPoolExecutor(max_workers=min(_LLM_PARALLEL, len(batches) or 1)) as pool:
         results = list(pool.map(translate_batch, range(len(batches))))
