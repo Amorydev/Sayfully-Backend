@@ -367,6 +367,7 @@ class Command(BaseCommand):
         for code, d in decks.items():
             level = self.level(d["level"])
             order = int(code.split("-")[-1])
+            bg_url = cell(d["rows"][0].get("Link ảnh background (CDN URL)", ""))
             deck, _ = m.ShadowingDeck.objects.update_or_create(
                 level=level,
                 order=order,
@@ -376,6 +377,7 @@ class Command(BaseCommand):
                     "focus_vi": cell(d["focus_vi"])[:128],
                     "est_seconds": len(d["rows"]) * SECONDS_PER_SENTENCE,
                     "color": PALETTE[(order - 1) % len(PALETTE)],
+                    "background_url": bg_url[:255],
                     "is_free": all(d["free"]),
                 },
             )
@@ -418,6 +420,7 @@ class Command(BaseCommand):
         for code, t in topics.items():
             level = self.level(t["level"])
             order = int(code.split("-")[-1])
+            bg_url = cell(t["rows"][0].get("Link ảnh background (CDN URL)", ""))
             topic, _ = m.ListeningTopic.objects.update_or_create(
                 level=level,
                 order=order,
@@ -425,6 +428,7 @@ class Command(BaseCommand):
                     "title_vi": cell(t["title_vi"])[:128],
                     "est_seconds": len(t["rows"]) * SECONDS_PER_ITEM,
                     "color": PALETTE[(order - 1) % len(PALETTE)],
+                    "icon_url": bg_url[:255],
                     "is_free": all(t["free"]),
                 },
             )
@@ -481,6 +485,7 @@ class Command(BaseCommand):
                 )
             en = split_sentences(r["Đoạn văn Tiếng Anh (Full Passage)"])
             vi = split_sentences(r["Đoạn văn Tiếng Việt (Bản dịch)"])
+            cover = cell(r.get("Link ảnh background (CDN URL)", ""))
             reading, _ = m.Reading.objects.update_or_create(
                 level=level,
                 order=order_by_level[level.code],
@@ -490,6 +495,7 @@ class Command(BaseCommand):
                     "title_en": cell(r["Tiêu đề EN"])[:128],
                     "title_vi": cell(r["Tiêu đề VI"])[:128],
                     "topic": topic,
+                    "cover_path": cover[:255],
                     "est_minutes": max(1, round(sum(len(s.split()) for s in en) / 120)),
                 },
             )
@@ -646,9 +652,11 @@ class Command(BaseCommand):
                 )
             ][:2]
             drill = cell(r["Câu luyện âm thực hành (Drill / Tongue Twister)"]).splitlines()
+            mouth_img = cell(r.get("Link ảnh khẩu hình (CDN URL)", ""))
             m.IPASound.objects.update_or_create(
                 symbol=symbol,
                 defaults={
+                    "mouth_image_path": mouth_img[:255],
                     "kind": base["kind"],
                     "group": base["group"],
                     "order": int(cell(r["STT"]) or n + 1),
