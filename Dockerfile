@@ -13,4 +13,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://localhost:8000/health/ || exit 1
 # gthread: lượt chat AI chờ LLM 5–20 s chỉ chiếm 1 thread thay vì cả worker;
 # --timeout phải lớn hơn AI_TIMEOUT (30 s) cộng một lần thử lại model dự phòng.
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--worker-class", "gthread", "--threads", "8", "--timeout", "90"]
+# WEB_CONCURRENCY / GUNICORN_THREADS chỉnh qua .env theo máy (mặc định 3 × 8 = 24 request đồng thời).
+CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${WEB_CONCURRENCY:-3} --worker-class gthread --threads ${GUNICORN_THREADS:-8} --timeout 90"]

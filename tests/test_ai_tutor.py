@@ -24,6 +24,7 @@ def token(api, user, password) -> str:
 def _ai_on(settings):
     settings.AI_ENABLED = True
     settings.AI_PROVIDER = "mock"
+    settings.VIDEO_AI_PROVIDER = "mock"  # .env local có thể trỏ provider thật
     settings.AI_FREE_TURNS = 3
     settings.AI_PREMIUM_TURNS = 200
 
@@ -163,7 +164,11 @@ def test_free_talk_co_chu_de_bam_chu_de_va_keo_ve(api, token, user, settings, mo
     monkeypatch.setattr(llm, "complete", fake)
 
     def send(i, text):
-        r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": text, "client_msg_id": f"m{i}", "via": "voice"}, token=token)
+        r = api.post(
+            f"/ai/conversations/{conv['id']}/messages",
+            {"text": text, "client_msg_id": f"m{i}", "via": "voice"},
+            token=token,
+        )
         assert r.status_code == 200, r.json()
         return r.json()["message"]
 
@@ -171,7 +176,9 @@ def test_free_talk_co_chu_de_bam_chu_de_va_keo_ve(api, token, user, settings, mo
     system, messages = seen[-1]
     assert "TOPIC: food and cooking" in system and "street food" in system
     # Lời nhắc chủ đề chèn ngay trước câu mới nhất, không nằm trong câu người học
-    assert messages[-2]["content"].startswith("(Reminder: the conversation topic is food and cooking")
+    assert messages[-2]["content"].startswith(
+        "(Reminder: the conversation topic is food and cooking"
+    )
     assert messages[-1]["content"] == "I love pho"
     assert on["on_topic"] is True and on["topic_note_vi"] is None
     assert on["suggested_replies"][0]["en"] == "I went home."
@@ -193,7 +200,13 @@ def test_free_talk_co_chu_de_bam_chu_de_va_keo_ve(api, token, user, settings, mo
 
     # Tải lại hội thoại vẫn giữ cờ
     msgs = api.get(f"/ai/conversations/{conv['id']}", token=token).json()["messages"]
-    assert [m["on_topic"] for m in msgs if m["role"] == "assistant"][1:] == [True, False, False, False, True]
+    assert [m["on_topic"] for m in msgs if m["role"] == "assistant"][1:] == [
+        True,
+        False,
+        False,
+        False,
+        True,
+    ]
 
 
 def test_free_talk_ngau_nhien_khong_rang_buoc(api, token, user, monkeypatch):
@@ -205,7 +218,11 @@ def test_free_talk_ngau_nhien_khong_rang_buoc(api, token, user, monkeypatch):
         return _turn(on_topic=False)
 
     monkeypatch.setattr(llm, "complete", fake)
-    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "Let's talk about football", "client_msg_id": "r1", "via": "voice"}, token=token)
+    r = api.post(
+        f"/ai/conversations/{conv['id']}/messages",
+        {"text": "Let's talk about football", "client_msg_id": "r1", "via": "voice"},
+        token=token,
+    )
     system, messages = seen[-1]
     assert "TOPIC:" not in system and "anything the learner likes" in system
     assert not any(m["content"].startswith("(Reminder") for m in messages)
@@ -224,7 +241,14 @@ class _Resp:
 
 
 def _ok(model):
-    return _Resp(200, {"choices": [{"message": {"content": "{\"reply_en\": \"Hi\"}"}}], "usage": {"prompt_tokens": 10, "completion_tokens": 2}, "model": model})
+    return _Resp(
+        200,
+        {
+            "choices": [{"message": {"content": '{"reply_en": "Hi"}'}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+            "model": model,
+        },
+    )
 
 
 def _post_openai(settings, monkeypatch, responses):
@@ -246,7 +270,9 @@ def _post_openai(settings, monkeypatch, responses):
 
 
 def test_llm_loi_mang_thu_lai_model_du_phong(settings, monkeypatch):
-    calls = _post_openai(settings, monkeypatch, [llm.requests.ConnectionError("boom"), _ok("backup")])
+    calls = _post_openai(
+        settings, monkeypatch, [llm.requests.ConnectionError("boom"), _ok("backup")]
+    )
     comp = llm.complete("sys", [{"role": "user", "content": "hi"}])
     assert calls == ["main", "backup"]
     assert comp.model == "backup" and comp.tokens_in == 10 and comp.latency_ms >= 0
@@ -285,20 +311,34 @@ def test_luot_bi_cat_thu_lai_voi_tran_token_lon_hon(api, token, user, monkeypatc
     def fake(system, messages, **kw):
         calls.append(kw.get("max_tokens"))
         if len(calls) == 1:
-            return llm.Completion(text='{"reply_en": "Nice! Tell me', tokens_in=1, tokens_out=600, truncated=True)
+            return llm.Completion(
+                text='{"reply_en": "Nice! Tell me', tokens_in=1, tokens_out=600, truncated=True
+            )
         assert "keep every field short" in system
         return _turn()
 
     monkeypatch.setattr(llm, "complete", fake)
-    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "hi", "client_msg_id": "t1", "via": "voice"}, token=token)
+    r = api.post(
+        f"/ai/conversations/{conv['id']}/messages",
+        {"text": "hi", "client_msg_id": "t1", "via": "voice"},
+        token=token,
+    )
     assert r.status_code == 200, r.json()
     assert calls == [svc.TURN_MAX_TOKENS, svc.TURN_MAX_TOKENS * 2]
 
 
 def test_json_hong_ca_hai_lan_tra_502(api, token, user, monkeypatch):
     conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
-    monkeypatch.setattr(llm, "complete", lambda *a, **kw: llm.Completion(text='{"reply_en": "x", bad}', tokens_in=1, tokens_out=1))
-    r = api.post(f"/ai/conversations/{conv['id']}/messages", {"text": "hi", "client_msg_id": "t2", "via": "voice"}, token=token)
+    monkeypatch.setattr(
+        llm,
+        "complete",
+        lambda *a, **kw: llm.Completion(text='{"reply_en": "x", bad}', tokens_in=1, tokens_out=1),
+    )
+    r = api.post(
+        f"/ai/conversations/{conv['id']}/messages",
+        {"text": "hi", "client_msg_id": "t2", "via": "voice"},
+        token=token,
+    )
     assert r.status_code == 502
     assert r.json()["error"]["code"] == "ai_upstream"
 
@@ -474,7 +514,9 @@ def test_tiep_tuc_phien_do(api, token, user):
     hub = api.get("/ai/home", token=token).json()
     assert hub["continue_session"]["conversation_id"] == conv["id"]
     assert hub["continue_session"]["title_vi"] == "Nói chuyện tự do: Ẩm thực"
-    assert hub["continue_session"]["scene"] == "" and hub["continue_session"]["background_url"] is None
+    assert (
+        hub["continue_session"]["scene"] == "" and hub["continue_session"]["background_url"] is None
+    )
 
 
 def test_home_quota_va_thu_thach_noi_voi_long(api, token, user, settings):

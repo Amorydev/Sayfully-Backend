@@ -19,6 +19,7 @@ env = environ.Env(
     VIDEO_IMPORT_MAX_SEC=(int, 1200),
     VIDEO_IMPORT_DAILY_LIMIT=(int, 5),
     VIDEO_IMPORT_SYNC=(bool, False),
+    Q_WORKERS=(int, 2),
     AI_TIMEOUT=(int, 30),
     PLAY_INTEGRITY_MAX_AGE_SEC=(int, 600),
     REVENUECAT_WEBHOOK_SECRET=(str, ""),
@@ -230,9 +231,12 @@ STORAGES = {
 
 Q_CLUSTER = {
     "name": "sayfully",
-    "workers": 2,
+    # Job import video chủ yếu chờ YouTube/LLM (I/O) → tăng worker theo RAM (~150 MB/worker), Q_WORKERS=8 trên VPS.
+    "workers": env("Q_WORKERS", default=2),
     "timeout": 300,
     "retry": 360,
+    "max_attempts": 1,  # job tự hẹn lại có kiểm soát (video_import._dispatch), không để django-q chạy trùng
+    "catch_up": False,  # lịch hẹn lại bị trễ thì chạy 1 lần, không dồn
     "orm": "default",
 }
 

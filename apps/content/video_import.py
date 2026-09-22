@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone as djtz
 
@@ -46,6 +48,19 @@ _CREDIT_RE = re.compile(
     r"^\s*(?:translator|reviewer|transcriber|subtitles?\s+by|captions?\s+by)\s*:", re.I
 )
 _LLM_BATCH = 40
+_LLM_PARALLEL = 4  # số lô dịch gọi song song trong 1 job (I/O-bound, không tốn CPU worker)
+_PREVIEW_TTL = (
+    6 * 3600
+)  # cache oEmbed + caption theo youtube_id: preview rồi import không hỏi YouTube 2 lần
+_RETRY_DELAYS = (
+    30,
+    120,
+    480,
+)  # giây — YouTube chặn/429 thì hẹn lại job, không báo lỗi cho người dùng
+
+
+class YouTubeUnavailable(Exception):
+    """YouTube tạm không trả lời (429, chặn IP, mạng) — không phải lỗi của video, worker sẽ thử lại."""
 
 
 class VideoImportError(AppError):
@@ -123,16 +138,54 @@ def fetch_oembed(youtube_id: str) -> dict | None:
 
 
 def fetch_captions(youtube_id: str) -> list[CaptionCue] | None:
-    """Caption tiếng Anh (ưu tiên bản người làm, rồi tự động). ``None`` khi không có."""
+    """Caption tiếng Anh (ưu tiên bản người làm, rồi tự động). ``None`` khi video chắc chắn không có;
+    ném :class:`YouTubeUnavailable` khi YouTube chặn/429/mạng để caller thử lại thay vì kết luận sai."""
     from youtube_transcript_api import YouTubeTranscriptApi
     from youtube_transcript_api import _errors as yt_errors
 
+    transient = tuple(
+        getattr(yt_errors, name)
+        for name in (
+            "RequestBlocked",
+            "IpBlocked",
+            "YouTubeRequestFailed",
+            "PoTokenRequired",
+            "YouTubeDataUnparsable",
+        )
+        if hasattr(yt_errors, name)
+    )
     try:
         fetched = YouTubeTranscriptApi().fetch(youtube_id, languages=["en", "en-US", "en-GB"])
+    except transient as exc:
+        logger.warning("youtube captions unavailable for %s: %s", youtube_id, type(exc).__name__)
+        raise YouTubeUnavailable(type(exc).__name__) from exc
     except yt_errors.YouTubeTranscriptApiException as exc:
         logger.info("no english captions for %s: %s", youtube_id, type(exc).__name__)
         return None
+    except requests.RequestException as exc:
+        raise YouTubeUnavailable(type(exc).__name__) from exc
     return snippets_to_cues(fetched) or None
+
+
+def cached_captions(youtube_id: str) -> list[CaptionCue] | None:
+    """Caption qua cache 6 giờ: preview và import cùng 1 video (hoặc nhiều người cùng dán) chỉ hỏi YouTube 1 lần."""
+    key = f"yt:captions:{youtube_id}"
+    hit = cache.get(key)
+    if hit is not None:
+        return [CaptionCue(**c) for c in hit] or None
+    cues = fetch_captions(youtube_id)
+    cache.set(key, [c.__dict__ for c in cues] if cues else [], _PREVIEW_TTL)
+    return cues
+
+
+def cached_oembed(youtube_id: str) -> dict | None:
+    key = f"yt:oembed:{youtube_id}"
+    hit = cache.get(key)
+    if hit is not None:
+        return hit or None
+    meta = fetch_oembed(youtube_id)
+    cache.set(key, meta or {}, _PREVIEW_TTL)
+    return meta
 
 
 def snippets_to_cues(snippets) -> list[CaptionCue]:
@@ -151,11 +204,11 @@ def snippets_to_cues(snippets) -> list[CaptionCue]:
 
 
 def preview(youtube_id: str, *, cues: list[CaptionCue] | None = None) -> Preview:
-    meta = fetch_oembed(youtube_id)
+    meta = cached_oembed(youtube_id)
     if meta is None:
         return Preview(youtube_id, "", "", 0, False, False)
     if cues is None:
-        cues = fetch_captions(youtube_id)
+        cues = cached_captions(youtube_id)
     duration = cues[-1].end_ms // 1000 if cues else 0
     return Preview(
         youtube_id=youtube_id,
@@ -184,7 +237,8 @@ def ensure_can_import(profile: UserProfile) -> None:
 
 
 def request_import(profile: UserProfile, url: str) -> Video:
-    """Tạo/tái dùng ``Video`` và thêm vào thư viện. Video đã ``ready`` thì trả ngay, không tốn quota."""
+    """Tạo/tái dùng ``Video`` và thêm vào thư viện. Video đã ``ready`` thì trả ngay, không tốn quota.
+    Nhiều người dán cùng link cùng lúc: khoá hàng ``Video`` nên chỉ 1 job xử lý, người sau dùng chung."""
     ensure_can_import(profile)
     youtube_id = parse_youtube_id(url)
     if youtube_id is None:
@@ -195,23 +249,39 @@ def request_import(profile: UserProfile, url: str) -> Video:
         UserVideoLibrary.objects.get_or_create(user=profile.user, video=existing)
         return existing
 
-    left, _limit = quota(profile)
-    if left <= 0:
-        raise RateLimited("Bạn đã dùng hết lượt thêm video hôm nay", code="video_quota_exceeded")
-
-    cues = fetch_captions(youtube_id)
-    info = preview(youtube_id, cues=cues)
-    if info.reject_code:
-        raise VideoImportError(reject_message(info.reject_code), code=info.reject_code)
+    # YouTube chặn/429 lúc này → vẫn nhận (pending), worker lấy caption lại sau; chỉ từ chối khi chắc chắn.
+    cues: list[CaptionCue] | None = None
+    deferred = False
+    try:
+        cues = cached_captions(youtube_id)
+    except YouTubeUnavailable:
+        deferred = True
+    meta = cached_oembed(youtube_id)
+    if meta is None:
+        raise VideoImportError(reject_message("not_embeddable"), code="not_embeddable")
+    if not deferred:
+        info = preview(youtube_id, cues=cues)
+        if info.reject_code:
+            raise VideoImportError(reject_message(info.reject_code), code=info.reject_code)
+        duration = info.duration_sec
+    else:
+        duration = 0
 
     with transaction.atomic():
-        video, _created = Video.objects.update_or_create(
+        # Khoá profile để quota không bị vượt khi 1 người bấm nhiều lần song song.
+        UserProfile.objects.select_for_update().filter(pk=profile.pk).exists()
+        left, _limit = quota(profile)
+        if left <= 0:
+            raise RateLimited(
+                "Bạn đã dùng hết lượt thêm video hôm nay", code="video_quota_exceeded"
+            )
+        video, created = Video.objects.select_for_update().get_or_create(
             youtube_id=youtube_id,
             defaults={
-                "title_en": info.title[:160],
-                "title_vi": info.title[:160],
-                "channel": info.channel[:120],
-                "duration_sec": info.duration_sec,
+                "title_en": meta["title"][:160],
+                "title_vi": meta["title"][:160],
+                "channel": meta["channel"][:120],
+                "duration_sec": duration,
                 "category": "",
                 "is_free": False,
                 "source": Video.Source.USER,
@@ -221,31 +291,59 @@ def request_import(profile: UserProfile, url: str) -> Video:
             },
         )
         UserVideoLibrary.objects.get_or_create(user=profile.user, video=video)
+        if not created and video.status in (Video.Status.PENDING, Video.Status.PROCESSING):
+            return video  # đã có job đang chạy cho video này
+        if not created:  # failed trước đó → làm lại
+            video.status = Video.Status.PENDING
+            video.error_code = ""
+            video.title_en = video.title_en or meta["title"][:160]
+            video.save(update_fields=["status", "error_code", "title_en"])
+    # Sau khi commit (khoá đã nhả) mới đẩy job, worker không đọc phải hàng chưa commit.
     _dispatch(video.id, cues)
     return video
 
 
-def _dispatch(video_id: int, cues: list[CaptionCue]) -> None:
+def _dispatch(
+    video_id: int, cues: list[CaptionCue] | None, *, attempt: int = 0, delay_s: int = 0
+) -> None:
     if settings.VIDEO_IMPORT_SYNC:
-        run_import(video_id, cues=cues)
+        if delay_s:  # đồng bộ không chờ được → để pending, lần gọi sau (hoặc worker) làm tiếp
+            return
+        run_import(video_id, cues=cues, attempt=attempt)
         return
-    from django_q.tasks import async_task
+    from django_q.tasks import async_task, schedule
 
+    if delay_s:
+        schedule(
+            "apps.content.video_import.run_import",
+            video_id,
+            attempt=attempt,
+            name=f"video-import-{video_id}-retry{attempt}",
+            schedule_type="O",
+            repeats=1,
+            next_run=djtz.now() + timedelta(seconds=delay_s),
+        )
+        return
     async_task(
-        "apps.content.video_import.run_import", video_id, task_name=f"video-import-{video_id}"
+        "apps.content.video_import.run_import",
+        video_id,
+        attempt=attempt,
+        task_name=f"video-import-{video_id}",
     )
 
 
 # --------------------------------------------------------------- worker
-def run_import(video_id: int, *, cues: list[CaptionCue] | None = None) -> None:
-    video = Video.objects.filter(id=video_id).first()
-    if video is None or video.status == Video.Status.READY:
+def run_import(video_id: int, *, cues: list[CaptionCue] | None = None, attempt: int = 0) -> None:
+    # Claim atomic: 2 job cùng video (retry + người khác dán lại) thì chỉ 1 job chạy.
+    claimed = Video.objects.filter(id=video_id, status=Video.Status.PENDING).update(
+        status=Video.Status.PROCESSING
+    )
+    if not claimed:
         return
-    video.status = Video.Status.PROCESSING
-    video.save(update_fields=["status"])
+    video = Video.objects.get(id=video_id)
     try:
         if cues is None:
-            cues = fetch_captions(video.youtube_id)
+            cues = cached_captions(video.youtube_id)
         if not cues:
             raise VideoImportError(reject_message("no_captions"), code="no_captions")
         drafts = segment_cues(cues)
@@ -259,14 +357,31 @@ def run_import(video_id: int, *, cues: list[CaptionCue] | None = None) -> None:
         video.status = Video.Status.READY
         video.error_code = ""
         video.save(update_fields=["title_vi", "level", "duration_sec", "status", "error_code"])
+    except (YouTubeUnavailable, llm.AIUpstreamError) as exc:
+        retryable = isinstance(exc, YouTubeUnavailable) or exc.retryable
+        if retryable and attempt < len(_RETRY_DELAYS):
+            delay = _RETRY_DELAYS[attempt]
+            Video.objects.filter(id=video_id).update(status=Video.Status.PENDING)
+            logger.warning(
+                "video import %s deferred %ss (attempt %s): %s", video_id, delay, attempt + 1, exc
+            )
+            _dispatch(video_id, None, attempt=attempt + 1, delay_s=delay)
+            return
+        _fail(
+            video,
+            "captions_failed" if isinstance(exc, YouTubeUnavailable) else "translate_failed",
+            exc,
+        )
     except Exception as exc:  # noqa: BLE001 — trạng thái lỗi phải được ghi lại cho client
         code = getattr(exc, "code", "") if isinstance(exc, AppError) else ""
-        if isinstance(exc, llm.AIUpstreamError):
-            code = "translate_failed"
-        video.status = Video.Status.FAILED
-        video.error_code = code or "captions_failed"
-        video.save(update_fields=["status", "error_code"])
-        logger.warning("video import %s failed: %s", video_id, exc)
+        _fail(video, code or "captions_failed", exc)
+
+
+def _fail(video: Video, code: str, exc: Exception) -> None:
+    video.status = Video.Status.FAILED
+    video.error_code = code
+    video.save(update_fields=["status", "error_code"])
+    logger.warning("video import %s failed: %s", video.id, exc)
 
 
 _TRANSLATE_SYSTEM = """You are a translator for an English-learning app (task: VIDEO_TRANSLATE).
@@ -282,16 +397,13 @@ Only fill title_vi and level in the first batch; otherwise return them as empty 
 def translate_with_llm(
     drafts: list[SubtitleDraft], *, title: str
 ) -> tuple[list[SubtitleDraft], str, str]:
-    """Dịch theo lô, trả (drafts đã có text_vi, title_vi, cefr). Ném ``AIUpstreamError`` khi lỗi."""
-    result = list(drafts)
-    title_vi = ""
-    level = ""
-    for offset in range(0, len(drafts), _LLM_BATCH):
-        batch = drafts[offset : offset + _LLM_BATCH]
-        payload = {
-            "title": title if offset == 0 else "",
-            "sentences": [d.text_en for d in batch],
-        }
+    """Dịch theo lô (các lô gọi song song), trả (drafts đã có text_vi, title_vi, cefr).
+    Ném ``AIUpstreamError`` khi lỗi."""
+    batches = [drafts[offset : offset + _LLM_BATCH] for offset in range(0, len(drafts), _LLM_BATCH)]
+
+    def translate_batch(index: int) -> tuple[list[str], str, str]:
+        batch = batches[index]
+        payload = {"title": title if index == 0 else "", "sentences": [d.text_en for d in batch]}
         completion = llm.complete(
             _TRANSLATE_SYSTEM,
             [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
@@ -303,14 +415,24 @@ def translate_with_llm(
             items = {int(item["i"]): str(item["vi"]).strip() for item in data["items"]}
         except (ValueError, KeyError, TypeError) as exc:
             raise llm.AIUpstreamError("Phản hồi dịch không hợp lệ") from exc
-        for i, draft in enumerate(batch):
-            vi = items.get(i, "")
-            if not vi:
-                raise llm.AIUpstreamError("Thiếu bản dịch cho một số câu")
-            result[offset + i] = replace(draft, text_vi=vi[:512])
-        if offset == 0:
-            title_vi = str(data.get("title_vi") or "").strip()
-            level = str(data.get("level") or "").strip().upper()
+        vis = [items.get(i, "") for i in range(len(batch))]
+        if not all(vis):
+            raise llm.AIUpstreamError("Thiếu bản dịch cho một số câu")
+        return (
+            vis,
+            str(data.get("title_vi") or "").strip(),
+            str(data.get("level") or "").strip().upper(),
+        )
+
+    with ThreadPoolExecutor(max_workers=min(_LLM_PARALLEL, len(batches) or 1)) as pool:
+        results = list(pool.map(translate_batch, range(len(batches))))
+
+    result = list(drafts)
+    for index, (vis, _t, _l) in enumerate(results):
+        for i, vi in enumerate(vis):
+            result[index * _LLM_BATCH + i] = replace(batches[index][i], text_vi=vi[:512])
+    title_vi = results[0][1] if results else ""
+    level = results[0][2] if results else ""
     if level not in {"A1", "A2", "B1", "B2", "C1", "C2"}:
         level = "B1"
     return result, title_vi, level

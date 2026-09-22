@@ -9,6 +9,7 @@ COMPOSE="docker compose $FILES"
 git pull --ff-only
 $COMPOSE build api
 $COMPOSE run --rm api python manage.py migrate --noinput
+$COMPOSE run --rm api python manage.py createcachetable   # bảng cache dùng chung (prod.py CACHES)
 $COMPOSE up -d --remove-orphans
 
 for _ in $(seq 1 20); do

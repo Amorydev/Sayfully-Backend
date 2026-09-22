@@ -4,6 +4,7 @@ YouTube (oEmbed, caption) và LLM đều được mock; import chạy đồng b�
 """
 
 import pytest
+from django.core.cache import cache
 
 from apps.accounts.services import ensure_profile
 from apps.content import video_import
@@ -29,7 +30,9 @@ def token(api, user, password) -> str:
 
 @pytest.fixture(autouse=True)
 def _setup(settings, monkeypatch):
+    cache.clear()  # preview/caption cache theo youtube_id sống qua các test trong cùng process
     settings.AI_PROVIDER = "mock"
+    settings.VIDEO_AI_PROVIDER = "mock"  # .env local có thể trỏ provider thật
     settings.VIDEO_IMPORT_ENABLED = True
     settings.VIDEO_IMPORT_SYNC = True
     settings.VIDEO_IMPORT_MAX_SEC = 1200
@@ -228,3 +231,71 @@ def test_snippets_to_cues_bo_credit_va_tieng_dong():
         ]
     )
     assert cues == [CaptionCue(4000, 5500, "Hear that? That's nothing.")]
+
+
+def test_youtube_tam_chan_thi_van_nhan_pending_va_hen_lai(api, token, premium, monkeypatch):
+    """429/chặn IP không phải lỗi của video: nhận link, để pending, worker hẹn lại thay vì báo lỗi."""
+
+    def blocked(yid):
+        raise video_import.YouTubeUnavailable("IpBlocked")
+
+    monkeypatch.setattr(video_import, "fetch_captions", blocked)
+    r = api.post("/content/videos/import", {"url": URL}, token=token)
+    assert r.status_code == 202
+    assert r.json()["status"] == "pending"
+    video = Video.objects.get(youtube_id=YT)
+    assert video.status == "pending" and video.error_code == ""
+    assert UserVideoLibrary.objects.filter(user=premium.user, video=video).exists()
+
+
+def test_hen_lai_qua_django_q_khi_chay_nen(settings, premium, monkeypatch):
+    from django_q.models import Schedule
+
+    settings.VIDEO_IMPORT_SYNC = False
+    monkeypatch.setattr(
+        video_import,
+        "fetch_captions",
+        lambda yid: (_ for _ in ()).throw(video_import.YouTubeUnavailable("x")),
+    )
+    video = Video.objects.create(
+        youtube_id=YT, title_en="t", title_vi="t", status="pending", source="user"
+    )
+    video_import.run_import(video.id, attempt=0)
+    video.refresh_from_db()
+    assert video.status == "pending"
+    sched = Schedule.objects.get(name=f"video-import-{video.id}-retry1")
+    assert sched.kwargs and "'attempt': 1" in sched.kwargs
+    # Hết số lần thử → failed, không hẹn thêm.
+    video_import.run_import(video.id, attempt=len(video_import._RETRY_DELAYS))
+    video.refresh_from_db()
+    assert video.status == "failed" and video.error_code == "captions_failed"
+
+
+def test_hai_nguoi_cung_dan_mot_link_chi_mot_video(api, token, premium, password, monkeypatch):
+    """Job đang chạy thì người thứ hai chỉ được thêm vào thư viện, không tạo job/video thứ hai."""
+    from apps.accounts.models import User
+
+    calls = []
+    original = video_import.run_import
+
+    def counting(video_id, **kw):
+        calls.append(video_id)
+        return original(video_id, **kw)
+
+    monkeypatch.setattr(video_import, "run_import", counting)
+    # Người 1 tạo video nhưng job bị kẹt ở processing (giả lập worker đang chạy).
+    Video.objects.create(
+        youtube_id=YT, title_en="t", title_vi="t", status="processing", source="user"
+    )
+    r1 = api.post("/content/videos/import", {"url": URL}, token=token)
+    assert r1.status_code == 202 and r1.json()["status"] == "processing"
+    other = User.objects.create_user(email="b@example.com", password=password)
+    p2 = ensure_profile(other)
+    p2.is_premium = True
+    p2.save(update_fields=["is_premium"])
+    t2 = api.post("/auth/token", {"email": other.email, "password": password}).json()["access"]
+    r2 = api.post("/content/videos/import", {"url": URL}, token=t2)
+    assert r2.status_code == 202 and r2.json()["status"] == "processing"
+    assert Video.objects.filter(youtube_id=YT).count() == 1
+    assert UserVideoLibrary.objects.filter(video__youtube_id=YT).count() == 2
+    assert calls == []

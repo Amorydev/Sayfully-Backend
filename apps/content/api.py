@@ -7,6 +7,7 @@ Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Cấp có `is_fr
 from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
+from django_ratelimit.decorators import ratelimit
 from ninja import Query, Router
 
 from apps.accounts.services import ensure_profile
@@ -1002,6 +1003,7 @@ def list_videos(
     summary="Xem trước link YouTube trước khi thêm (Premium)",
     description="Tiêu đề, kênh, thời lượng và có phụ đề EN hay không. `reject_code` rỗng = thêm được.",
 )
+@ratelimit(key="user", rate="30/m", block=True)
 def preview_video_import(request, url: str = Query(..., min_length=5, max_length=300)):
     profile = ensure_profile(request.auth)
     video_import.ensure_can_import(profile)
@@ -1034,6 +1036,7 @@ def preview_video_import(request, url: str = Query(..., min_length=5, max_length
         "`video_quota_exceeded` 429."
     ),
 )
+@ratelimit(key="user", rate="20/m", method="POST", block=True)
 def import_video(request, payload: s.VideoImportIn):
     profile = ensure_profile(request.auth)
     video = video_import.request_import(profile, payload.url)
