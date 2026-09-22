@@ -960,10 +960,14 @@ class ListeningTopic(models.Model):
     level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="listening_topics")
     order = models.PositiveSmallIntegerField()
     title_vi = models.CharField(max_length=128)
+    focus_vi = models.CharField(max_length=128, blank=True)  # "Phân biệt /iː/ và /ɪ/"; rỗng = lấy kỹ năng câu đầu
     icon = models.CharField(max_length=48, blank=True)  # token icon dự phòng
     icon_url = models.CharField(
         max_length=255, blank=True
     )  # ảnh icon (URL/path) — app render trực tiếp
+    background_url = models.CharField(
+        max_length=255, blank=True
+    )  # ảnh nền card; URL đầy đủ hoặc path tương đối trên R2
     color = models.CharField(max_length=9, blank=True)  # màu hex "#RRGGBB" cho thẻ
     est_seconds = models.PositiveIntegerField(default=0)
     is_free = models.BooleanField(default=True)

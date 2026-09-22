@@ -232,13 +232,15 @@ def test_listening_topics_va_2_mode(api, user, password):
 
     lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
     topic = ListeningTopic.objects.create(
-        level=lv, order=1, title_vi="Chào hỏi", icon="greeting", est_seconds=240, is_free=True,
+        level=lv, order=1, title_vi="Chào hỏi", icon="greeting", icon_url="listening/greeting.webp",
+        est_seconds=240, is_free=True,
     )
     for j in range(3):
         ListeningItem.objects.create(
-            topic=topic, order=j, text_en="Hello, nice to meet you.", text_vi="Xin chào.",
+            topic=topic, order=j, text_en=f"Hello, nice to meet you {j}.", text_vi="Xin chào.",
             audio_us_path=f"audio/listen/greet_{j}.mp3",
             blank_index=3, options=["meet", "meat", "mit", "meal"], answer_index=0,
+            skill_vi="Phân biệt âm vị",
         )
     premium = ListeningTopic.objects.create(
         level=lv, order=2, title_vi="Phỏng vấn", icon="interview", is_free=False,
@@ -256,6 +258,11 @@ def test_listening_topics_va_2_mode(api, user, password):
     basic = {t["title_vi"]: t for t in body["basic"]}
     assert basic["Chào hỏi"]["item_count"] == 3
     assert basic["Chào hỏi"]["est_minutes"] == 4
+    assert basic["Chào hỏi"]["level"] == "A1"
+    assert basic["Chào hỏi"]["phrase_preview"] == "Hello, nice to meet you 0."
+    assert basic["Chào hỏi"]["focus_vi"] == "Phân biệt âm vị"  # chưa đặt focus riêng → kỹ năng câu đầu
+    assert basic["Chào hỏi"]["background_url"].endswith("/listening/greeting.webp")  # ảnh cũ nằm ở icon_url
+    assert basic["Phỏng vấn"]["background_url"] is None
     assert basic["Chào hỏi"]["done_choose"] == 0 and basic["Chào hỏi"]["done_dictation"] == 0
     assert basic["Phỏng vấn"]["is_premium"] is True
     assert "Chào hỏi" in {t["title_vi"] for t in body["suggested"]}

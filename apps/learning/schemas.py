@@ -478,9 +478,13 @@ class SpeakingTopicsOut(Schema):
 
 class ListeningTopicOut(Schema):
     id: int
+    level: str
     title_vi: str
+    phrase_preview: str  # câu nghe đầu tiên, hiện trên thẻ như Luyện nói
+    focus_vi: str  # trọng tâm nghe của chủ đề (hoặc kỹ năng của câu đầu), hiện dưới tiêu đề thẻ
     icon: str  # token dự phòng
     icon_url: str | None  # ảnh icon để app render trực tiếp
+    background_url: str | None  # ảnh nền card; app dùng placeholder nếu trống/lỗi
     color: str  # màu hex "#RRGGBB"
     item_count: int  # tổng số câu của chủ đề
     est_minutes: int

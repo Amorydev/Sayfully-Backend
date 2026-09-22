@@ -31,6 +31,7 @@ from apps.content.models import (
     LessonStep,
     Level,
     LevelMilestone,
+    ListeningItem,
     ListeningTopic,
     Reading,
     ShadowingDeck,
@@ -1751,17 +1752,33 @@ def speaking_topics(request):
 def listening_topics(request):
     user = request.auth
     profile = ensure_profile(user)
-    topics_qs = ListeningTopic.objects.annotate(n=Count("items")).order_by("level__order", "order")
+    topics_qs = (
+        ListeningTopic.objects.annotate(n=Count("items"))
+        .prefetch_related(
+            Prefetch(
+                "items",
+                queryset=ListeningItem.objects.order_by("order"),
+                to_attr="ordered_items",
+            )
+        )
+        .order_by("level__order", "order")
+    )
     prog = {(p.topic_id, p.mode): p.done_count for p in ListeningTopicProgress.objects.filter(user=user)}
     basic = []
     for t in topics_qs:
         total = t.n
+        first = t.ordered_items[0] if t.ordered_items else None
         basic.append(
             s.ListeningTopicOut(
                 id=t.id,
+                level=t.level_id,
                 title_vi=t.title_vi,
+                phrase_preview=first.text_en if first else "",
+                focus_vi=t.focus_vi or (first.skill_vi if first else ""),
                 icon=t.icon,
                 icon_url=_icon_url(t.icon_url),
+                # Sheet nạp ảnh nền vào icon_url trước khi có cột riêng → dùng tạm cho chủ đề cũ.
+                background_url=_icon_url(t.background_url or t.icon_url),
                 color=t.color,
                 item_count=total,
                 est_minutes=max(1, round(t.est_seconds / 60)) if t.est_seconds else max(1, total),

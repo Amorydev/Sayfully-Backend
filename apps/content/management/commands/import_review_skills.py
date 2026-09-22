@@ -429,6 +429,7 @@ class Command(BaseCommand):
                     "est_seconds": len(t["rows"]) * SECONDS_PER_ITEM,
                     "color": PALETTE[(order - 1) % len(PALETTE)],
                     "icon_url": bg_url[:255],
+                    "background_url": bg_url[:255],
                     "is_free": all(t["free"]),
                 },
             )
