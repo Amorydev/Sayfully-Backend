@@ -296,6 +296,7 @@ def translate_with_llm(
             _TRANSLATE_SYSTEM,
             [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
             max_tokens=4000,
+            use="video",
         )
         try:
             data = json.loads(completion.text)

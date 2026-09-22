@@ -188,10 +188,13 @@ def translate_texts_to_vi(texts: list[str]) -> list[str]:
         return []
     if getattr(settings, "GOOGLE_TRANSLATE_API_KEY", ""):
         return _translate_google(texts)
-    if settings.AI_ENABLED and settings.AI_PROVIDER != "mock":
+    from apps.ai.llm import profile  # noqa: PLC0415 — tránh kéo apps.ai khi chỉ import caption
+
+    cfg = profile("video")
+    if cfg.provider != "mock" and cfg.api_key:
         return translate_texts_via_llm(texts)
     raise CommandError(
-        "Cần GOOGLE_TRANSLATE_API_KEY hoặc AI_ENABLED + AI_PROVIDER=openai_compat để dùng --translate."
+        "Cần GOOGLE_TRANSLATE_API_KEY hoặc VIDEO_AI_*/AI_* (provider openai_compat) để dùng --translate."
     )
 
 
@@ -244,6 +247,7 @@ def translate_texts_via_llm(texts: list[str]) -> list[str]:
                 _LLM_SYSTEM,
                 [{"role": "user", "content": json.dumps(chunk, ensure_ascii=False)}],
                 max_tokens=max(600, 60 * len(chunk)),
+                use="video",
             )
             text = result.text.strip()
             match = re.search(r"\[.*\]", text, re.S)

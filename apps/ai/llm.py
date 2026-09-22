@@ -36,6 +36,40 @@ class AIUpstreamError(AppError):
         self.retryable = retryable
 
 
+@dataclass(frozen=True)
+class Profile:
+    """Bộ cấu hình 1 provider. `tutor` = hội thoại Gia sư AI, `video` = dịch/ước lượng phụ đề video."""
+
+    provider: str
+    base_url: str
+    model: str
+    fallback_model: str
+    api_key: str
+    timeout: int
+
+
+def profile(name: str = "tutor") -> Profile:
+    tutor = Profile(
+        settings.AI_PROVIDER,
+        settings.AI_BASE_URL,
+        settings.AI_MODEL,
+        settings.AI_FALLBACK_MODEL,
+        settings.AI_API_KEY,
+        int(settings.AI_TIMEOUT),
+    )
+    if name != "video":
+        return tutor
+    # VIDEO_AI_* trống → dùng giá trị của tutor (ghép lúc gọi để override_settings trong test vẫn áp dụng).
+    return Profile(
+        settings.VIDEO_AI_PROVIDER or tutor.provider,
+        settings.VIDEO_AI_BASE_URL or tutor.base_url,
+        settings.VIDEO_AI_MODEL or tutor.model,
+        settings.VIDEO_AI_FALLBACK_MODEL or tutor.fallback_model,
+        settings.VIDEO_AI_API_KEY or tutor.api_key,
+        int(settings.VIDEO_AI_TIMEOUT or tutor.timeout),
+    )
+
+
 @dataclass
 class Completion:
     text: str
@@ -47,26 +81,31 @@ class Completion:
     truncated: bool = False
 
 
-def complete(system: str, messages: list[dict], *, max_tokens: int = 1200) -> Completion:
-    """`messages` = [{"role": "user"|"assistant", "content": str}, ...]; trả về text JSON."""
-    provider = settings.AI_PROVIDER
-    if provider == "mock":
+def complete(
+    system: str, messages: list[dict], *, max_tokens: int = 1200, use: str = "tutor"
+) -> Completion:
+    """`messages` = [{"role": "user"|"assistant", "content": str}, ...]; trả về text JSON.
+    `use`: "tutor" (mặc định, AI_*) hoặc "video" (VIDEO_AI_*)."""
+    cfg = profile(use)
+    if cfg.provider == "mock":
         return _mock(system, messages)
-    if provider == "openai_compat":
-        return _openai_compat(system, messages, max_tokens=max_tokens)
-    raise AIUpstreamError(f"AI_PROVIDER không hỗ trợ: {provider}")
+    if cfg.provider == "openai_compat":
+        return _openai_compat(cfg, system, messages, max_tokens=max_tokens)
+    raise AIUpstreamError(f"AI_PROVIDER không hỗ trợ: {cfg.provider}")
 
 
-def _openai_compat(system: str, messages: list[dict], *, max_tokens: int) -> Completion:
-    if not settings.AI_API_KEY:
+def _openai_compat(
+    cfg: Profile, system: str, messages: list[dict], *, max_tokens: int
+) -> Completion:
+    if not cfg.api_key:
         raise AIUpstreamError("Thiếu AI_API_KEY", code="config_missing")
-    models = [settings.AI_MODEL]
-    if settings.AI_FALLBACK_MODEL and settings.AI_FALLBACK_MODEL != settings.AI_MODEL:
-        models.append(settings.AI_FALLBACK_MODEL)
+    models = [cfg.model]
+    if cfg.fallback_model and cfg.fallback_model != cfg.model:
+        models.append(cfg.fallback_model)
     last: AIUpstreamError | None = None
     for i, model in enumerate(models):
         try:
-            return _chat_completion(model, system, messages, max_tokens=max_tokens)
+            return _chat_completion(cfg, model, system, messages, max_tokens=max_tokens)
         except AIUpstreamError as exc:
             last = exc
             if not exc.retryable or i == len(models) - 1:
@@ -75,7 +114,9 @@ def _openai_compat(system: str, messages: list[dict], *, max_tokens: int) -> Com
     raise last  # pragma: no cover - vòng lặp luôn return hoặc raise
 
 
-def _chat_completion(model: str, system: str, messages: list[dict], *, max_tokens: int) -> Completion:
+def _chat_completion(
+    cfg: Profile, model: str, system: str, messages: list[dict], *, max_tokens: int
+) -> Completion:
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, *messages],
@@ -84,7 +125,7 @@ def _chat_completion(model: str, system: str, messages: list[dict], *, max_token
         "response_format": {"type": "json_object"},
     }
     headers = {
-        "Authorization": f"Bearer {settings.AI_API_KEY}",
+        "Authorization": f"Bearer {cfg.api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://sayfully.app",
         "X-Title": "Sayfully",
@@ -92,10 +133,10 @@ def _chat_completion(model: str, system: str, messages: list[dict], *, max_token
     started = time.monotonic()
     try:
         resp = requests.post(
-            f"{settings.AI_BASE_URL.rstrip('/')}/chat/completions",
+            f"{cfg.base_url.rstrip('/')}/chat/completions",
             json=payload,
             headers=headers,
-            timeout=(AI_CONNECT_TIMEOUT, settings.AI_TIMEOUT),
+            timeout=(AI_CONNECT_TIMEOUT, cfg.timeout),
         )
     except requests.RequestException as exc:
         logger.warning("ai upstream request failed (%s): %s", model, exc)
@@ -105,7 +146,8 @@ def _chat_completion(model: str, system: str, messages: list[dict], *, max_token
         logger.warning("ai upstream %s (%s): %s", resp.status_code, model, resp.text[:300])
         # 429/5xx là lỗi phía model → đáng thử model dự phòng; 4xx còn lại là lỗi cấu hình/payload.
         raise AIUpstreamError(
-            "Long đang bận, thử lại sau vài giây", retryable=resp.status_code == 429 or resp.status_code >= 500
+            "Long đang bận, thử lại sau vài giây",
+            retryable=resp.status_code == 429 or resp.status_code >= 500,
         )
     body = resp.json()
     try:
@@ -117,7 +159,11 @@ def _chat_completion(model: str, system: str, messages: list[dict], *, max_token
     truncated = choice.get("finish_reason") == "length"
     logger.info(
         "ai completion model=%s latency_ms=%s tokens=%s/%s%s",
-        model, latency_ms, usage.get("prompt_tokens"), usage.get("completion_tokens"), " TRUNCATED" if truncated else "",
+        model,
+        latency_ms,
+        usage.get("prompt_tokens"),
+        usage.get("completion_tokens"),
+        " TRUNCATED" if truncated else "",
     )
     return Completion(
         text=text,
@@ -156,7 +202,9 @@ _MOCK_FIXES = {
 
 def _mock(system: str, messages: list[dict]) -> Completion:
     if "VIDEO_TRANSLATE" in system:
-        return Completion(text=json.dumps(_mock_video_translate(messages)), tokens_in=0, tokens_out=0)
+        return Completion(
+            text=json.dumps(_mock_video_translate(messages)), tokens_in=0, tokens_out=0
+        )
     user_turns = [m for m in messages if m["role"] == "user" and not m["content"].startswith("(")]
     if "SUMMARY" in system:
         return Completion(text=json.dumps(_mock_summary(user_turns)), tokens_in=0, tokens_out=0)
