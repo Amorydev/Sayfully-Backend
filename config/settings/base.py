@@ -14,7 +14,7 @@ env = environ.Env(
     REFRESH_TOKEN_DAYS=(int, 60),
     AI_ENABLED=(bool, False),
     AI_FREE_TURNS=(int, 20),
-    AI_PREMIUM_TURNS=(int, 200),
+    AI_PREMIUM_TURNS=(int, 0),  # 0 = Premium không giới hạn
     VIDEO_IMPORT_ENABLED=(bool, True),
     VIDEO_IMPORT_MAX_SEC=(int, 1200),
     VIDEO_IMPORT_DAILY_LIMIT=(int, 5),
@@ -191,7 +191,16 @@ VIDEO_AI_TIMEOUT = env(
     "VIDEO_AI_TIMEOUT", default=90
 )  # batch 40 câu lâu hơn 1 lượt chat  # batch 40 câu lâu hơn 1 lượt chat
 AI_FREE_TURNS = env("AI_FREE_TURNS")
+# <= 0 → Premium không giới hạn lượt/ngày (chống lạm dụng bằng rate-limit theo phút ở apps.ai.api).
 AI_PREMIUM_TURNS = env("AI_PREMIUM_TURNS")
+# Provider riêng cho BẢN TỔNG KẾT cuối phiên (người học đọc kỹ nhất) — cho phép model mạnh hơn gia sư.
+# Chỉ gọi 1 lần/phiên nên chi phí không đáng kể. Trống → dùng lại AI_* (ghép lúc gọi, xem apps.ai.llm.profile).
+SUMMARY_AI_PROVIDER = env("SUMMARY_AI_PROVIDER", default="")
+SUMMARY_AI_BASE_URL = env("SUMMARY_AI_BASE_URL", default="")
+SUMMARY_AI_MODEL = env("SUMMARY_AI_MODEL", default="")
+SUMMARY_AI_FALLBACK_MODEL = env("SUMMARY_AI_FALLBACK_MODEL", default="")
+SUMMARY_AI_API_KEY = env("SUMMARY_AI_API_KEY", default="")
+SUMMARY_AI_TIMEOUT = env("SUMMARY_AI_TIMEOUT", default="")
 
 # Play Integrity cho điểm game (chống sửa điểm / app repack). Client Android gửi
 # `X-Integrity-Token`; máy chủ giải mã qua Play Integrity API bằng service account.

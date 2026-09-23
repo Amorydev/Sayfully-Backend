@@ -50,12 +50,19 @@ def quota_limit(profile: UserProfile) -> int:
     return settings.AI_PREMIUM_TURNS if profile.is_premium else settings.AI_FREE_TURNS
 
 
+def is_unlimited(profile: UserProfile) -> bool:
+    """Premium không giới hạn lượt/ngày khi AI_PREMIUM_TURNS <= 0."""
+    return profile.is_premium and settings.AI_PREMIUM_TURNS <= 0
+
+
 def quota_for(profile: UserProfile) -> AIQuota:
     q, _ = AIQuota.objects.get_or_create(user=profile.user, date=learn.local_today(profile))
     return q
 
 
 def quota_left(profile: UserProfile) -> int:
+    if is_unlimited(profile):
+        return 0  # không dùng để chặn khi không giới hạn — kiểm tra bằng is_unlimited
     return max(0, quota_limit(profile) - quota_for(profile).messages_used)
 
 
@@ -294,7 +301,10 @@ def _ask(
     if topic is not None and history:
         # Nhắc lại chủ đề ngay trước câu mới nhất: model bám phần cuối hội thoại hơn phần đầu.
         messages = history[:-1] + [
-            {"role": "user", "content": f"(Reminder: the conversation topic is {topic['opening_en']}. Reply only about it.)"},
+            {
+                "role": "user",
+                "content": f"(Reminder: the conversation topic is {topic['opening_en']}. Reply only about it.)",
+            },
             history[-1],
         ]
     comp = llm.complete(system, messages, max_tokens=TURN_MAX_TOKENS)
@@ -305,7 +315,8 @@ def _ask(
     except llm.AIUpstreamError:
         # JSON đứt (thường do chạm max_tokens): nhắc gọn lại và nới trần token.
         comp = llm.complete(
-            system + "\nYour previous answer was not valid or complete JSON. Return valid JSON only, keep every field short.",
+            system
+            + "\nYour previous answer was not valid or complete JSON. Return valid JSON only, keep every field short.",
             messages,
             max_tokens=TURN_MAX_TOKENS * 2,
         )
@@ -340,7 +351,7 @@ def start_conversation(
         t = _topic(topic) or _topic("random")
         topic = t["code"]
         title = f"Nói chuyện tự do: {t['title_vi']}"
-    if quota_left(profile) <= 0:
+    if not is_unlimited(profile) and quota_left(profile) <= 0:
         raise QuotaExceeded("Bạn đã hết lượt nói chuyện hôm nay", details=_quota_details(profile))
     conv = AIConversation.objects.create(
         user=user,
@@ -419,7 +430,7 @@ def send_turn(user, conv_id: int, *, text: str, client_msg_id: str, via: str) ->
                     goals_state=conv.goals_state,
                     quota_left=quota_left(profile),
                 )
-    if quota_left(profile) <= 0:
+    if not is_unlimited(profile) and quota_left(profile) <= 0:
         raise QuotaExceeded("Bạn đã hết lượt nói chuyện hôm nay", details=_quota_details(profile))
 
     history = _history(conv) + [{"role": "user", "content": text}]
@@ -517,7 +528,9 @@ def end_conversation(user, conv_id: int) -> AIConversation:
             + _SUMMARY_SCHEMA
         )
         comp = llm.complete(
-            system, history + [{"role": "user", "content": "(Please write the summary now.)"}]
+            system,
+            history + [{"role": "user", "content": "(Please write the summary now.)"}],
+            use="summary",
         )
         try:
             raw = json.loads(comp.text)

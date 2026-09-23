@@ -38,7 +38,8 @@ class AIUpstreamError(AppError):
 
 @dataclass(frozen=True)
 class Profile:
-    """Bộ cấu hình 1 provider. `tutor` = hội thoại Gia sư AI, `video` = dịch/ước lượng phụ đề video."""
+    """Bộ cấu hình 1 provider. `tutor` = hội thoại Gia sư AI, `video` = dịch/ước lượng phụ đề video,
+    `summary` = bản tổng kết cuối phiên (cho phép model mạnh hơn)."""
 
     provider: str
     base_url: str
@@ -57,17 +58,26 @@ def profile(name: str = "tutor") -> Profile:
         settings.AI_API_KEY,
         int(settings.AI_TIMEOUT),
     )
-    if name != "video":
-        return tutor
-    # VIDEO_AI_* trống → dùng giá trị của tutor (ghép lúc gọi để override_settings trong test vẫn áp dụng).
-    return Profile(
-        settings.VIDEO_AI_PROVIDER or tutor.provider,
-        settings.VIDEO_AI_BASE_URL or tutor.base_url,
-        settings.VIDEO_AI_MODEL or tutor.model,
-        settings.VIDEO_AI_FALLBACK_MODEL or tutor.fallback_model,
-        settings.VIDEO_AI_API_KEY or tutor.api_key,
-        int(settings.VIDEO_AI_TIMEOUT or tutor.timeout),
-    )
+    # VIDEO_AI_*/SUMMARY_AI_* trống → dùng giá trị của tutor (ghép lúc gọi để override_settings trong test vẫn áp dụng).
+    if name == "video":
+        return Profile(
+            settings.VIDEO_AI_PROVIDER or tutor.provider,
+            settings.VIDEO_AI_BASE_URL or tutor.base_url,
+            settings.VIDEO_AI_MODEL or tutor.model,
+            settings.VIDEO_AI_FALLBACK_MODEL or tutor.fallback_model,
+            settings.VIDEO_AI_API_KEY or tutor.api_key,
+            int(settings.VIDEO_AI_TIMEOUT or tutor.timeout),
+        )
+    if name == "summary":
+        return Profile(
+            settings.SUMMARY_AI_PROVIDER or tutor.provider,
+            settings.SUMMARY_AI_BASE_URL or tutor.base_url,
+            settings.SUMMARY_AI_MODEL or tutor.model,
+            settings.SUMMARY_AI_FALLBACK_MODEL or tutor.fallback_model,
+            settings.SUMMARY_AI_API_KEY or tutor.api_key,
+            int(settings.SUMMARY_AI_TIMEOUT or tutor.timeout),
+        )
+    return tutor
 
 
 @dataclass

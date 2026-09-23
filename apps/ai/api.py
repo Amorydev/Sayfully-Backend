@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone as djtz
+from django_ratelimit.decorators import ratelimit
 from ninja import Router
 
 from apps.accounts.services import ensure_profile
@@ -24,15 +25,21 @@ from .scenarios_data import TOPICS
 
 router = Router()
 
+# Người thật tối đa ~5 lượt/phút (nói + chờ Long + đọc); chặn script khi Premium không giới hạn.
+RATE_TURN = "20/m"
+RATE_START = "10/m"  # câu mở đầu gọi LLM nhưng không trừ quota → chặn spam tạo phiên
+
 
 # --------------------------------------------------------------- helpers
 def _quota(profile) -> s.QuotaOut:
     q = svc.quota_for(profile)
-    limit = svc.quota_limit(profile)
+    unlimited = svc.is_unlimited(profile)
+    limit = 0 if unlimited else svc.quota_limit(profile)
     return s.QuotaOut(
         used=q.messages_used,
         limit=limit,
-        left=max(0, limit - q.messages_used),
+        left=0 if unlimited else max(0, limit - q.messages_used),
+        unlimited=unlimited,
         is_premium=profile.is_premium,
         resets_at=(learn.local_today(profile) + timedelta(days=1)).isoformat(),
     )
@@ -178,7 +185,9 @@ def ai_home(request):
             turns=open_conv.turn_count,
             minutes_ago=max(0, int((djtz.now() - open_conv.created_at).total_seconds() // 60)),
             scene=open_conv.scenario.scene if open_conv.scenario else "",
-            background_url=_media(open_conv.scenario.thumbnail_path) if open_conv.scenario else None,
+            background_url=_media(open_conv.scenario.thumbnail_path)
+            if open_conv.scenario
+            else None,
         )
     history = AIConversation.objects.filter(user=user, ended_at__isnull=False).order_by(
         "-ended_at"
@@ -223,6 +232,7 @@ def scenario_detail(request, id: int):
     description="`kind=tutor` cần `topic` (mã trong `/ai/home.topics`); `kind=roleplay` cần `scenario_id`. "
     "Câu mở đầu không tính vào quota.",
 )
+@ratelimit(key="user", rate=RATE_START, method="POST", block=True)
 def start_conversation(request, data: s.StartConversationIn):
     conv, _ = svc.start_conversation(
         request.auth,
@@ -259,6 +269,7 @@ def get_conversation(request, id: int):
     description="`client_msg_id` idempotent: gửi lại cùng id trả đúng lượt cũ, không trừ quota. "
     "Lượt lỗi upstream (502) không trừ quota.",
 )
+@ratelimit(key="user", rate=RATE_TURN, method="POST", block=True)
 def send_turn(request, id: int, data: s.SendTurnIn):
     turn = svc.send_turn(
         request.auth, id, text=data.text.strip(), client_msg_id=data.client_msg_id, via=data.via

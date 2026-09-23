@@ -73,6 +73,7 @@ def test_hub_tra_quota_kich_ban_va_chu_de(api, token, user, scenarios):
         "used": 0,
         "limit": 3,
         "left": 3,
+        "unlimited": False,
         "is_premium": False,
         "resets_at": body["quota"]["resets_at"],
     }
@@ -371,6 +372,26 @@ def test_het_quota_tra_429(api, token, user):
         token=token,
     )
     assert r.status_code == 200
+
+
+def test_premium_khong_gioi_han_bo_qua_quota(api, token, user, settings):
+    settings.AI_FREE_TURNS = 2
+    settings.AI_PREMIUM_TURNS = 0  # 0 = không giới hạn
+    p = ensure_profile(user)
+    p.is_premium = True
+    p.save()
+    conv = api.post("/ai/conversations", {"kind": "tutor", "topic": "travel"}, token=token).json()
+    for i in range(5):  # vượt xa AI_FREE_TURNS mà không bị chặn
+        r = api.post(
+            f"/ai/conversations/{conv['id']}/messages",
+            {"text": f"Hello {i}", "client_msg_id": f"u{i}"},
+            token=token,
+        )
+        assert r.status_code == 200
+    quota = r.json()["quota"]
+    assert quota["unlimited"] is True
+    assert quota["limit"] == 0 and quota["left"] == 0
+    assert AIQuota.objects.get(user=user).messages_used == 5
 
 
 def test_upstream_loi_khong_tru_quota(api, token, user, monkeypatch):

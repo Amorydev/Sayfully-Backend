@@ -7,8 +7,9 @@ from ninja import Field, Schema
 
 class QuotaOut(Schema):
     used: int
-    limit: int
+    limit: int  # 0 khi unlimited
     left: int
+    unlimited: bool  # Premium không giới hạn → bỏ qua limit/left
     is_premium: bool
     resets_at: str  # ISO date local kế tiếp
 
