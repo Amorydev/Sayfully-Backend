@@ -220,7 +220,7 @@ def _handle_webhook(request, provider, secret_setting):
     except (ValueError, TypeError):
         payload = {}
     data = _extract(payload)
-    user = User.objects.filter(id=data["app_user_id"]).first() if data["app_user_id"] else None
+    user = services.user_by_app_user_id(data["app_user_id"]) if data["app_user_id"] else None
     if data["event_id"]:
         services.process_payment_event(
             provider=provider,

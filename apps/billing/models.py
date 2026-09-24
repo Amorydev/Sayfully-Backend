@@ -6,6 +6,7 @@ from apps.accounts.models import User
 class Product(models.Model):
     class Period(models.TextChoices):
         MONTH = "month", "Tháng"
+        QUARTER = "quarter", "3 tháng"
         YEAR = "year", "Năm"
         LIFETIME = "lifetime", "Trọn đời"
         ONE_TIME = "one_time", "Mua 1 lần"

@@ -11,6 +11,7 @@ Quy ước mốc hạn trên `UserProfile`:
 """
 
 import logging
+import uuid
 from datetime import timedelta
 
 from django.db import transaction
@@ -40,17 +41,37 @@ CANCEL_EVENTS = {"CANCELLATION", "CANCEL"}  # tắt tự gia hạn — quyền c
 GRACE_EVENTS = {"BILLING_ISSUE"}
 IGNORED_EVENTS = {"TEST", "SUBSCRIPTION_PAUSED", "SUBSCRIBER_ALIAS", "TEMPORARY_ENTITLEMENT_GRANT"}
 
-PERIOD_DAYS = {Product.Period.MONTH: 30, Product.Period.YEAR: 365}
+PERIOD_DAYS = {Product.Period.MONTH: 30, Product.Period.QUARTER: 90, Product.Period.YEAR: 365}
+RENEWING_PERIODS = (Product.Period.MONTH, Product.Period.QUARTER, Product.Period.YEAR)
 
 
 def resolve_product(provider: str, product_code: str) -> Product | None:
-    """Mã store (`store_ids[provider]`) ưu tiên, rồi tới `Product.code`."""
+    """Mã store (`store_ids[provider]`) ưu tiên, rồi tới `Product.code`.
+
+    Play Billing 5+ gửi gói thuê bao dạng `productId:basePlanId` còn catalog chỉ lưu
+    `productId`, nên không khớp nguyên chuỗi thì thử lại phần trước dấu `:`.
+    """
     if not product_code:
         return None
-    return (
-        Product.objects.filter(**{f"store_ids__{provider}": product_code}).first()
-        or Product.objects.filter(code=product_code).first()
-    )
+    for code in dict.fromkeys((product_code, product_code.split(":", 1)[0])):
+        product = (
+            Product.objects.filter(**{f"store_ids__{provider}": code}).first()
+            or Product.objects.filter(code=code).first()
+        )
+        if product:
+            return product
+    return None
+
+
+def user_by_app_user_id(app_user_id):
+    """User theo app user ID của RevenueCat (= `User.id`); ID ẩn danh `$RCAnonymousID:…` → None."""
+    from apps.accounts.models import User  # noqa: PLC0415
+
+    try:
+        user_id = uuid.UUID(str(app_user_id))
+    except ValueError:
+        return None
+    return User.objects.filter(id=user_id).first()
 
 
 def period_expiry(product: Product, start=None):
@@ -220,9 +241,7 @@ def process_payment_event(
                 store=store,
                 txn_id=txn_id,
                 will_renew=(
-                    will_renew
-                    if will_renew is not None
-                    else product.period in (Product.Period.MONTH, Product.Period.YEAR)
+                    will_renew if will_renew is not None else product.period in RENEWING_PERIODS
                 ),
             )
         elif et in CANCEL_EVENTS:
@@ -239,9 +258,7 @@ def process_payment_event(
 
 
 def _revoke_by_user_id(user_id, provider) -> None:
-    from apps.accounts.models import User  # noqa: PLC0415
-
-    u = User.objects.filter(id=user_id).first()
+    u = user_by_app_user_id(user_id)
     if u is not None:
         revoke_premium(u, provider=provider)
 

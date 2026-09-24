@@ -227,6 +227,47 @@ def test_webhook_test_event_khong_lam_gi(client, settings, user, product):
     assert user.profile.is_premium is False
 
 
+def test_webhook_goi_play_kem_base_plan_van_khop(client, settings, user, product):
+    """Play Billing 5+ gửi `productId:basePlanId`; catalog chỉ lưu `productId`."""
+    product.store_ids = {"revenuecat": "sayfully_premium_year"}
+    product.save()
+    settings.REVENUECAT_WEBHOOK_SECRET = "topsecret"
+    _rc(client, "topsecret", _event(user, "INITIAL_PURCHASE", product="sayfully_premium_year:annual"))
+    user.profile.refresh_from_db()
+    assert user.profile.is_premium is True
+    assert Subscription.objects.get(user=user).product_code == "premium_year"
+
+
+def test_webhook_app_user_id_an_danh_khong_loi(client, settings, user, product):
+    """Event TEST và user chưa đăng nhập mang `$RCAnonymousID:…`, không phải UUID."""
+    settings.REVENUECAT_WEBHOOK_SECRET = "topsecret"
+    for type_ in ("TEST", "INITIAL_PURCHASE"):
+        ev = _event(user, type_, id=f"anon-{type_}")
+        ev["event"]["app_user_id"] = "$RCAnonymousID:8b1f0c2d"
+        assert _rc(client, "topsecret", ev).status_code == 200
+    user.profile.refresh_from_db()
+    assert user.profile.is_premium is False
+
+
+def test_webhook_transfer_tu_id_an_danh_khong_loi(client, settings, user, product):
+    settings.REVENUECAT_WEBHOOK_SECRET = "topsecret"
+    ev = _event(user, "TRANSFER", id="tr-anon", transferred_from=["$RCAnonymousID:8b1f0c2d"])
+    assert _rc(client, "topsecret", ev).status_code == 200
+
+
+def test_webhook_goi_3_thang_tu_gia_han(client, settings, user):
+    Product.objects.create(code="premium_quarter", name_vi="Gói 3 Tháng", period="quarter",
+                           price=199000, store_ids={"revenuecat": "sayfully_premium_quarter"})
+    settings.REVENUECAT_WEBHOOK_SECRET = "topsecret"
+    _rc(client, "topsecret",
+        _event(user, "INITIAL_PURCHASE", product="sayfully_premium_quarter:quarterly", days=None))
+    sub = Subscription.objects.get(user=user)
+    assert sub.product_code == "premium_quarter" and sub.will_renew is True
+    user.profile.refresh_from_db()
+    days_left = (user.profile.premium_until - djtz.now()).days
+    assert 88 <= days_left <= 90
+
+
 def test_webhook_goi_xu_cong_xu(client, settings, user):
     Product.objects.create(code="coins_500", name_vi="500 xu", period="one_time",
                            price=19000, kind="coins", coins=500)
@@ -328,6 +369,12 @@ def test_sync_entitlement_con_han_bat_premium(api, token, user, rc_product, monk
     assert body["is_premium"] is True and body["store"] == "play_store" and body["will_renew"] is True
     sub = Subscription.objects.get(user=user)
     assert sub.provider == "revenuecat" and sub.original_txn_id == "rc:sayfully_premium_year"
+
+
+def test_sync_entitlement_kem_base_plan_van_khop(api, token, user, rc_product, monkeypatch):
+    body = _sync(api, token, monkeypatch, _subscriber(product="sayfully_premium_year:annual")).json()
+    assert body["is_premium"] is True
+    assert Subscription.objects.get(user=user).product_code == "premium_year"
 
 
 def test_sync_goi_lai_khong_tao_dong_moi(api, token, user, rc_product, monkeypatch):

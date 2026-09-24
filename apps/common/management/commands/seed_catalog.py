@@ -185,9 +185,12 @@ def seed_catalog() -> None:
 
     # Thanh toán
     for code, name, period, price, orig, trial, badge, order in [
-        ("premium_month", "Gói Tháng", "month", 79000, None, 0, "", 1),
-        ("premium_year", "Gói Năm", "year", 499000, 948000, 0, "TIẾT KIỆM 47%", 2),
-        ("premium_lifetime", "Trọn đời", "lifetime", 999000, None, 0, "MUA 1 LẦN", 3),
+        # Khớp giá base plan trên Play Console. Gói 3 tháng không gắn badge để app vẫn chọn sẵn
+        # gói năm (gói đầu tiên có badge); giá gạch = 3 × gói tháng.
+        ("premium_month", "Gói Tháng", "month", 99000, None, 0, "", 1),
+        ("premium_quarter", "Gói 3 Tháng", "quarter", 249000, 297000, 0, "", 2),
+        ("premium_year", "Gói Năm", "year", 499000, 1188000, 0, "TIẾT KIỆM 58%", 3),
+        ("premium_lifetime", "Trọn đời", "lifetime", 1499000, None, 0, "MUA 1 LẦN", 4),
     ]:
         Product.objects.update_or_create(
             code=code,

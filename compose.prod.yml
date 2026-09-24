@@ -17,6 +17,12 @@ services:
     restart: unless-stopped
 
   api:
+    # Caddy của aloudo (aloudo_default) proxy tới `sayfully-api:8000`: tên và network phải nằm
+    # ở đây, đổi tay bằng `docker rename`/`network connect` sẽ mất khi container bị tạo lại.
+    container_name: sayfully-api
+    networks:
+      - default
+      - aloudo_default
     build: .
     image: sayfully-api
     env_file: .env
@@ -56,3 +62,7 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+
+networks:
+  aloudo_default:
+    external: true
