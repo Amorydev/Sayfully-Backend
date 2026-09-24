@@ -10,6 +10,8 @@ from ninja import NinjaAPI
 
 from apps.accounts.api import router as auth_router
 from apps.accounts.auth import bearer_auth
+from apps.ads.api import router as ads_router
+from apps.ads.api import ssv_router
 from apps.ai.api import router as ai_router
 from apps.billing.api import billing_router, webhooks_router
 from apps.common.exceptions import register_exception_handlers
@@ -61,6 +63,7 @@ TAGS = [
     {"name": "billing", "description": "Thanh toán: gói Premium, đăng ký, mã quà tặng, webhook."},
     {"name": "gamification", "description": "Game hoá: thử thách, huy hiệu, xếp hạng, cửa hàng, trò chơi, thông báo."},
     {"name": "ai", "description": "Gia sư AI: trò chuyện tự do, đóng vai theo kịch bản, tổng kết."},
+    {"name": "ads", "description": "Quảng cáo: cấu hình vị trí, vé xem, thưởng sau xác thực."},
 ]
 
 api = NinjaAPI(
@@ -81,3 +84,5 @@ api.add_router("/billing", billing_router, auth=bearer_auth, tags=["billing"])
 api.add_router("/webhooks", webhooks_router, tags=["billing"])
 api.add_router("", gamification_router, auth=bearer_auth, tags=["gamification"])
 api.add_router("/ai", ai_router, auth=bearer_auth, tags=["ai"])
+api.add_router("/ads", ads_router, auth=bearer_auth, tags=["ads"])
+api.add_router("/ads", ssv_router, tags=["ads"])

@@ -26,6 +26,20 @@ env = environ.Env(
     REVENUECAT_API_KEY=(str, ""),
     PAYOS_WEBHOOK_SECRET=(str, ""),
     PAYOS_API_KEY=(str, ""),
+    ADS_ENABLED=(bool, False),
+    ADS_GRACE_DAYS=(int, 3),
+    ADS_GRACE_LESSONS=(int, 5),
+    ADS_GLOBAL_DAILY_CAP=(int, 6),
+    ADS_DAILY_COIN_CAP=(int, 60),
+    ADS_MIN_INTERVAL_SEC=(int, 45),
+    ADS_TICKET_TTL_SEC=(int, 600),
+    ADS_SSV_REQUIRED=(bool, True),
+    ADS_SSV_MAX_AGE_SEC=(int, 600),
+    ADS_SSV_KEYS_TTL_SEC=(int, 86400),
+    ADS_SSV_KEYS_URL=(str, "https://gstatic.com/admob/reward/verifier-keys.json"),
+    ADS_REWARDED_AD_UNIT_ANDROID=(str, ""),
+    ADS_REWARDED_AD_UNIT_IOS=(str, ""),
+    ADS_REWARD_CONTEXT_SEC=(int, 600),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -58,6 +72,7 @@ LOCAL_APPS = [
     "apps.ai",
     "apps.notifications",
     "apps.blog",
+    "apps.ads",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -218,6 +233,26 @@ VIDEO_IMPORT_ENABLED = env("VIDEO_IMPORT_ENABLED")
 VIDEO_IMPORT_MAX_SEC = env("VIDEO_IMPORT_MAX_SEC")  # từ chối video dài hơn (mặc định 20 phút)
 VIDEO_IMPORT_DAILY_LIMIT = env("VIDEO_IMPORT_DAILY_LIMIT")  # số video mỗi người mỗi ngày
 VIDEO_IMPORT_SYNC = env("VIDEO_IMPORT_SYNC")  # True: xử lý ngay trong request (dev/test)
+
+# Quảng cáo (apps.ads). Tắt toàn cục mặc định — bật từng vị trí trong admin sau khi đã
+# đo baseline. Trần ngày và trần xu là hàng rào cuối: client có thể sai, server thì không.
+ADS_ENABLED = env("ADS_ENABLED")
+ADS_GRACE_DAYS = env("ADS_GRACE_DAYS")  # tài khoản mới chưa thấy quảng cáo
+ADS_GRACE_LESSONS = env("ADS_GRACE_LESSONS")  # ... và chưa học đủ số bài này
+ADS_GLOBAL_DAILY_CAP = env("ADS_GLOBAL_DAILY_CAP")  # tổng lượt quảng cáo mỗi người mỗi ngày
+ADS_DAILY_COIN_CAP = env("ADS_DAILY_COIN_CAP")  # trần xu nhận từ quảng cáo (bảo vệ gói xu)
+ADS_MIN_INTERVAL_SEC = env("ADS_MIN_INTERVAL_SEC")  # khoảng cách tối thiểu giữa hai lượt
+ADS_TICKET_TTL_SEC = env("ADS_TICKET_TTL_SEC")  # vé quá hạn không còn nhận được thưởng
+# Xác thực callback của mạng quảng cáo. False = tin client, CHỈ dùng ở máy dev.
+ADS_SSV_REQUIRED = env("ADS_SSV_REQUIRED")
+ADS_SSV_MAX_AGE_SEC = env("ADS_SSV_MAX_AGE_SEC")
+ADS_SSV_KEYS_URL = env("ADS_SSV_KEYS_URL")
+ADS_SSV_KEYS_TTL_SEC = env("ADS_SSV_KEYS_TTL_SEC")
+# Ad unit thật cho các vị trí có thưởng; trống -> `seed_ads` giữ ad unit thử nghiệm của Google.
+ADS_REWARDED_AD_UNIT_ANDROID = env("ADS_REWARDED_AD_UNIT_ANDROID")
+ADS_REWARDED_AD_UNIT_IOS = env("ADS_REWARDED_AD_UNIT_IOS")
+# Ván chơi cũ hơn mốc này không còn dùng để tính thưởng "nhân đôi xu".
+ADS_REWARD_CONTEXT_SEC = env("ADS_REWARD_CONTEXT_SEC")
 
 # Thanh toán (apps.billing). RevenueCat gửi secret trong header `Authorization`;
 # PayOS ký payload bằng checksum key. Trống → webhook trả 401, checkout trả 503.
