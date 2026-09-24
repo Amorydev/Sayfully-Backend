@@ -33,7 +33,7 @@ def test_arpabet_secondary_stress():
 # --------------------------------------------------------------- L1 import_vocab
 CSV = (
     "headword,pos,level,meaning_vi,synonyms,examples,collocations\n"
-    'apple,n,A1,quả táo,fruit,I eat an apple.|Tôi ăn táo.;;An apple a day.|Mỗi ngày một quả.,'
+    "apple,n,A1,quả táo,fruit,I eat an apple.|Tôi ăn táo.;;An apple a day.|Mỗi ngày một quả.,"
     "red apple|táo đỏ\n"
 )
 

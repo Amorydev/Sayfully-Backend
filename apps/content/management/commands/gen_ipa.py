@@ -16,7 +16,14 @@ from apps.content.phonemics import arpabet_to_ipa
 
 
 def _americanised(word: str) -> str:
-    for british, american in (("ise", "ize"), ("yse", "yze"), ("isation", "ization"), ("iser", "izer"), ("ising", "izing"), ("ised", "ized")):
+    for british, american in (
+        ("ise", "ize"),
+        ("yse", "yze"),
+        ("isation", "ization"),
+        ("iser", "izer"),
+        ("ising", "izing"),
+        ("ised", "ized"),
+    ):
         if word.endswith(british):
             return word[: -len(british)] + american
     return word

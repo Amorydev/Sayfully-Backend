@@ -296,11 +296,15 @@ class ReviewCardOut(Schema):
     vocab_id: int
     headword: str
     pos: str
+    category: str = "word"  # word | phrase | phrasal_verb | idiom → nhãn chip từ loại
     level: str
-    ipa: str
+    ipa: str  # theo accent của người dùng; giữ cho màn cũ
+    ipa_uk: str
+    ipa_us: str
     syllables: list[SyllableOut]
     meaning_vi: str
     definition_en: str
+    definition_vi: str
     audio_uk_url: str | None
     audio_us_url: str | None
     examples: list[ExampleOut]
@@ -308,6 +312,8 @@ class ReviewCardOut(Schema):
     word_family: list[str]
     due_at: datetime
     state: int
+    # đã lưu vào sổ tay (sao vàng trên thẻ) → id để xoá; None = chưa lưu
+    notebook_entry_id: int | None = None
 
 
 class ReviewItemIn(Schema):
@@ -537,7 +543,9 @@ class ReadingListItemOut(Schema):
     title_vi: str
     topic_id: int | None
     topic: str | None
-    topic_icon_url: str | None = None  # icon chủ đề (Topic.icon_url); app dùng placeholder nếu trống
+    topic_icon_url: str | None = (
+        None  # icon chủ đề (Topic.icon_url); app dùng placeholder nếu trống
+    )
     est_minutes: int
     cover_url: str | None
     question_count: int
@@ -819,11 +827,15 @@ class FlashcardDeckCardOut(Schema):
     vocab_id: int
     headword: str
     pos: str
+    category: str = "word"
     level: str
     ipa: str
+    ipa_uk: str
+    ipa_us: str
     syllables: list[SyllableOut]
     meaning_vi: str
     definition_en: str
+    definition_vi: str
     audio_uk_url: str | None
     audio_us_url: str | None
     examples: list[ExampleOut]
@@ -831,6 +843,7 @@ class FlashcardDeckCardOut(Schema):
     word_family: list[str]
     due_at: datetime | None = None
     state: int = 0
+    notebook_entry_id: int | None = None
 
 
 class FlashcardDeckDetailOut(Schema):

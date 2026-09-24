@@ -14,13 +14,22 @@ def token(api, user, password):
 
 @pytest.fixture
 def a1(db):
-    return Level.objects.get_or_create(code="A1", defaults={"name_vi": "Mới bắt đầu", "order": 1})[0]
+    return Level.objects.get_or_create(code="A1", defaults={"name_vi": "Mới bắt đầu", "order": 1})[
+        0
+    ]
 
 
 def _word(level, headword, syllables, ipa, stress, meaning="nghĩa", **extra):
     return Vocabulary.objects.create(
-        headword=headword, pos="n", level=level, meaning_vi=meaning,
-        ipa_us="/x/", syllables=syllables, ipa_syllables=ipa, primary_stress=stress, **extra,
+        headword=headword,
+        pos="n",
+        level=level,
+        meaning_vi=meaning,
+        ipa_us="/x/",
+        syllables=syllables,
+        ipa_syllables=ipa,
+        primary_stress=stress,
+        **extra,
     )
 
 
@@ -36,9 +45,9 @@ def playable(a1):
 
 
 def test_round_bo_tu_khong_choi_duoc(api, token, a1, playable):
-    _word(a1, "friend", ["friend"], ["frend"], 0)                       # một âm tiết
-    _word(a1, "record", ["rec", "ord"], ["ˈrek", "ər", "d"], 0)          # tách lệch nhau
-    _word(a1, "bogus", ["bo", "gus"], ["ˈboʊ", "gəs"], 5)                # trọng âm ngoài mảng
+    _word(a1, "friend", ["friend"], ["frend"], 0)  # một âm tiết
+    _word(a1, "record", ["rec", "ord"], ["ˈrek", "ər", "d"], 0)  # tách lệch nhau
+    _word(a1, "bogus", ["bo", "gus"], ["ˈboʊ", "gəs"], 5)  # trọng âm ngoài mảng
     Vocabulary.objects.create(headword="nothing", pos="n", level=a1, meaning_vi="x")  # chưa gen_ipa
     body = api.get("/stress-master/round?level=A1&count=50", token=token).json()
     assert body["level"] == "A1"
@@ -58,7 +67,13 @@ def test_round_ipa_bo_dau_nhan_va_giu_chi_so(api, token, playable):
 def test_round_count_va_ngau_nhien(api, token, playable):
     body = api.get("/stress-master/round?level=A1&count=5", token=token).json()
     assert len(body["words"]) == 5
-    seen = {tuple(w["headword"] for w in api.get("/stress-master/round?level=A1&count=5", token=token).json()["words"]) for _ in range(6)}
+    seen = {
+        tuple(
+            w["headword"]
+            for w in api.get("/stress-master/round?level=A1&count=5", token=token).json()["words"]
+        )
+        for _ in range(6)
+    }
     assert len(seen) > 1, "sáu lần bốc phải cho thứ tự khác nhau"
     assert api.get("/stress-master/round?level=A1&count=4", token=token).status_code == 422
     assert api.get("/stress-master/round?level=A1&count=51", token=token).status_code == 422

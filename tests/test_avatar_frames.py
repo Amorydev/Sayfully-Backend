@@ -48,7 +48,11 @@ def test_frame_purchase_equip_and_all_profile_apis(api, client, user, password, 
     )
     assert purchase.status_code == 200
     assert api.post("/shop/cosmetics/equip", {"item_id": frame.id}, token=token).status_code == 200
-    for path, nested in (("/home", "profile"), ("/profile/overview", None), ("/auth/me", "profile")):
+    for path, nested in (
+        ("/home", "profile"),
+        ("/profile/overview", None),
+        ("/auth/me", "profile"),
+    ):
         response = api.get(path, token=token)
         assert response.status_code == 200
         body = response.json()[nested] if nested else response.json()

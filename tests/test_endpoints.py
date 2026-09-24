@@ -1,4 +1,5 @@
 """12 endpoint auth, kiểm cả 2 chế độ client."""
+
 import pytest
 from django.conf import settings
 
@@ -132,9 +133,11 @@ def test_quen_mat_khau_khong_lo_email_ton_tai(api, user):
 
 def test_doi_mat_khau_thu_hoi_moi_phien(api, user, password):
     t = api.post("/auth/token", {"email": user.email, "password": password}).json()
-    r = api.post("/auth/change-password",
-                 {"old_password": password, "new_password": "MatKhauMoiRatManh456"},
-                 token=t["access"])
+    r = api.post(
+        "/auth/change-password",
+        {"old_password": password, "new_password": "MatKhauMoiRatManh456"},
+        token=t["access"],
+    )
     assert r.status_code == 200
     assert api.post("/auth/refresh", {"refresh": t["refresh"]}).status_code == 401
     user.refresh_from_db()
@@ -143,9 +146,11 @@ def test_doi_mat_khau_thu_hoi_moi_phien(api, user, password):
 
 def test_doi_mat_khau_sai_mat_khau_cu(api, user, password):
     t = api.post("/auth/token", {"email": user.email, "password": password}).json()
-    r = api.post("/auth/change-password",
-                 {"old_password": "sai", "new_password": "MatKhauMoiRatManh456"},
-                 token=t["access"])
+    r = api.post(
+        "/auth/change-password",
+        {"old_password": "sai", "new_password": "MatKhauMoiRatManh456"},
+        token=t["access"],
+    )
     assert r.status_code == 401
 
 
@@ -172,25 +177,37 @@ def test_email_duoc_giai_phong_de_dang_ky_lai(api, user, password):
 # ------------------------------------------------------------------ rate limit
 def test_rate_limit_chan_do_mat_khau(api, user, settings):
     settings.RATELIMIT_ENABLE = True
-    codes = [api.post("/auth/token", {"email": user.email, "password": "sai"}).status_code
-             for _ in range(7)]
+    codes = [
+        api.post("/auth/token", {"email": user.email, "password": "sai"}).status_code
+        for _ in range(7)
+    ]
     assert 429 in codes, f"phải bị chặn sau vài lần, nhận được: {codes}"
 
 
 # ------------------------------------------------------------------ luyện nói theo chủ đề (C8a)
 def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
     from apps.content.models import Level, ShadowingDeck, ShadowingSentence
+    from apps.learning.models import SpeakingSentenceResult
 
     lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
     deck = ShadowingDeck.objects.create(
-        level=lv, order=1, title_en="Greetings", title_vi="Chào hỏi",
-        icon="greeting", background_url="speaking/greeting.webp",
-        est_seconds=180, is_free=True,
+        level=lv,
+        order=1,
+        title_en="Greetings",
+        title_vi="Chào hỏi",
+        icon="greeting",
+        background_url="speaking/greeting.webp",
+        est_seconds=180,
+        is_free=True,
     )
     for j in range(4):
         ShadowingSentence.objects.create(deck=deck, order=j, text_en=f"s{j}", text_vi=f"c{j}")
     premium = ShadowingDeck.objects.create(
-        level=lv, order=2, title_en="Interview", title_vi="Phỏng vấn", is_free=False,
+        level=lv,
+        order=2,
+        title_en="Interview",
+        title_vi="Phỏng vấn",
+        is_free=False,
     )
     ShadowingSentence.objects.create(deck=premium, order=0, text_en="x", text_vi="y")
 
@@ -225,6 +242,39 @@ def test_speaking_topics_liet_ke_va_cong_tien_do(api, user, password):
     assert greet["done"] == 1 and greet["percent"] == 25
     assert body2["week_practiced"] == 1
 
+    # đọc lại CÙNG câu (ref_id=0) → tiến độ vẫn 1/4, chỉ giữ điểm tốt nhất
+    api.post(
+        "/learn/practice",
+        {"kind": "speaking", "score": 95, "duration_sec": 20, "ref_id": "0", "deck_id": deck.id},
+        token=access,
+    )
+    api.post(
+        "/learn/practice",
+        {"kind": "speaking", "score": 60, "duration_sec": 20, "ref_id": "0", "deck_id": deck.id},
+        token=access,
+    )
+    greet = next(
+        t
+        for t in api.get("/learn/speaking/topics", token=access).json()["basic"]
+        if t["title_vi"] == "Chào hỏi"
+    )
+    assert greet["done"] == 1
+    row = SpeakingSentenceResult.objects.get(deck=deck, order=0)
+    assert row.percent == 95 and row.attempts == 2
+
+    # sang câu khác → 2/4
+    api.post(
+        "/learn/practice",
+        {"kind": "speaking", "score": 70, "duration_sec": 20, "ref_id": "1", "deck_id": deck.id},
+        token=access,
+    )
+    greet = next(
+        t
+        for t in api.get("/learn/speaking/topics", token=access).json()["basic"]
+        if t["title_vi"] == "Chào hỏi"
+    )
+    assert greet["done"] == 2 and greet["percent"] == 50
+
 
 # ------------------------------------------------------------------ luyện nghe (C9a/C9)
 def test_listening_topics_va_2_mode(api, user, password):
@@ -232,22 +282,41 @@ def test_listening_topics_va_2_mode(api, user, password):
 
     lv = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
     topic = ListeningTopic.objects.create(
-        level=lv, order=1, title_vi="Chào hỏi", icon="greeting", icon_url="listening/greeting.webp",
-        est_seconds=240, is_free=True,
+        level=lv,
+        order=1,
+        title_vi="Chào hỏi",
+        icon="greeting",
+        icon_url="listening/greeting.webp",
+        est_seconds=240,
+        is_free=True,
     )
     for j in range(3):
         ListeningItem.objects.create(
-            topic=topic, order=j, text_en=f"Hello, nice to meet you {j}.", text_vi="Xin chào.",
+            topic=topic,
+            order=j,
+            text_en=f"Hello, nice to meet you {j}.",
+            text_vi="Xin chào.",
             audio_us_path=f"audio/listen/greet_{j}.mp3",
-            blank_index=3, options=["meet", "meat", "mit", "meal"], answer_index=0,
+            blank_index=3,
+            options=["meet", "meat", "mit", "meal"],
+            answer_index=0,
             skill_vi="Phân biệt âm vị",
         )
     premium = ListeningTopic.objects.create(
-        level=lv, order=2, title_vi="Phỏng vấn", icon="interview", is_free=False,
+        level=lv,
+        order=2,
+        title_vi="Phỏng vấn",
+        icon="interview",
+        is_free=False,
     )
     ListeningItem.objects.create(
-        topic=premium, order=0, text_en="Tell me about yourself.", text_vi="Giới thiệu.",
-        blank_index=3, options=["yourself", "myself", "itself", "herself"], answer_index=0,
+        topic=premium,
+        order=0,
+        text_en="Tell me about yourself.",
+        text_vi="Giới thiệu.",
+        blank_index=3,
+        options=["yourself", "myself", "itself", "herself"],
+        answer_index=0,
     )
 
     access = api.post("/auth/token", {"email": user.email, "password": password}).json()["access"]
@@ -280,7 +349,10 @@ def test_listening_topics_va_2_mode(api, user, password):
     assert di["items"][0]["blank_index"] is None and di["items"][0]["options"] == []
 
     # premium topic → 403
-    assert api.get(f"/learn/listening/topics/{premium.id}?mode=choose", token=access).status_code == 403
+    assert (
+        api.get(f"/learn/listening/topics/{premium.id}?mode=choose", token=access).status_code
+        == 403
+    )
 
     # nộp 1 câu mode choose → done_choose 1/3, week +1
     r = api.post(

@@ -1,4 +1,5 @@
 """Xác thực Google/Apple — mock hoàn toàn, không gọi mạng."""
+
 import pytest
 
 from apps.accounts import social
@@ -19,17 +20,21 @@ def google_ids(settings):
 
 
 def _fake_google(monkeypatch, payload):
-    monkeypatch.setattr(
-        social.google_id_token, "verify_oauth2_token", lambda *a, **kw: payload
-    )
+    monkeypatch.setattr(social.google_id_token, "verify_oauth2_token", lambda *a, **kw: payload)
 
 
 def test_google_hop_le(monkeypatch, google_ids):
-    _fake_google(monkeypatch, {
-        "iss": "https://accounts.google.com", "aud": CLIENT_ID_ANDROID,
-        "sub": "google-uid-1", "email": "a@example.com",
-        "email_verified": True, "name": "Nguyễn A",
-    })
+    _fake_google(
+        monkeypatch,
+        {
+            "iss": "https://accounts.google.com",
+            "aud": CLIENT_ID_ANDROID,
+            "sub": "google-uid-1",
+            "email": "a@example.com",
+            "email_verified": True,
+            "name": "Nguyễn A",
+        },
+    )
     p = verify_google_id_token("token-gia")
     assert p.provider == "google" and p.uid == "google-uid-1"
     assert p.email == "a@example.com" and p.email_verified is True
@@ -37,19 +42,28 @@ def test_google_hop_le(monkeypatch, google_ids):
 
 def test_google_sai_audience_bi_tu_choi(monkeypatch, google_ids):
     """Bẫy hay gặp: token phát cho ứng dụng KHÁC vẫn hợp lệ về chữ ký."""
-    _fake_google(monkeypatch, {
-        "iss": "https://accounts.google.com", "aud": "999.apps.googleusercontent.com",
-        "sub": "google-uid-2",
-    })
+    _fake_google(
+        monkeypatch,
+        {
+            "iss": "https://accounts.google.com",
+            "aud": "999.apps.googleusercontent.com",
+            "sub": "google-uid-2",
+        },
+    )
     with pytest.raises(Unauthorized) as exc:
         verify_google_id_token("token-gia")
     assert exc.value.code == "google_bad_audience"
 
 
 def test_google_sai_issuer_bi_tu_choi(monkeypatch, google_ids):
-    _fake_google(monkeypatch, {
-        "iss": "https://ke-gia-mao.com", "aud": CLIENT_ID_ANDROID, "sub": "x",
-    })
+    _fake_google(
+        monkeypatch,
+        {
+            "iss": "https://ke-gia-mao.com",
+            "aud": CLIENT_ID_ANDROID,
+            "sub": "x",
+        },
+    )
     with pytest.raises(Unauthorized) as exc:
         verify_google_id_token("token-gia")
     assert exc.value.code == "google_bad_issuer"
@@ -58,16 +72,20 @@ def test_google_sai_issuer_bi_tu_choi(monkeypatch, google_ids):
 def test_google_chap_nhan_ca_3_client_id(monkeypatch, google_ids):
     """Android, iOS, Web có client ID khác nhau — phải chấp nhận tất cả."""
     for aud in (CLIENT_ID_ANDROID, CLIENT_ID_WEB):
-        _fake_google(monkeypatch, {
-            "iss": "accounts.google.com", "aud": aud, "sub": f"uid-{aud}",
-        })
+        _fake_google(
+            monkeypatch,
+            {
+                "iss": "accounts.google.com",
+                "aud": aud,
+                "sub": f"uid-{aud}",
+            },
+        )
         assert verify_google_id_token("t").uid == f"uid-{aud}"
 
 
 # ------------------------------------------------------------------ liên kết
 def test_lan_dau_tao_user_moi(db):
-    p = SocialProfile(provider="google", uid="u1", email="moi@example.com",
-                      full_name="Người Mới")
+    p = SocialProfile(provider="google", uid="u1", email="moi@example.com", full_name="Người Mới")
     user, created = login_or_create_social(p)
     assert created is True and user.email == "moi@example.com"
 
@@ -133,16 +151,18 @@ def apple_env(settings, monkeypatch, apple_key):
 def _apple_token(key, **claims):
     now = int(time.time())
     payload = {
-        "iss": "https://appleid.apple.com", "aud": BUNDLE_ID, "sub": "apple-uid-9",
-        "iat": now, "exp": now + 600,
+        "iss": "https://appleid.apple.com",
+        "aud": BUNDLE_ID,
+        "sub": "apple-uid-9",
+        "iat": now,
+        "exp": now + 600,
     }
     payload.update(claims)
     return pyjwt.encode(payload, key, algorithm="RS256")
 
 
 def test_apple_token_hop_le(apple_env, apple_key):
-    token = _apple_token(apple_key, email="abc@privaterelay.appleid.com",
-                         email_verified="true")
+    token = _apple_token(apple_key, email="abc@privaterelay.appleid.com", email_verified="true")
     p = verify_apple_identity_token(token)
     assert p.provider == "apple" and p.uid == "apple-uid-9"
     assert p.email_verified is True

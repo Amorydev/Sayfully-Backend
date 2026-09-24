@@ -1,4 +1,5 @@
 """Xoay vòng refresh token + phát hiện token bị đánh cắp."""
+
 import pytest
 
 from apps.accounts.models import RefreshToken
@@ -27,10 +28,10 @@ def test_token_moi_cung_family_voi_token_cu(user):
 def test_dung_lai_token_da_thu_hoi_se_giet_ca_family(user):
     """Đây là bảo vệ quan trọng nhất: token bị đánh cắp không dùng được lâu."""
     raw, _ = issue_refresh(user)
-    _u, _a, raw_moi = rotate_refresh(raw)          # kẻ tấn công hoặc user xoay 1 lần
+    _u, _a, raw_moi = rotate_refresh(raw)  # kẻ tấn công hoặc user xoay 1 lần
 
     with pytest.raises(Unauthorized) as exc:
-        rotate_refresh(raw)                        # dùng lại token cũ
+        rotate_refresh(raw)  # dùng lại token cũ
     assert exc.value.code == "refresh_reused"
 
     # Token mới nhất cũng phải chết theo, buộc đăng nhập lại

@@ -1058,6 +1058,7 @@ def list_my_videos(request):
         items=[_user_video_out(vd, profile, practice[vd.id]) for vd in videos],
         quota=s.VideoQuotaOut(left=left, limit=limit),
         can_import=settings.VIDEO_IMPORT_ENABLED and profile.is_premium,
+        is_premium=profile.is_premium,
     )
 
 
@@ -1148,6 +1149,7 @@ def _user_video_out(vd: m.Video, profile, practice=None) -> s.UserVideoOut:
         id=vd.id,
         youtube_id=vd.youtube_id,
         title=vd.title_vi or vd.title_en,
+        title_en=vd.title_en,
         channel=vd.channel,
         duration_sec=vd.duration_sec,
         level=vd.level_id,
@@ -1156,7 +1158,10 @@ def _user_video_out(vd: m.Video, profile, practice=None) -> s.UserVideoOut:
         error_message=video_import.reject_message(vd.error_code) if vd.error_code else "",
         thumbnail_url=_yt_thumb(vd.youtube_id),
         added_label=video_import.added_label(vd, profile),
-        sentence_count=vd.subtitles.count(),
+        practiced_label=video_import.practiced_label(
+            practice.last_practiced_at if practice else None
+        ),
+        sentence_count=getattr(vd, "n_subs", None) or vd.subtitles.count(),
         practice=_practice_summary_out(practice) if practice else s.VideoPracticeSummaryOut(),
     )
 

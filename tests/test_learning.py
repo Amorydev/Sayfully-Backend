@@ -371,7 +371,10 @@ def _due_card(user, level, hw="apple"):
         pos="n",
         level=level,
         meaning_vi="táo",
+        definition_en="A round fruit with red or green skin.",
+        definition_vi="Một loại quả tròn, vỏ đỏ hoặc xanh.",
         ipa_us="/æ/",
+        ipa_uk="/ˈæpəl/",
         ipa_syllables=["æ"],
         primary_stress=0,
     )
@@ -383,6 +386,20 @@ def test_review_due_liet_ke(api, token, user, levels):
     _due_card(user, a1)
     body = api.get("/learn/review/due", token=token).json()
     assert len(body) == 1 and body[0]["headword"] == "apple"
+
+
+def test_review_due_du_truong_cho_flashcard(api, token, user, levels):
+    a1, _ = levels
+    card = _due_card(user, a1)
+    body = api.get("/learn/review/due", token=token).json()[0]
+    assert body["ipa_us"] == "/æ/" and body["ipa_uk"] == "/ˈæpəl/"
+    assert body["ipa"] == "/æ/"  # accent mặc định US
+    assert body["definition_vi"] == "Một loại quả tròn, vỏ đỏ hoặc xanh."
+    assert body["category"] == "word"
+    assert body["notebook_entry_id"] is None
+
+    eid = api.post("/learn/notebook", {"vocab_id": card.vocabulary_id}, token=token).json()["id"]
+    assert api.get("/learn/review/due", token=token).json()[0]["notebook_entry_id"] == eid
 
 
 def test_review_cap_nhat_va_xp(api, token, user, levels):
@@ -400,6 +417,28 @@ def test_review_cap_nhat_va_xp(api, token, user, levels):
     assert card.reps == 1 and card.due_at > djtz.now()  # dời lịch tương lai
     assert SRSReviewLog.objects.filter(user=user).count() == 1
     assert api.get("/learn/review/due", token=token).json() == []  # hết đến hạn
+
+
+def test_review_tao_the_srs_cho_tu_cua_bo_the(api, token, user, levels):
+    """Học bộ thẻ C7: từ chưa có thẻ SRS, lần chấm đầu phải tạo thẻ và vào lịch ôn."""
+    from apps.content.models import Vocabulary
+    from apps.learning.models import SRSCard
+
+    a1, _ = levels
+    v = Vocabulary.objects.create(
+        headword="deckonly", pos="n", level=a1, meaning_vi="chỉ có trong bộ thẻ", ipa_us="/d/"
+    )
+    body = api.post("/learn/review", [{"vocab_id": v.id, "rating": 3}], token=token).json()
+    assert body["reviewed"] == 1 and body["xp_earned"] == 2
+    from django.utils import timezone as djtz
+
+    card = SRSCard.objects.get(user=user, vocabulary=v)
+    assert card.reps == 1 and card.due_at > djtz.now()
+
+
+def test_review_bo_qua_vocab_id_khong_ton_tai(api, token, user, levels):
+    body = api.post("/learn/review", [{"vocab_id": 999999, "rating": 3}], token=token).json()
+    assert body["reviewed"] == 0
 
 
 def test_review_rating_sai_422(api, token, user, levels):
@@ -609,7 +648,9 @@ def test_reading_list_progress_facets_and_premium_lock(api, token, user, levels)
     travel = Topic.objects.create(
         code="travel", name_vi="Du lịch", name_en="Travel", order=2, icon_url="icons/travel.png"
     )
-    vocabulary = Vocabulary.objects.create(headword="family", pos="n", level=a1, meaning_vi="gia đình")
+    vocabulary = Vocabulary.objects.create(
+        headword="family", pos="n", level=a1, meaning_vi="gia đình"
+    )
     reading = Reading.objects.create(
         level=a1,
         order=1,
@@ -726,9 +767,7 @@ def test_avatar_upload(client, token, user, monkeypatch):
 
     monkeypatch.setattr(lapi, "upload_avatar", lambda key, data, ct: key)
     f = SimpleUploadedFile("a.png", b"imgdata", content_type="image/png")
-    r = client.post(
-        "/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"}
-    )
+    r = client.post("/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     assert r.json()["avatar_url"].endswith(f"avatars/{user.id}.png")
     user.refresh_from_db()
@@ -742,9 +781,7 @@ def test_avatar_type_sai_415(client, token, monkeypatch):
 
     monkeypatch.setattr(lapi, "upload_avatar", lambda key, data, ct: key)
     f = SimpleUploadedFile("a.gif", b"x", content_type="image/gif")
-    r = client.post(
-        "/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"}
-    )
+    r = client.post("/api/v1/me/avatar", {"file": f}, headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 415
 
 
@@ -754,13 +791,21 @@ def _placement_qs(a1):
 
     for i in range(3):
         PlacementQuestion.objects.create(
-            order=i + 1, skill="vocab", level="A1", prompt_en=f"Q{i}",
-            options=["a", "b"], answer_index=0,
+            order=i + 1,
+            skill="vocab",
+            level="A1",
+            prompt_en=f"Q{i}",
+            options=["a", "b"],
+            answer_index=0,
         )
     for i in range(3):
         PlacementQuestion.objects.create(
-            order=i + 4, skill="grammar", level="A2", prompt_en=f"G{i}",
-            options=["a", "b"], answer_index=1,
+            order=i + 4,
+            skill="grammar",
+            level="A2",
+            prompt_en=f"G{i}",
+            options=["a", "b"],
+            answer_index=1,
         )
 
 
@@ -802,21 +847,37 @@ def decks(levels):
         code="oxford", title_vi="Từ vựng Oxford", chip_label_vi="Oxford", order=2
     )
     free = VocabularyDeck.objects.create(
-        collection=popular, code="oxford-3000", title_vi="3000 từ Oxford thông dụng",
-        cover_title="Oxford 3000", badge_vi="A1 – B2",
-        background_url="images/decks/oxford-3000.png", level=a1, order=1,
-        is_free=True, learner_base=354_000,
+        collection=popular,
+        code="oxford-3000",
+        title_vi="3000 từ Oxford thông dụng",
+        cover_title="Oxford 3000",
+        badge_vi="A1 – B2",
+        background_url="images/decks/oxford-3000.png",
+        level=a1,
+        order=1,
+        is_free=True,
+        learner_base=354_000,
     )
     pro = VocabularyDeck.objects.create(
-        collection=oxford, code="ielts-75", title_vi="IELTS Speaking & Writing 7.5+",
-        cover_title="IELTS Advance", badge_vi="Band 7.5+",
-        background_url="https://cdn.example/ielts.png", level=a2, order=1,
-        is_free=False, learner_base=198_000,
+        collection=oxford,
+        code="ielts-75",
+        title_vi="IELTS Speaking & Writing 7.5+",
+        cover_title="IELTS Advance",
+        badge_vi="Band 7.5+",
+        background_url="https://cdn.example/ielts.png",
+        level=a2,
+        order=1,
+        is_free=False,
+        learner_base=198_000,
     )
     for i in range(3):
         v = Vocabulary.objects.create(
-            headword=f"deckword{i}", pos="n", level=a1, meaning_vi="nghĩa",
-            ipa_us=f"/us{i}/", ipa_uk=f"/uk{i}/",
+            headword=f"deckword{i}",
+            pos="n",
+            level=a1,
+            meaning_vi="nghĩa",
+            ipa_us=f"/us{i}/",
+            ipa_uk=f"/uk{i}/",
         )
         VocabularyDeckItem.objects.create(deck=free, vocabulary=v, order=i)
     return free, pro
@@ -853,6 +914,8 @@ def test_flashcard_deck_detail_returns_all_cards_and_marks_continuing(api, token
     first = body["cards"][0]
     assert first["headword"] == "deckword0"
     assert first["ipa"] == "/us0/"  # accent mặc định US
+    assert first["ipa_uk"] == "/uk0/" and first["ipa_us"] == "/us0/"
+    assert first["notebook_entry_id"] is None
     assert first["state"] == 0 and first["due_at"] is None  # chưa ôn bao giờ
     assert body["learned_count"] == 0
 

@@ -8,4 +8,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         created = seed_avatar_frames()
-        self.stdout.write(self.style.SUCCESS(f"Synced {len(AVATAR_FRAMES)} avatar frames ({created} new)."))
+        self.stdout.write(
+            self.style.SUCCESS(f"Synced {len(AVATAR_FRAMES)} avatar frames ({created} new).")
+        )

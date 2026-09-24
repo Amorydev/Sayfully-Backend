@@ -20,10 +20,14 @@ def test_full_learning_loop(api):
     a1 = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
     unit = Unit.objects.create(level=a1, order=1, code="a1-u1", title_vi="U", title_en="U")
     lesson = Lesson.objects.create(unit=unit, order=1, code="a1-u1-l1", title_vi="B", title_en="L")
-    v = Vocabulary.objects.create(headword="apple", pos="n", level=a1, meaning_vi="táo", ipa_us="/æ/")
+    v = Vocabulary.objects.create(
+        headword="apple", pos="n", level=a1, meaning_vi="táo", ipa_us="/æ/"
+    )
     LessonStep.objects.create(lesson=lesson, order=1, kind="vocab", vocabulary=v)
     LessonStep.objects.create(
-        lesson=lesson, order=2, kind="quiz",
+        lesson=lesson,
+        order=2,
+        kind="quiz",
         payload={"prompt_vi": "?", "options": ["a"], "correct_index": 0},
     )
 
@@ -42,7 +46,10 @@ def test_full_learning_loop(api):
     # 5. ôn tập SRS (G4)
     due = api.get("/learn/review/due", token=token).json()
     assert len(due) == 1 and due[0]["headword"] == "apple"
-    assert api.post("/learn/review", [{"vocab_id": v.id, "rating": 3}], token=token).json()["reviewed"] == 1
+    assert (
+        api.post("/learn/review", [{"vocab_id": v.id, "rating": 3}], token=token).json()["reviewed"]
+        == 1
+    )
 
     # 6. điểm danh (G4)
     assert api.post("/learn/checkin", token=token).json()["already"] is False

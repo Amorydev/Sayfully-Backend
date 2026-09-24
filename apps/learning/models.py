@@ -307,6 +307,33 @@ class SpeakingTopicProgress(models.Model):
         return f"{self.user_id} · deck{self.deck_id} · {self.done_count}"
 
 
+class SpeakingSentenceResult(models.Model):
+    """Kết quả tốt nhất của một câu trong bộ shadowing — để 'x/y' đếm số CÂU đã luyện chứ không
+    đếm số lần nộp. Upsert từ `POST /learn/practice` khi `kind=speaking` và `ref_id` là thứ tự câu."""
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="speaking_sentence_results"
+    )
+    deck = models.ForeignKey(
+        ShadowingDeck, on_delete=models.CASCADE, related_name="sentence_results"
+    )
+    order = models.PositiveIntegerField()  # ShadowingSentence.order
+    percent = models.PositiveSmallIntegerField(default=0)  # điểm tốt nhất 0..100
+    attempts = models.PositiveSmallIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "deck", "order"], name="uniq_speaking_sentence_result"
+            )
+        ]
+        indexes = [models.Index(fields=["user", "deck"], name="ssr_user_deck_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · deck{self.deck_id} #{self.order} = {self.percent}%"
+
+
 class ListeningTopicProgress(models.Model):
     """Tiến độ luyện nghe theo chủ đề & mode (C9a) — 'x/y câu' cho mode đang chọn."""
 
@@ -426,4 +453,6 @@ class VideoPracticeResult(models.Model):
         indexes = [models.Index(fields=["user", "video", "mode"], name="vpr_user_video_mode_idx")]
 
     def __str__(self) -> str:
-        return f"{self.user_id} · video{self.video_id} · {self.mode} #{self.order} = {self.percent}%"
+        return (
+            f"{self.user_id} · video{self.video_id} · {self.mode} #{self.order} = {self.percent}%"
+        )

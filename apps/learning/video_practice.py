@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from django.db.models import Count, Max
 
@@ -46,6 +47,7 @@ class PracticeSummary:
     shadowing_done: int = 0
     dictation_done: int = 0
     last_mode: str | None = None
+    last_practiced_at: datetime | None = None
 
 
 def summaries(user, video_ids: list[int]) -> dict[int, PracticeSummary]:
@@ -67,8 +69,9 @@ def summaries(user, video_ids: list[int]) -> dict[int, PracticeSummary]:
             summary.dictation_done = r["n"]
         if r["video_id"] not in latest or r["last"] > latest[r["video_id"]][0]:
             latest[r["video_id"]] = (r["last"], r["mode"])
-    for vid, (_, mode) in latest.items():
+    for vid, (at, mode) in latest.items():
         out[vid].last_mode = mode
+        out[vid].last_practiced_at = at
     return out
 
 

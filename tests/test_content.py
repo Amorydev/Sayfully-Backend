@@ -158,7 +158,9 @@ def test_lesson_vocab_card_collocation_va_so_tay(api, token, user, levels, vocab
     step = lesson.steps.get(kind="vocab")
     step.payload = {"note_vi": "Ôn tập — đã học ở a1-u1-l0"}
     step.save(update_fields=["payload"])
-    Collocation.objects.create(vocabulary=vocab, text_en="a beautiful smile", meaning_vi="nụ cười đẹp")
+    Collocation.objects.create(
+        vocabulary=vocab, text_en="a beautiful smile", meaning_vi="nụ cười đẹp"
+    )
     entry = NotebookEntry.objects.create(user=user, vocabulary=vocab)
     r = api.get("/content/lessons/a1-u1-l1", token=token)
     assert r.status_code == 200, r.content
@@ -430,7 +432,9 @@ def test_roots_va_phrasal_ipa(api, token, levels, vocab, settings):
     un.save(update_fields=["samples"])
     unhappy = api.get(f"/content/roots/{un.id}", token=token).json()["examples"][1]
     assert unhappy["audio_us_url"] is None
-    assert unhappy["audio_url"] == unhappy["audio_uk_url"] == "https://media.test/audio/uk/unhappy.mp3"
+    assert (
+        unhappy["audio_url"] == unhappy["audio_uk_url"] == "https://media.test/audio/uk/unhappy.mp3"
+    )
     assert len(detail["distractors"]) >= 4 and "không vui vẻ" not in detail["distractors"]
 
     r = api.post(
@@ -503,9 +507,16 @@ def test_videos_featured_len_dau_va_loc_duoc(api, token, levels):
     from apps.content.models import Video
 
     a1 = levels[0]
-    plain = Video.objects.create(level=a1, youtube_id="aaaaaaaaaaa", title_vi="Thường", title_en="Plain")
+    plain = Video.objects.create(
+        level=a1, youtube_id="aaaaaaaaaaa", title_vi="Thường", title_en="Plain"
+    )
     hot = Video.objects.create(
-        level=a1, youtube_id="bbbbbbbbbbb", title_vi="Nổi bật", title_en="Hot", is_featured=True, featured_order=1
+        level=a1,
+        youtube_id="bbbbbbbbbbb",
+        title_vi="Nổi bật",
+        title_en="Hot",
+        is_featured=True,
+        featured_order=1,
     )
     ids = [v["id"] for v in api.get("/content/videos", token=token).json()["items"]]
     assert ids[:2] == [hot.id, plain.id]
@@ -517,8 +528,12 @@ def test_videos_tra_mo_ta_the_loai(api, token, levels):
     from apps.content.models import Video, VideoCategory
 
     VideoCategory.objects.create(name="Hội thoại", subtitle="Giao tiếp hàng ngày", order=1)
-    Video.objects.create(level=levels[0], youtube_id="ccccccccccc", title_vi="A", title_en="A", category="Hội thoại")
-    Video.objects.create(level=levels[0], youtube_id="ddddddddddd", title_vi="B", title_en="B", category="Khác")
+    Video.objects.create(
+        level=levels[0], youtube_id="ccccccccccc", title_vi="A", title_en="A", category="Hội thoại"
+    )
+    Video.objects.create(
+        level=levels[0], youtube_id="ddddddddddd", title_vi="B", title_en="B", category="Khác"
+    )
     items = {v["youtube_id"]: v for v in api.get("/content/videos", token=token).json()["items"]}
     assert items["ccccccccccc"]["category_subtitle"] == "Giao tiếp hàng ngày"
     assert items["ddddddddddd"]["category_subtitle"] == ""
@@ -532,8 +547,11 @@ def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, voca
     settings.R2_PUBLIC_BASE = "https://cdn.test"
     v = vocab[0] if isinstance(vocab, (list, tuple)) else vocab
     ex = VocabularyExample.objects.create(
-        vocabulary=v, text_en="I grow tomatoes.", text_vi="Tôi trồng cà chua.",
-        audio_us_path="audio/us/example/1.mp3", audio_uk_path="",
+        vocabulary=v,
+        text_en="I grow tomatoes.",
+        text_vi="Tôi trồng cà chua.",
+        audio_us_path="audio/us/example/1.mp3",
+        audio_uk_path="",
     )
     profile = ensure_profile(user)
     profile.accent = "UK"
@@ -542,11 +560,17 @@ def test_audio_theo_giong_ho_so_va_tra_ca_hai_url(api, token, user, levels, voca
     body = api.get(f"/content/vocabulary/{v.id}", token=token).json()
     e = next(x for x in body["examples"] if x["text_en"] == ex.text_en)
     assert e["audio_url"] == "https://cdn.test/audio/us/example/1.mp3"  # UK thiếu → dùng US
-    assert e["audio_us_url"] == "https://cdn.test/audio/us/example/1.mp3" and e["audio_uk_url"] is None
+    assert (
+        e["audio_us_url"] == "https://cdn.test/audio/us/example/1.mp3" and e["audio_uk_url"] is None
+    )
 
     ex.audio_uk_path = "audio/uk/example/1.mp3"
     ex.save(update_fields=["audio_uk_path"])
-    e = next(x for x in api.get(f"/content/vocabulary/{v.id}", token=token).json()["examples"] if x["text_en"] == ex.text_en)
+    e = next(
+        x
+        for x in api.get(f"/content/vocabulary/{v.id}", token=token).json()["examples"]
+        if x["text_en"] == ex.text_en
+    )
     assert e["audio_url"] == "https://cdn.test/audio/uk/example/1.mp3"
 
 
@@ -565,8 +589,15 @@ def test_audio_sample_uu_tien_tu_quen_co_du_hai_giong(api, token, levels, vocab,
     }
     # "hello" xuất hiện với đủ hai giọng → được ưu tiên hơn
     Vocabulary.objects.create(
-        headword="hello", pos="interj", level=vocab.level, meaning_vi="xin chào", ipa_uk="/həˈləʊ/", ipa_us="/həˈloʊ/",
-        audio_uk_path="audio/uk/hello.mp3", audio_us_path="audio/us/hello.mp3", frequency_rank=1,
+        headword="hello",
+        pos="interj",
+        level=vocab.level,
+        meaning_vi="xin chào",
+        ipa_uk="/həˈləʊ/",
+        ipa_us="/həˈloʊ/",
+        audio_uk_path="audio/uk/hello.mp3",
+        audio_us_path="audio/us/hello.mp3",
+        frequency_rank=1,
     )
     assert api.get("/content/audio/sample", token=token).json()["word"] == "hello"
     # không từ nào có audio → 404

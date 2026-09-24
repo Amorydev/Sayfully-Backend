@@ -42,7 +42,9 @@ class ApiClient:
 
     def post(self, path, data=None, token=None, headers=None):
         return self.client.post(
-            f"/api/v1{path}", data=data or {}, content_type="application/json",
+            f"/api/v1{path}",
+            data=data or {},
+            content_type="application/json",
             headers={**self._headers(token), **(headers or {})},
         )
 
@@ -51,7 +53,9 @@ class ApiClient:
 
     def patch(self, path, data=None, token=None):
         return self.client.patch(
-            f"/api/v1{path}", data=data or {}, content_type="application/json",
+            f"/api/v1{path}",
+            data=data or {},
+            content_type="application/json",
             headers=self._headers(token),
         )
 

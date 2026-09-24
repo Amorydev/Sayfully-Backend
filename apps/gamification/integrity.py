@@ -32,17 +32,22 @@ DECODE_URL = "https://playintegrity.googleapis.com/v1/{package}:decodeIntegrityT
 
 # Verdict lưu trong GameScore.integrity (CharField 16).
 OK = "ok"
-SKIPPED = "skipped"          # PLAY_INTEGRITY_MODE=off
-MISSING = "missing"          # không có header (iOS, web, build cũ)
-INVALID = "invalid"          # Play không giải mã được / lỗi mạng / chưa cấu hình
-MISMATCH = "mismatch"        # requestHash hoặc package khác nội dung request
-STALE = "stale"              # token quá PLAY_INTEGRITY_MAX_AGE_SEC
-APP_UNRECOGNIZED = "app"     # bản build không phải bản đã lên Play (sideload, dev, repack)
-DEVICE_UNMET = "device"      # thiết bị root / emulator / không đạt MEETS_DEVICE_INTEGRITY
+SKIPPED = "skipped"  # PLAY_INTEGRITY_MODE=off
+MISSING = "missing"  # không có header (iOS, web, build cũ)
+INVALID = "invalid"  # Play không giải mã được / lỗi mạng / chưa cấu hình
+MISMATCH = "mismatch"  # requestHash hoặc package khác nội dung request
+STALE = "stale"  # token quá PLAY_INTEGRITY_MAX_AGE_SEC
+APP_UNRECOGNIZED = "app"  # bản build không phải bản đã lên Play (sideload, dev, repack)
+DEVICE_UNMET = "device"  # thiết bị root / emulator / không đạt MEETS_DEVICE_INTEGRITY
 
 
 def score_request_hash(
-    code: str, score: int, duration_sec: int, level: str | None, stage_index: int | None, cleared: bool
+    code: str,
+    score: int,
+    duration_sec: int,
+    level: str | None,
+    stage_index: int | None,
+    cleared: bool,
 ) -> str:
     """Chuỗi ràng buộc token với nội dung POST /games/{code}/scores. Phải khớp từng ký tự
     với `IntegrityRequestHash.forScore` phía app."""

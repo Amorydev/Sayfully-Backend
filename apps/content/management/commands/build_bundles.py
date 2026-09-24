@@ -28,9 +28,7 @@ def upload_bundle(key: str, data: bytes) -> str:
         aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
         region_name="auto",
     )
-    client.put_object(
-        Bucket=settings.R2_BUCKET, Key=key, Body=data, ContentType="application/json"
-    )
+    client.put_object(Bucket=settings.R2_BUCKET, Key=key, Body=data, ContentType="application/json")
     return key
 
 
@@ -72,4 +70,6 @@ class Command(BaseCommand):
             self.stdout.write(f"{level.code}: {len(data)} bytes · {checksum[:12]}…")
 
         tag = "[DRY-RUN] " if dry else ""
-        self.stdout.write(self.style.SUCCESS(f"{tag}Đóng gói {len(levels)} cấp, version {version}."))
+        self.stdout.write(
+            self.style.SUCCESS(f"{tag}Đóng gói {len(levels)} cấp, version {version}.")
+        )

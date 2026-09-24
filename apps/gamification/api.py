@@ -50,7 +50,11 @@ CHECKIN_COINS = 10  # khớp learning.api._CHECKIN_COINS
 
 
 def _media(path: str | None) -> str | None:
-    return f"{settings.R2_PUBLIC_BASE.rstrip('/')}/{path}" if path else None
+    if not path:
+        return None
+    if path.startswith(("http://", "https://")):
+        return path
+    return f"{settings.R2_PUBLIC_BASE.rstrip('/')}/{path}"
 
 
 def _dailies(user, scope, today):
@@ -600,7 +604,9 @@ def coin_transactions(request, limit: int = Query(20, ge=1, le=100), offset: int
     keys = [t.ref_id for t in items if t.ref_type == "shop_purchase" and t.ref_id]
     titles = {
         r.idempotency_key: r.item.title_vi
-        for r in ShopReceipt.objects.filter(user=user, idempotency_key__in=keys).select_related("item")
+        for r in ShopReceipt.objects.filter(user=user, idempotency_key__in=keys).select_related(
+            "item"
+        )
     }
     return Page(
         items=[
@@ -801,7 +807,11 @@ def games_hub(request):
 @router.post(
     "/games/{code}/scores",
     response={
-        200: s.GameScoreResultOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut, 422: ErrorOut
+        200: s.GameScoreResultOut,
+        401: ErrorOut,
+        403: ErrorOut,
+        404: ErrorOut,
+        422: ErrorOut,
     },
     summary="Nộp điểm ván chơi",
     description="Ghi điểm, cộng xu/XP theo điểm, trả kỷ lục + percentile. "
@@ -822,7 +832,11 @@ def submit_score(request, code: str, payload: s.GameScoreIn):
     verdict = integrity.check(
         request,
         integrity.score_request_hash(
-            code, payload.score, payload.duration_sec, payload.level, payload.stage_index,
+            code,
+            payload.score,
+            payload.duration_sec,
+            payload.level,
+            payload.stage_index,
             payload.cleared,
         ),
     )

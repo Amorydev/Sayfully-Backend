@@ -97,7 +97,10 @@ class CanDo(models.Model):
         CEFR = "cefr", "CEFR Companion Volume"
         GSE_LO = "gse_lo", "GSE Learning Objective"
         GSE_GR = "gse_gr", "GSE Grammar Objective"
-        SAYFULLY = "sayfully", "Mục tiêu bài học Sayfully"  # viết tay theo nội dung hội thoại (SF-<lesson>)
+        SAYFULLY = (
+            "sayfully",
+            "Mục tiêu bài học Sayfully",
+        )  # viết tay theo nội dung hội thoại (SF-<lesson>)
 
     code = models.CharField(max_length=128, unique=True)  # "GLLA0603" | "Conversation#A2#5"
     source = models.CharField(max_length=8, choices=Source.choices)
@@ -178,7 +181,9 @@ class PronunciationFeature(models.Model):
     category_en = models.CharField(max_length=64, blank=True)
     category_vi = models.CharField(max_length=64)
     feature_en = models.CharField(max_length=160)
-    title_vi = models.CharField(max_length=120, blank=True, default="")  # tên thân thiện cho người học (UI)
+    title_vi = models.CharField(
+        max_length=120, blank=True, default=""
+    )  # tên thân thiện cho người học (UI)
     status = models.CharField(max_length=10)  # Core | Non-core
     ipa = models.CharField(max_length=96, blank=True)
     rule_en = models.TextField(blank=True)
@@ -448,7 +453,9 @@ class GrammarPoint(models.Model):
     lexical_range = models.CharField(max_length=32, blank=True)
     objectives = models.ManyToManyField(CanDo, blank=True, related_name="grammar_points")
     is_path_core = models.BooleanField(default=False)  # 1 điểm chính/bài
-    lesson_code = models.CharField(max_length=48, blank=True)  # bài lộ trình gắn điểm này (a1-04-family-1)
+    lesson_code = models.CharField(
+        max_length=48, blank=True
+    )  # bài lộ trình gắn điểm này (a1-04-family-1)
 
     class Meta:
         constraints = [
@@ -829,11 +836,15 @@ class WordRoot(models.Model):
     # Nếu từ có trong kho Vocabulary thì API ưu tiên audio của Vocabulary.
     samples = models.JSONField(default=list, blank=True)
     examples = models.ManyToManyField(Vocabulary, blank=True, related_name="roots")
-    family = models.JSONField(default=list, blank=True)  # họ từ phái sinh: ["unhappy", "unable", ...]
+    family = models.JSONField(
+        default=list, blank=True
+    )  # họ từ phái sinh: ["unhappy", "unable", ...]
     # Bài tập P1..P5 (REVIEW_skills): [{"word","base","ipa","meaning_vi","question_vi","options",
     #   "answer_index","explanation_vi","tip_vi","example_en","example_vi","audio_us_path","audio_uk_path"}]
     practice = models.JSONField(default=list, blank=True)
-    practice_is_free = models.BooleanField(default=True)  # False = bài tập cần Premium (lý thuyết luôn Free)
+    practice_is_free = models.BooleanField(
+        default=True
+    )  # False = bài tập cần Premium (lý thuyết luôn Free)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["kind", "text"], name="uniq_root")]
@@ -945,7 +956,9 @@ class ShadowingSentence(AccentAudio):
     phase = models.PositiveSmallIntegerField(default=0)  # 1 mẫu câu · 2 ngữ điệu · 3 phản xạ
     speech_act_vi = models.CharField(max_length=128, blank=True)  # "Chào hỏi ban đầu (Greeting)"
     context_vi = models.CharField(max_length=255, blank=True)  # ngữ cảnh / lời thoại đối tác
-    phonetic_note_vi = models.CharField(max_length=255, blank=True)  # "Trọng âm chính rơi vào 'name'"
+    phonetic_note_vi = models.CharField(
+        max_length=255, blank=True
+    )  # "Trọng âm chính rơi vào 'name'"
 
     class Meta:
         ordering = ["order"]
@@ -996,7 +1009,9 @@ class ListeningItem(AccentAudio):
     options = models.JSONField(default=list, blank=True)  # ["meet", "meat", "mit", "meal"]
     answer_index = models.PositiveSmallIntegerField(null=True, blank=True)  # index đáp án đúng
     phase = models.PositiveSmallIntegerField(default=0)  # 1 phân biệt âm · 2 nối âm · 3 ngữ cảnh
-    skill_vi = models.CharField(max_length=128, blank=True)  # "Phân biệt âm vị (Sound Discrimination)"
+    skill_vi = models.CharField(
+        max_length=128, blank=True
+    )  # "Phân biệt âm vị (Sound Discrimination)"
     word_class_vi = models.CharField(max_length=64, blank=True)  # từ loại của từ khuyết
     trap_vi = models.CharField(max_length=128, blank=True)  # loại bẫy nghe
     tip_vi = models.TextField(blank=True)  # mẹo nghe sư phạm

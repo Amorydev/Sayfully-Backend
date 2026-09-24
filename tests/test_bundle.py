@@ -20,14 +20,20 @@ def token(api, user, password):
 @pytest.fixture
 def a1_content():
     a1 = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
-    unit = Unit.objects.create(level=a1, order=1, code="a1-u1", title_vi="U", title_en="U",
-                               reward={"coins": 150})
+    unit = Unit.objects.create(
+        level=a1, order=1, code="a1-u1", title_vi="U", title_en="U", reward={"coins": 150}
+    )
     lesson = Lesson.objects.create(unit=unit, order=1, code="a1-u1-l1", title_vi="B", title_en="L")
-    v = Vocabulary.objects.create(headword="apple", pos="n", level=a1, meaning_vi="táo",
-                                  ipa_uk="/uk/", ipa_us="/us/")
+    v = Vocabulary.objects.create(
+        headword="apple", pos="n", level=a1, meaning_vi="táo", ipa_uk="/uk/", ipa_us="/us/"
+    )
     LessonStep.objects.create(lesson=lesson, order=1, kind="vocab", vocabulary=v)
-    LessonStep.objects.create(lesson=lesson, order=2, kind="quiz",
-                              payload={"prompt_vi": "?", "options": ["a"], "correct_index": 0})
+    LessonStep.objects.create(
+        lesson=lesson,
+        order=2,
+        kind="quiz",
+        payload={"prompt_vi": "?", "options": ["a"], "correct_index": 0},
+    )
     return a1
 
 

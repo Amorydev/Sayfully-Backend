@@ -80,10 +80,18 @@ def test_chang_du_cap_cho_do_kho_cao_nhat():
 @pytest.mark.parametrize(
     "difficulty,moves,expected",
     [
-        ("easy", 8, 3), ("easy", 11, 2), ("easy", 12, 1),
-        ("medium", 10, 3), ("medium", 14, 2), ("medium", 15, 1),
-        ("hard", 13, 3), ("hard", 18, 2), ("hard", 19, 1),
-        ("expert", 15, 3), ("expert", 21, 2), ("expert", 22, 1),
+        ("easy", 8, 3),
+        ("easy", 11, 2),
+        ("easy", 12, 1),
+        ("medium", 10, 3),
+        ("medium", 14, 2),
+        ("medium", 15, 1),
+        ("hard", 13, 3),
+        ("hard", 18, 2),
+        ("hard", 19, 1),
+        ("expert", 15, 3),
+        ("expert", 21, 2),
+        ("expert", 22, 1),
     ],
 )
 def test_stars_for(difficulty, moves, expected):
@@ -217,7 +225,10 @@ def test_stages_chang_dau_mo_khoa(api, token, user):
     assert body["stages"][0]["is_unlocked"] is True
     assert body["stages"][1]["is_unlocked"] is False
     assert [d["code"] for d in body["stages"][0]["difficulties"]] == [
-        "easy", "medium", "hard", "expert"
+        "easy",
+        "medium",
+        "hard",
+        "expert",
     ]
     assert body["stages"][0]["difficulties"][0]["pairs"] == 6
     assert body["stages"][0]["difficulties"][0]["three_star_moves"] == 8
@@ -366,9 +377,7 @@ def test_round_doi_cap_moi_lan_goi(api, token, user):
     stage = _stage()
     seen = set()
     for _ in range(12):
-        body = api.get(
-            f"/match-pairs/stages/{stage.id}/round?difficulty=easy", token=token
-        ).json()
+        body = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=easy", token=token).json()
         seen.add(tuple(sorted(p["english"] for p in body["pairs"])))
     assert len(seen) > 1
 
@@ -479,9 +488,7 @@ def test_result_choi_lai_khong_bao_mo_khoa_nua(api, token, user):
     _match_pairs_game()
     s0 = _stage(code="s0", order=0)
     _stage(code="s1", order=1)
-    api.post(
-        f"/match-pairs/stages/{s0.id}/result", {"difficulty": "easy", "moves": 7}, token=token
-    )
+    api.post(f"/match-pairs/stages/{s0.id}/result", {"difficulty": "easy", "moves": 7}, token=token)
     body = api.post(
         f"/match-pairs/stages/{s0.id}/result", {"difficulty": "hard", "moves": 13}, token=token
     ).json()

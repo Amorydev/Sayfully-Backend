@@ -57,20 +57,62 @@ TODAY_ACTIVITY = {
 }
 # Các ngày trước (gần -> xa), lặp lại nếu chuỗi dài hơn danh sách.
 PAST_ACTIVITY = [
-    {"xp": 420, "words_reviewed": 46, "speaking_count": 22, "listening_count": 15,
-     "lessons_completed": 6, "minutes": 52},
-    {"xp": 450, "words_reviewed": 52, "speaking_count": 26, "listening_count": 17,
-     "lessons_completed": 7, "minutes": 58},
-    {"xp": 430, "words_reviewed": 48, "speaking_count": 24, "listening_count": 16,
-     "lessons_completed": 6, "minutes": 55},
-    {"xp": 385, "words_reviewed": 40, "speaking_count": 19, "listening_count": 13,
-     "lessons_completed": 5, "minutes": 47},
-    {"xp": 465, "words_reviewed": 55, "speaking_count": 27, "listening_count": 18,
-     "lessons_completed": 7, "minutes": 60},
-    {"xp": 405, "words_reviewed": 43, "speaking_count": 21, "listening_count": 14,
-     "lessons_completed": 6, "minutes": 50},
-    {"xp": 395, "words_reviewed": 41, "speaking_count": 20, "listening_count": 14,
-     "lessons_completed": 5, "minutes": 49},
+    {
+        "xp": 420,
+        "words_reviewed": 46,
+        "speaking_count": 22,
+        "listening_count": 15,
+        "lessons_completed": 6,
+        "minutes": 52,
+    },
+    {
+        "xp": 450,
+        "words_reviewed": 52,
+        "speaking_count": 26,
+        "listening_count": 17,
+        "lessons_completed": 7,
+        "minutes": 58,
+    },
+    {
+        "xp": 430,
+        "words_reviewed": 48,
+        "speaking_count": 24,
+        "listening_count": 16,
+        "lessons_completed": 6,
+        "minutes": 55,
+    },
+    {
+        "xp": 385,
+        "words_reviewed": 40,
+        "speaking_count": 19,
+        "listening_count": 13,
+        "lessons_completed": 5,
+        "minutes": 47,
+    },
+    {
+        "xp": 465,
+        "words_reviewed": 55,
+        "speaking_count": 27,
+        "listening_count": 18,
+        "lessons_completed": 7,
+        "minutes": 60,
+    },
+    {
+        "xp": 405,
+        "words_reviewed": 43,
+        "speaking_count": 21,
+        "listening_count": 14,
+        "lessons_completed": 6,
+        "minutes": 50,
+    },
+    {
+        "xp": 395,
+        "words_reviewed": 41,
+        "speaking_count": 20,
+        "listening_count": 14,
+        "lessons_completed": 5,
+        "minutes": 49,
+    },
 ]
 # Chuỗi cũ (trước một khoảng nghỉ) để streak_best và xp_total có gốc thật.
 GAP_DAYS = 2
@@ -79,30 +121,110 @@ OLD_STREAK = [165, 190, 145, 210, 175, 130, 155]
 # Nhiệm vụ hằng ngày — thứ tự hiển thị theo (tier, code).
 # metric quyết định icon/màu trên màn: xp · words · speaking · lessons · còn lại = gamepad.
 DAILY_CHALLENGES = [
-    ("daily_xp", "xp", 1, "Kiếm 100 XP hôm nay",
-     "Học bài, ôn từ hay chơi mini-game đều được tính XP.", 100, 0, 20),
-    ("daily_words", "words", 2, "Ôn 20 từ vựng",
-     "Mở hộp ôn tập và trả lời hết số thẻ đến hạn hôm nay.", 20, 0, 15),
-    ("daily_speak", "speaking", 3, "Phát âm chuẩn 15 câu",
-     "Vào Luyện nói, đọc theo và đạt điểm phát âm từ 80% trở lên.", 15, 0, 25),
-    ("daily_lesson", "lessons", 4, "Hoàn thành 1 bài học",
-     "Học xong một bài trong lộ trình, đủ 9 màn từ từ vựng đến quiz.", 1, 10, 15),
-    ("daily_active", "days", 5, "Mở app và học hôm nay",
-     "Chỉ cần có hoạt động ghi nhận trong ngày là đạt.", 1, 5, 5),
-    ("daily_exam", "exams", 6, "Làm 1 đề luyện thi",
-     "Chọn một đề trong Luyện thi và làm hết phần đầu tiên.", 1, 20, 30),
+    (
+        "daily_xp",
+        "xp",
+        1,
+        "Kiếm 100 XP hôm nay",
+        "Học bài, ôn từ hay chơi mini-game đều được tính XP.",
+        100,
+        0,
+        20,
+    ),
+    (
+        "daily_words",
+        "words",
+        2,
+        "Ôn 20 từ vựng",
+        "Mở hộp ôn tập và trả lời hết số thẻ đến hạn hôm nay.",
+        20,
+        0,
+        15,
+    ),
+    (
+        "daily_speak",
+        "speaking",
+        3,
+        "Phát âm chuẩn 15 câu",
+        "Vào Luyện nói, đọc theo và đạt điểm phát âm từ 80% trở lên.",
+        15,
+        0,
+        25,
+    ),
+    (
+        "daily_lesson",
+        "lessons",
+        4,
+        "Hoàn thành 1 bài học",
+        "Học xong một bài trong lộ trình, đủ 9 màn từ từ vựng đến quiz.",
+        1,
+        10,
+        15,
+    ),
+    (
+        "daily_active",
+        "days",
+        5,
+        "Mở app và học hôm nay",
+        "Chỉ cần có hoạt động ghi nhận trong ngày là đạt.",
+        1,
+        5,
+        5,
+    ),
+    (
+        "daily_exam",
+        "exams",
+        6,
+        "Làm 1 đề luyện thi",
+        "Chọn một đề trong Luyện thi và làm hết phần đầu tiên.",
+        1,
+        20,
+        30,
+    ),
 ]
 
 # Nhiệm vụ tuần — cùng catalog, cho /challenges/weekly không rỗng.
 WEEKLY_CHALLENGES = [
-    ("weekly_lessons", "lessons", 1, "Học 10 bài trong tuần",
-     "Mỗi bài trong lộ trình được tính một lần.", 10, 100, 50),
-    ("weekly_xp", "xp", 2, "Tích luỹ 1.500 XP tuần này",
-     "XP tuần cũng là điểm xếp hạng liên đoàn.", 1500, 120, 60),
-    ("weekly_days", "days", 3, "Học đủ 5 ngày trong tuần",
-     "Giữ chuỗi để không mất bậc liên đoàn.", 5, 80, 40),
-    ("weekly_words", "words", 4, "Ôn 150 từ vựng trong tuần",
-     "Cộng dồn toàn bộ số thẻ đã ôn từ thứ Hai.", 150, 90, 45),
+    (
+        "weekly_lessons",
+        "lessons",
+        1,
+        "Học 10 bài trong tuần",
+        "Mỗi bài trong lộ trình được tính một lần.",
+        10,
+        100,
+        50,
+    ),
+    (
+        "weekly_xp",
+        "xp",
+        2,
+        "Tích luỹ 1.500 XP tuần này",
+        "XP tuần cũng là điểm xếp hạng liên đoàn.",
+        1500,
+        120,
+        60,
+    ),
+    (
+        "weekly_days",
+        "days",
+        3,
+        "Học đủ 5 ngày trong tuần",
+        "Giữ chuỗi để không mất bậc liên đoàn.",
+        5,
+        80,
+        40,
+    ),
+    (
+        "weekly_words",
+        "words",
+        4,
+        "Ôn 150 từ vựng trong tuần",
+        "Cộng dồn toàn bộ số thẻ đã ôn từ thứ Hai.",
+        150,
+        90,
+        45,
+    ),
 ]
 
 # Trạng thái nhận thưởng gieo sẵn (code -> đã nhận chưa).
@@ -175,11 +297,19 @@ class Command(BaseCommand):
         old_start = streak + GAP_DAYS
         for i, xp in enumerate(OLD_STREAK):
             day = today - timedelta(days=old_start + i)
-            plan.append((day, {"xp": xp, "words_reviewed": max(8, xp // 9),
-                               "speaking_count": max(3, xp // 22),
-                               "listening_count": max(2, xp // 30),
-                               "lessons_completed": max(1, xp // 90),
-                               "minutes": max(6, xp // 8)}))
+            plan.append(
+                (
+                    day,
+                    {
+                        "xp": xp,
+                        "words_reviewed": max(8, xp // 9),
+                        "speaking_count": max(3, xp // 22),
+                        "listening_count": max(2, xp // 30),
+                        "lessons_completed": max(1, xp // 90),
+                        "minutes": max(6, xp // 8),
+                    },
+                )
+            )
 
         # Xoá hoạt động cũ trong khoảng đang gieo để khoảng nghỉ thật là nghỉ.
         oldest = today - timedelta(days=old_start + len(OLD_STREAK) - 1)
@@ -189,9 +319,7 @@ class Command(BaseCommand):
 
         rows = []
         for day, values in plan:
-            row, _ = DailyActivity.objects.update_or_create(
-                user=user, date=day, defaults=values
-            )
+            row, _ = DailyActivity.objects.update_or_create(user=user, date=day, defaults=values)
             rows.append(row)
         return rows
 
@@ -210,16 +338,26 @@ class Command(BaseCommand):
         profile.streak_current = streak
         profile.streak_best = max(streak, len(OLD_STREAK))
         profile.last_active_date = today
-        profile.save(update_fields=[
-            "xp_total", "level", "coins", "hearts", "hearts_updated_at",
-            "streak_current", "streak_best", "last_active_date",
-        ])
+        profile.save(
+            update_fields=[
+                "xp_total",
+                "level",
+                "coins",
+                "hearts",
+                "hearts_updated_at",
+                "streak_current",
+                "streak_best",
+                "last_active_date",
+            ]
+        )
 
     @staticmethod
     def _weekly_stat(user, today, week_xp: int, week_days: int) -> None:
         iso = today.isocalendar()
         WeeklyStat.objects.update_or_create(
-            user=user, iso_year=iso[0], iso_week=iso[1],
+            user=user,
+            iso_year=iso[0],
+            iso_week=iso[1],
             defaults={"xp": week_xp, "days_active": week_days},
         )
 
@@ -240,9 +378,7 @@ class Command(BaseCommand):
         seeded = {user.id}
 
         def member(email: str, name: str, xp: int) -> None:
-            other, created = User.objects.get_or_create(
-                email=email, defaults={"full_name": name}
-            )
+            other, created = User.objects.get_or_create(email=email, defaults={"full_name": name})
             if created:
                 other.set_unusable_password()
                 other.save()
@@ -252,7 +388,9 @@ class Command(BaseCommand):
                 group=group, user=other, defaults={"xp_week": xp}
             )
             WeeklyStat.objects.update_or_create(
-                user=other, iso_year=iso_year, iso_week=iso_week,
+                user=other,
+                iso_year=iso_year,
+                iso_week=iso_week,
                 defaults={"xp": xp, "days_active": min(7, today.weekday() + 1)},
             )
 
@@ -280,9 +418,15 @@ class Command(BaseCommand):
             Challenge.objects.update_or_create(
                 code=code,
                 defaults={
-                    "scope": scope, "metric": metric, "tier": tier,
-                    "title_vi": title, "description_vi": desc, "target": target,
-                    "reward_xp": rx, "reward_coins": rc, "is_active": True,
+                    "scope": scope,
+                    "metric": metric,
+                    "tier": tier,
+                    "title_vi": title,
+                    "description_vi": desc,
+                    "target": target,
+                    "reward_xp": rx,
+                    "reward_coins": rc,
+                    "is_active": True,
                 },
             )
 
@@ -298,7 +442,9 @@ class Command(BaseCommand):
             for ch in Challenge.objects.filter(code__in=codes):
                 claimed = ch.code in claimed_codes
                 UserChallenge.objects.update_or_create(
-                    user=user, challenge=ch, period_key=pk,
+                    user=user,
+                    challenge=ch,
+                    period_key=pk,
                     defaults={
                         "progress": ch.target if claimed else 0,
                         "completed_at": now if claimed else None,
@@ -315,7 +461,9 @@ class Command(BaseCommand):
         ).delete()
         if want:
             CoinTransaction.objects.create(
-                user=user, amount=CHECKIN_COINS, reason="checkin",
+                user=user,
+                amount=CHECKIN_COINS,
+                reason="checkin",
                 balance_after=profile.coins,
             )
         return want
@@ -324,11 +472,13 @@ class Command(BaseCommand):
     def _report(self, user, profile, today, streak, week_xp, group, size, checked_in) -> None:
         target = {1: 600, 2: 900, 3: 1200, 4: 1500, 5: 1800}[group.tier]
         done = sum(1 for c in DAILY_CHALLENGES if self._reached(c, today))
-        self.stdout.write(self.style.SUCCESS(
-            f"✔ Màn Thử thách của {user.email}: "
-            f"Lv.{profile.level} · {profile.xp_total} XP · {profile.coins} xu · "
-            f"{profile.hearts} tim · chuỗi {streak} ngày"
-        ))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"✔ Màn Thử thách của {user.email}: "
+                f"Lv.{profile.level} · {profile.xp_total} XP · {profile.coins} xu · "
+                f"{profile.hearts} tim · chuỗi {streak} ngày"
+            )
+        )
         self.stdout.write(
             f"  Liên đoàn {group.get_tier_display()} {group.iso_year}-W{group.iso_week:02d}: "
             f"{week_xp}/{target} XP ({round(week_xp / target * 100)}%), "
@@ -355,8 +505,12 @@ class Command(BaseCommand):
     @staticmethod
     def _reached(challenge: tuple, today) -> bool:
         _code, metric, _tier, _title, _desc, target, _rx, _rc = challenge
-        field = {"xp": "xp", "words": "words_reviewed",
-                 "lessons": "lessons_completed", "speaking": "speaking_count"}.get(metric)
+        field = {
+            "xp": "xp",
+            "words": "words_reviewed",
+            "lessons": "lessons_completed",
+            "speaking": "speaking_count",
+        }.get(metric)
         if metric == "days":
             return target <= 1
         return field is not None and TODAY_ACTIVITY[field] >= target

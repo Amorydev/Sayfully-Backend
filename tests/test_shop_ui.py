@@ -15,7 +15,9 @@ def token(api, user, password):
 
 
 def _item(code, cost, effect):
-    return ShopItem.objects.create(code=code, title_vi=code, description_vi="x", cost_coins=cost, effect=effect)
+    return ShopItem.objects.create(
+        code=code, title_vi=code, description_vi="x", cost_coins=cost, effect=effect
+    )
 
 
 def _purchase(client, token, item_id, key="k1"):

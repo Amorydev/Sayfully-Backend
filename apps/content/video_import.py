@@ -22,6 +22,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Count, F
 from django.utils import timezone as djtz
 
 from apps.accounts.models import UserProfile
@@ -457,12 +458,13 @@ def can_view(profile: UserProfile, video: Video) -> bool:
 
 
 def library(profile: UserProfile) -> list[Video]:
-    return [
-        entry.video
-        for entry in UserVideoLibrary.objects.filter(user=profile.user)
-        .select_related("video", "video__level")
+    """Video đã thêm, mới nhất trước; kèm `added_at` và `n_subs` để danh sách không N+1."""
+    return list(
+        Video.objects.filter(library_entries__user=profile.user)
+        .select_related("level")
+        .annotate(added_at=F("library_entries__added_at"), n_subs=Count("subtitles"))
         .order_by("-added_at")
-    ]
+    )
 
 
 def remove_from_library(profile: UserProfile, video_id: int) -> bool:
@@ -471,12 +473,27 @@ def remove_from_library(profile: UserProfile, video_id: int) -> bool:
 
 
 def added_label(video: Video, profile: UserProfile) -> str:
-    entry = UserVideoLibrary.objects.filter(user=profile.user, video=video).first()
-    if entry is None:
-        return ""
-    days = (djtz.now() - entry.added_at).days
-    if days <= 0:
-        return "Thêm hôm nay"
-    if days == 1:
-        return "Thêm hôm qua"
-    return f"Thêm {days} ngày trước"
+    added_at = getattr(video, "added_at", None)
+    if added_at is None:
+        entry = UserVideoLibrary.objects.filter(user=profile.user, video=video).first()
+        if entry is None:
+            return ""
+        added_at = entry.added_at
+    return _ago_label("Thêm", added_at)
+
+
+def practiced_label(at: datetime | None) -> str:
+    return _ago_label("Đã luyện", at) if at else ""
+
+
+def _ago_label(prefix: str, at: datetime) -> str:
+    delta = djtz.now() - at
+    if delta.days <= 0:
+        hours = delta.seconds // 3600
+        if hours <= 0:
+            minutes = max(1, delta.seconds // 60)
+            return f"{prefix} {minutes} phút trước"
+        return f"{prefix} {hours} giờ trước"
+    if delta.days == 1:
+        return f"{prefix} hôm qua"
+    return f"{prefix} {delta.days} ngày trước"

@@ -1,4 +1,5 @@
 """Tầng token: cấp, giải mã, và các trường hợp token hỏng."""
+
 import uuid
 from datetime import timedelta
 
@@ -28,9 +29,13 @@ def test_access_token_het_han_bi_tu_choi(user):
 
 def test_chu_ky_sai_bi_tu_choi(user):
     gia_mao = jwt.encode(
-        {"sub": str(user.id), "typ": "access",
-         "exp": int((timezone.now() + timedelta(minutes=5)).timestamp())},
-        "khoa-sai", algorithm="HS256",
+        {
+            "sub": str(user.id),
+            "typ": "access",
+            "exp": int((timezone.now() + timedelta(minutes=5)).timestamp()),
+        },
+        "khoa-sai",
+        algorithm="HS256",
     )
     with pytest.raises(Unauthorized) as exc:
         decode_access(gia_mao)
@@ -46,9 +51,13 @@ def test_refresh_khong_dung_duoc_nhu_access(user):
 
 def test_token_sai_loai_bi_tu_choi(user):
     sai_loai = jwt.encode(
-        {"sub": str(user.id), "typ": "refresh",
-         "exp": int((timezone.now() + timedelta(minutes=5)).timestamp())},
-        settings.JWT_SIGNING_KEY, algorithm=settings.JWT_ALGORITHM,
+        {
+            "sub": str(user.id),
+            "typ": "refresh",
+            "exp": int((timezone.now() + timedelta(minutes=5)).timestamp()),
+        },
+        settings.JWT_SIGNING_KEY,
+        algorithm=settings.JWT_ALGORITHM,
     )
     with pytest.raises(Unauthorized) as exc:
         decode_access(sai_loai)
@@ -58,6 +67,6 @@ def test_token_sai_loai_bi_tu_choi(user):
 def test_refresh_luu_hash_khong_luu_ban_goc(user):
     raw, obj = issue_refresh(user)
     assert obj.token_hash != raw
-    assert len(obj.token_hash) == 64          # sha256 hex
+    assert len(obj.token_hash) == 64  # sha256 hex
     assert obj.family_id is not None
     assert isinstance(obj.family_id, uuid.UUID)

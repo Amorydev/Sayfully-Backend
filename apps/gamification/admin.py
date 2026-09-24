@@ -50,7 +50,16 @@ class LeagueGroupAdmin(admin.ModelAdmin):
 
 @admin.register(m.ShopItem)
 class ShopItemAdmin(admin.ModelAdmin):
-    list_display = ("code", "title_vi", "category", "cost_coins", "discount_pct", "sale_until", "order", "is_active")
+    list_display = (
+        "code",
+        "title_vi",
+        "category",
+        "cost_coins",
+        "discount_pct",
+        "sale_until",
+        "order",
+        "is_active",
+    )
     list_filter = ("category", "is_active")
 
 

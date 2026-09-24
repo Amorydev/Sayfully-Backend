@@ -909,7 +909,9 @@ class Command(BaseCommand):
             ],
             start=1,
         ):
-            VideoCategory.objects.update_or_create(name=name, defaults={"subtitle": subtitle, "order": order})
+            VideoCategory.objects.update_or_create(
+                name=name, defaults={"subtitle": subtitle, "order": order}
+            )
 
         b1 = Level.objects.get(code="B1")
         _videos = [
@@ -1119,7 +1121,12 @@ class Command(BaseCommand):
                 "explanation_vi": "Rời giường sau khi ngủ.",
                 "level": a1,
                 "examples": [
-                    {"en": "I get up at 6.", "vi": "Tôi dậy lúc 6 giờ.", "audio_us_path": "", "audio_uk_path": ""}
+                    {
+                        "en": "I get up at 6.",
+                        "vi": "Tôi dậy lúc 6 giờ.",
+                        "audio_us_path": "",
+                        "audio_uk_path": "",
+                    }
                 ],
             },
         )

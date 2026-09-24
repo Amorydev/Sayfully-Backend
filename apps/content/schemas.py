@@ -553,6 +553,7 @@ class UserVideoOut(Schema):
     id: int
     youtube_id: str
     title: str
+    title_en: str = ""
     channel: str
     duration_sec: int
     level: str | None
@@ -561,6 +562,8 @@ class UserVideoOut(Schema):
     error_message: str = ""
     thumbnail_url: str
     added_label: str = ""
+    # "Đã luyện 2 giờ trước" — rỗng khi chưa luyện câu nào.
+    practiced_label: str = ""
     sentence_count: int = 0
     practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
 
@@ -574,6 +577,8 @@ class UserVideoListOut(Schema):
     items: list[UserVideoOut]
     quota: VideoQuotaOut
     can_import: bool
+    # False khi hết hạn Premium: video vẫn liệt kê nhưng khoá, dẫn tới gia hạn.
+    is_premium: bool = False
 
 
 class ShadowingDeckOut(Schema):

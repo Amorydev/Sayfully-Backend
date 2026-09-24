@@ -108,14 +108,60 @@ def grant_premium(
     _apply_grant(ensure_profile(user), tier=tier, expires_at=expires_at)
 
 
-def grant_coin_pack(user, product: Product, *, event_id: str) -> int:
-    """Gói xu mua bằng tiền: cộng xu + ghi sổ (reason=coin_pack, ref=event_id)."""
+COIN_PACK_REF = "store_txn"
+
+
+def _locked_profile(user):
+    from apps.accounts.models import UserProfile  # noqa: PLC0415
+
+    ensure_profile(user)
+    return UserProfile.objects.select_for_update().get(user=user)
+
+
+def _coin_entry_exists(user, reason: str, txn_id: str) -> bool:
+    from apps.gamification.models import CoinTransaction  # noqa: PLC0415
+
+    return CoinTransaction.objects.filter(
+        user=user, reason=reason, ref_type=COIN_PACK_REF, ref_id=txn_id
+    ).exists()
+
+
+def grant_coin_pack(user, product: Product, *, txn_id: str) -> bool:
+    """Cộng xu cho một giao dịch store. Webhook và sync cùng gọi → khoá profile, mỗi txn một lần."""
     from apps.gamification.shop import grant_coins  # noqa: PLC0415 — tránh import vòng
 
-    profile = ensure_profile(user)
-    return grant_coins(
-        profile, product.coins, reason="coin_pack", ref_type="payment", ref_id=event_id
-    )
+    with transaction.atomic():
+        profile = _locked_profile(user)
+        if _coin_entry_exists(user, "coin_pack", txn_id):
+            return False
+        grant_coins(
+            profile, product.coins, reason="coin_pack", ref_type=COIN_PACK_REF, ref_id=txn_id
+        )
+    return True
+
+
+def refund_coin_pack(user, product: Product, *, txn_id: str) -> int:
+    """Store hoàn tiền gói xu → trừ lại số xu đã cộng (không âm ví). Trả về số xu đã trừ."""
+    from apps.gamification.models import CoinTransaction  # noqa: PLC0415
+
+    with transaction.atomic():
+        profile = _locked_profile(user)
+        if not _coin_entry_exists(user, "coin_pack", txn_id) or _coin_entry_exists(
+            user, "coin_pack_refund", txn_id
+        ):
+            return 0
+        amount = min(product.coins, profile.coins)
+        profile.coins -= amount
+        profile.save(update_fields=["coins"])
+        CoinTransaction.objects.create(
+            user=user,
+            amount=-amount,
+            reason="coin_pack_refund",
+            ref_type=COIN_PACK_REF,
+            ref_id=txn_id,
+            balance_after=profile.coins,
+        )
+    return amount
 
 
 def _recompute(profile, now=None) -> None:
@@ -182,11 +228,16 @@ def process_payment_event(
     expires_at,
     payload,
     txn_id="",
+    store_txn_id="",
     store="",
     will_renew=None,
     transferred_from=(),
 ):
-    """Xử lý 1 sự kiện thanh toán. Gọi lại cùng event_id → không xử lý hai lần."""
+    """Xử lý 1 sự kiện thanh toán. Gọi lại cùng event_id → không xử lý hai lần.
+
+    Gói xu chống cộng đôi theo mã giao dịch store (`store_txn_id`), vì `/billing/sync` cũng cộng
+    cùng giao dịch đó; cổng không có mã giao dịch thì dùng `event_id`.
+    """
     with transaction.atomic():
         event, created = PaymentEvent.objects.get_or_create(
             event_id=event_id,
@@ -206,8 +257,12 @@ def process_payment_event(
                 _revoke_by_user_id(uid, provider)
         elif user is None or et in IGNORED_EVENTS:
             pass
-        elif et in GRANT_EVENTS and product and product.kind == Product.Kind.COINS:
-            grant_coin_pack(user, product, event_id=event_id)
+        elif product and product.kind == Product.Kind.COINS:
+            coin_txn = store_txn_id or txn_id or event_id
+            if et in GRANT_EVENTS:
+                grant_coin_pack(user, product, txn_id=coin_txn)
+            elif et in CANCEL_EVENTS | REVOKE_EVENTS:
+                refund_coin_pack(user, product, txn_id=coin_txn)
         elif et in GRANT_EVENTS and product is None:
             logger.warning("billing: %s %s không khớp Product nào (%s)", provider, et, product_code)
         elif et in GRANT_EVENTS:
@@ -286,7 +341,7 @@ def sync_from_store(user, subscriber: dict | None, *, provider="revenuecat") -> 
     """Đối chiếu `subscriber` (REST v1) với DB: entitlement còn hạn → grant, hết hạn → thu hồi.
 
     Upsert theo `txn_id="rc:<product_identifier>"` nên gọi lại nhiều lần không tạo dòng mới.
-    Gói xu KHÔNG cộng ở đây (chỉ webhook, idempotent theo event_id) để không cộng đôi.
+    Gói xu (`non_subscriptions`) cộng theo mã giao dịch store — trùng với webhook thì bỏ qua.
     Trả về True khi có thay đổi quyền.
     """
     now = djtz.now()
@@ -326,6 +381,15 @@ def sync_from_store(user, subscriber: dict | None, *, provider="revenuecat") -> 
                 will_renew=expires_at is not None and not sub.get("unsubscribe_detected_at"),
             )
             changed = True
+
+    for product_id, purchases in ((subscriber or {}).get("non_subscriptions") or {}).items():
+        product = resolve_product(provider, product_id)
+        if product is None or product.kind != Product.Kind.COINS:
+            continue
+        for purchase in purchases or []:
+            txn = str(purchase.get("store_transaction_id") or purchase.get("id") or "")
+            if txn:
+                grant_coin_pack(user, product, txn_id=txn)
 
     # Gói RC từng cấp mà giờ không còn entitlement hiệu lực (hết hạn/biến mất) → đóng lại.
     stale = Subscription.objects.filter(

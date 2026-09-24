@@ -59,6 +59,7 @@ def _extract(body: dict) -> dict:
         "product_code": ev.get("product_id") or ev.get("product_code") or "",
         "expires_at": _ms_to_dt(ev.get("expiration_at_ms")) or _iso(ev.get("expires_at")),
         "txn_id": str(ev.get("original_transaction_id") or ev.get("transaction_id") or ""),
+        "store_txn_id": str(ev.get("transaction_id") or ""),
         "store": _STORES.get(str(ev.get("store") or "").upper(), ev.get("store") or ""),
         "transferred_from": ev.get("transferred_from") or [],
     }
@@ -144,7 +145,8 @@ def subscription(request):
     summary="Đối chiếu quyền với RevenueCat",
     description=(
         "App gọi sau khi store xác nhận mua / khôi phục. Server hỏi RevenueCat REST bằng secret "
-        "key rồi grant/thu hồi như webhook — không tin CustomerInfo từ client. Subscriber chưa "
+        "key rồi grant/thu hồi như webhook — không tin CustomerInfo từ client. Gói xu trong "
+        "`non_subscriptions` được cộng theo mã giao dịch store (mỗi giao dịch một lần). Subscriber chưa "
         "tồn tại → trả trạng thái hiện tại. 503 `store_sync_failed` khi RevenueCat không phản hồi."
     ),
 )
@@ -231,6 +233,7 @@ def _handle_webhook(request, provider, secret_setting):
             expires_at=data["expires_at"],
             payload=payload,
             txn_id=data["txn_id"],
+            store_txn_id=data["store_txn_id"],
             store=data["store"],
             transferred_from=data["transferred_from"],
         )
@@ -247,7 +250,8 @@ def _handle_webhook(request, provider, secret_setting):
         "map `product_id` qua `Product.store_ids.revenuecat`. INITIAL_PURCHASE/RENEWAL/"
         "UNCANCELLATION/PRODUCT_CHANGE/NON_RENEWING_PURCHASE → grant · CANCELLATION → "
         "chỉ tắt `will_renew` · BILLING_ISSUE → grace · EXPIRATION → thu hồi · TRANSFER → "
-        "thu hồi user cũ."
+        "thu hồi user cũ. Gói xu (`kind=coins`): NON_RENEWING_PURCHASE cộng xu theo "
+        "`transaction_id` (không cộng đôi với `/billing/sync`), CANCELLATION = hoàn tiền → trừ xu."
     ),
 )
 def revenuecat_webhook(request):

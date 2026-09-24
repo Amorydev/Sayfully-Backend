@@ -69,8 +69,14 @@ def test_evaluate_thiet_bi_khong_dat():
 
 def test_request_hash_khop_dinh_dang_client():
     # Chuỗi này được app dựng y hệt (IntegrityRequestHash.kt) — đổi một bên phải đổi cả hai.
-    assert integrity.score_request_hash("word_rain", 800, 60, "A1", 3, True) == "word_rain|800|60|A1|3|true"
-    assert integrity.score_request_hash("word_rain", 5, 0, None, None, False) == "word_rain|5|0|||false"
+    assert (
+        integrity.score_request_hash("word_rain", 800, 60, "A1", 3, True)
+        == "word_rain|800|60|A1|3|true"
+    )
+    assert (
+        integrity.score_request_hash("word_rain", 5, 0, None, None, False)
+        == "word_rain|5|0|||false"
+    )
     assert integrity.match_pairs_request_hash(7, "easy", 12, 40) == "match_pairs|7|easy|12|40"
 
 
@@ -135,8 +141,12 @@ def test_mode_enforce_token_cua_request_khac_403(api, token, user, settings, dec
 
 def test_mode_log_google_loi_ghi_invalid(api, token, user, settings, monkeypatch):
     settings.PLAY_INTEGRITY_MODE = "log"
-    monkeypatch.setattr(integrity, "decode_token", lambda t: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(
+        integrity, "decode_token", lambda t: (_ for _ in ()).throw(RuntimeError("down"))
+    )
     _game()
-    r = api.post("/games/word_rain/scores", {"score": 10}, token=token, headers={"X-Integrity-Token": "x"})
+    r = api.post(
+        "/games/word_rain/scores", {"score": 10}, token=token, headers={"X-Integrity-Token": "x"}
+    )
     assert r.status_code == 200
     assert GameScore.objects.get(user=user).integrity == integrity.INVALID

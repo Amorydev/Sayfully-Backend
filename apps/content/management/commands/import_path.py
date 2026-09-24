@@ -473,7 +473,9 @@ class Command(BaseCommand):
         counter = defaultdict(int)
         self.GP = {}
         n_new = 0
-        extras_path = self.crawl / "framework" / "grammar_extras.json"  # ghi chú Bé Long, mẹo phản xạ, mẫu KĐ/PĐ (viết tay)
+        extras_path = (
+            self.crawl / "framework" / "grammar_extras.json"
+        )  # ghi chú Bé Long, mẹo phản xạ, mẫu KĐ/PĐ (viết tay)
         extras = json.load(open(extras_path, encoding="utf-8")) if extras_path.exists() else {}
         for g in self.F["grammar_points"]:
             ref = str(g["id"])
@@ -492,7 +494,9 @@ class Command(BaseCommand):
                 common_mistake_vi=x.get("common_mistake_vi", ""),
                 mistake_wrong=x.get("mistake_wrong", "")[:160],
                 mistake_right=x.get("mistake_right", "")[:160],
-                conjugation=[{"subject": p["label"], "form": p["value"]} for p in x.get("patterns", [])],
+                conjugation=[
+                    {"subject": p["label"], "form": p["value"]} for p in x.get("patterns", [])
+                ],
                 source_ref=ref,
                 super_category=g["super_category"][:32],
                 sub_category=(g.get("sub_category") or "")[:96],
