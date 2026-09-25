@@ -1035,7 +1035,8 @@ def _difficulty_rows(
     "/match-pairs/stages",
     response={200: s.MatchPairsStageMapOut, 401: ErrorOut},
     summary="Bản đồ chặng Ghép cặp",
-    description="Chặng biên tập tay kèm sao của từng độ khó. Chặng 0 luôn mở; "
+    description="Chặng biên tập tay rồi tới chặng sinh từ bộ Oxford (A1 → C1), kèm sao của từng "
+    "độ khó. Chặng 0 luôn mở; "
     "chặng n mở khi chặng n-1 đã chơi ít nhất một độ khó.",
 )
 def match_pairs_stages(request):

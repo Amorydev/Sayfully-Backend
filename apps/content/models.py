@@ -326,13 +326,17 @@ class VocabularyQuerySet(models.QuerySet):
         """Từ có hạng tần suất lên trước, còn lại A–Z không phân biệt hoa thường (tên riêng không dồn lên đầu)."""
         return self.order_by(F("frequency_rank").asc(nulls_last=True), Lower("headword"), "id")
 
+    def game_words(self):
+        """Từ đơn viết thường dùng được cho game: bỏ tên riêng, viết tắt và cụm từ."""
+        return self.filter(category="word", headword__regex=r"^[a-z]+(-[a-z]+)*$")
+
     def for_game(self):
-        """Từ đơn viết thường cho game: bỏ tên riêng, viết tắt và cụm từ; từ ngắn (thường cơ bản hơn) lên trước.
+        """[game_words] với từ ngắn (thường cơ bản hơn) lên trước.
 
         Thứ tự này quyết định từ của từng chặng (offset = chặng × cỡ chặng), nên danh sách từ và
         số chặng phải cùng dùng hàm này.
         """
-        return self.filter(category="word", headword__regex=r"^[a-z]+(-[a-z]+)*$").order_by(
+        return self.game_words().order_by(
             F("frequency_rank").asc(nulls_last=True), Length("headword"), "headword", "id"
         )
 

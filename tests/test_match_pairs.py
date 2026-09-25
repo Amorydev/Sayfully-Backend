@@ -80,10 +80,10 @@ def test_chang_du_cap_cho_do_kho_cao_nhat():
 @pytest.mark.parametrize(
     "difficulty,moves,expected",
     [
-        ("easy", 8, 3), ("easy", 11, 2), ("easy", 12, 1),
-        ("medium", 10, 3), ("medium", 14, 2), ("medium", 15, 1),
-        ("hard", 13, 3), ("hard", 18, 2), ("hard", 19, 1),
-        ("expert", 15, 3), ("expert", 21, 2), ("expert", 22, 1),
+        ("easy", 11, 3), ("easy", 15, 2), ("easy", 16, 1),
+        ("medium", 14, 3), ("medium", 20, 2), ("medium", 21, 1),
+        ("hard", 18, 3), ("hard", 25, 2), ("hard", 26, 1),
+        ("expert", 21, 3), ("expert", 30, 2), ("expert", 31, 1),
     ],
 )
 def test_stars_for(difficulty, moves, expected):
@@ -220,7 +220,7 @@ def test_stages_chang_dau_mo_khoa(api, token, user):
         "easy", "medium", "hard", "expert"
     ]
     assert body["stages"][0]["difficulties"][0]["pairs"] == 6
-    assert body["stages"][0]["difficulties"][0]["three_star_moves"] == 8
+    assert body["stages"][0]["difficulties"][0]["three_star_moves"] == 11
 
 
 @pytest.mark.django_db
@@ -338,7 +338,7 @@ def test_thresholds_for_khop_stars_for():
         assert P.stars_for(d, two) == 2
         assert P.stars_for(d, two + 1) == 1
 
-    assert P.thresholds_for("expert") == (15, 21)
+    assert P.thresholds_for("expert") == (21, 30)
 
 
 @pytest.mark.django_db
@@ -347,7 +347,7 @@ def test_round_tra_dung_so_cap(api, token, user):
     body = api.get(f"/match-pairs/stages/{stage.id}/round?difficulty=easy", token=token).json()
     assert body["stage_id"] == stage.id and body["difficulty"] == "easy"
     assert len(body["pairs"]) == 6
-    assert body["three_star_moves"] == 8 and body["two_star_moves"] == 11
+    assert body["three_star_moves"] == 11 and body["two_star_moves"] == 15
 
 
 @pytest.mark.django_db
@@ -568,9 +568,9 @@ def test_result_dong_admin_0_luot_lay_luot_cua_van_dau(api, token, user):
         user=user, stage=stage, difficulty="easy", stars=0, best_moves=0, play_count=0
     )
     body = api.post(
-        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 9}, token=token
+        f"/match-pairs/stages/{stage.id}/result", {"difficulty": "easy", "moves": 13}, token=token
     ).json()
-    assert body["best_moves"] == 9 and body["stars"] == 2 and body["best_stars"] == 2
+    assert body["best_moves"] == 13 and body["stars"] == 2 and body["best_stars"] == 2
     row = MatchPairsProgress.objects.get(user=user, stage=stage, difficulty="easy")
     assert row.play_count == 1
 
@@ -601,3 +601,67 @@ def test_bang_xep_hang_hoa_diem_thu_tu_on_dinh(api, token, user):
     for body in calls:
         assert [e["name"] for e in body["entries"]] == expected_names
         assert body["my_rank"] == expected_rank
+
+
+def test_nghia_ngan_lay_y_dau_bo_ngoac():
+    from apps.gamification.match_pairs_pool import short_meaning
+
+    assert short_meaning("đồng ý, tán thành; thỏa thuận") == "Đồng ý, tán thành"
+    assert short_meaning("máy tính (xách tay)") == "Máy tính"
+    assert short_meaning("món rau củ trộn, sa-lát trộn dầu giấm") == "Món rau củ trộn"
+    assert short_meaning("một cụm nghĩa rất dài không có dấu phẩy nào") == ""
+
+
+def test_chang_sinh_tu_dong_khong_trung_nghia_trong_mot_chang():
+    from apps.gamification.match_pairs_pool import PAIRS_PER_STAGE, build_stages
+
+    words = [("road", "đường", "A1"), ("sugar", "đường", "A1")]
+    words += [(f"word{i}", f"nghĩa {i}", "A1") for i in range(PAIRS_PER_STAGE * 2)]
+    stages = build_stages(words)
+
+    assert [s["code"] for s in stages] == ["oxford-a1-001", "oxford-a1-002"]
+    for stage in stages:
+        meanings = [vi.lower() for _, vi in stage["pairs"]]
+        assert len(stage["pairs"]) == PAIRS_PER_STAGE and len(set(meanings)) == len(meanings)
+    assert ("Sugar", "Đường") in stages[1]["pairs"]
+
+
+def test_chang_sinh_tu_dong_bo_phan_le_va_tu_qua_dai():
+    from apps.gamification.match_pairs_pool import build_stages
+
+    words = [(f"w{i}", f"n {i}", "A2") for i in range(11)] + [("extraordinarily", "phi thường", "A2")]
+    assert build_stages(words) == []
+
+
+@pytest.mark.django_db
+def test_generate_match_pairs_tao_chang_choi_duoc_va_tat_chang_cu():
+    from django.core.management import call_command
+
+    from apps.content.models import (
+        Level,
+        Vocabulary,
+        VocabularyDeck,
+        VocabularyDeckCollection,
+        VocabularyDeckItem,
+    )
+
+    a1 = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, word_target=600, is_free=True)
+    collection = VocabularyDeckCollection.objects.create(code="oxford", title_vi="Oxford")
+    deck = VocabularyDeck.objects.create(collection=collection, code="oxford-a1", title_vi="Oxford A1")
+    words = [
+        Vocabulary.objects.create(headword=f"word{chr(97 + i)}", pos="n", level=a1, meaning_vi=f"nghĩa {i}")
+        for i in range(12)
+    ]
+    words.append(Vocabulary.objects.create(headword="orphan", pos="n", level=None, meaning_vi="mồ côi"))
+    for i, v in enumerate(words):
+        VocabularyDeckItem.objects.create(deck=deck, vocabulary=v, order=i)
+    old = _stage(code="oxford-a1-002", order=150)
+
+    call_command("generate_match_pairs")
+
+    stage = MatchPairsStage.objects.get(code="oxford-a1-001")
+    assert MatchPairsStage.objects.playable().filter(pk=stage.pk).exists()
+    assert stage.order >= 100 and stage.level == "A1"
+    assert not stage.pairs.filter(english="Orphan").exists()
+    old.refresh_from_db()
+    assert old.is_active is False

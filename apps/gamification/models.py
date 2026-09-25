@@ -335,9 +335,9 @@ class MatchPairsStageQuerySet(models.QuerySet):
 
 class MatchPairsStage(models.Model):
     """
-    Một chặng của Ghép cặp. Nội dung biên tập tay, không cắt từ kho từ vựng chung:
-    một ván cần các từ tiếng Anh phân biệt *và* các nghĩa tiếng Việt phân biệt, điều
-    mà lát cắt từ vựng theo tần suất không bảo đảm được.
+    Một chặng của Ghép cặp. Vài chặng đầu biên tập tay (seed_match_pairs); phần còn lại
+    sinh từ bộ từ vựng Oxford (generate_match_pairs), vốn tự lo cho mỗi chặng có từ tiếng
+    Anh phân biệt *và* nghĩa tiếng Việt phân biệt.
     """
 
     MIN_PAIRS = 12
@@ -417,9 +417,14 @@ class MatchPairsProgress(models.Model):
 
     @classmethod
     def thresholds_for(cls, difficulty: str) -> tuple[int, int]:
-        """(mốc 3 sao, mốc 2 sao) — tỉ lệ thuận số cặp; 12 cặp giữ đúng 15/21 client đang dùng."""
+        """(mốc 3 sao, mốc 2 sao) — tỉ lệ thuận số cặp.
+
+        Mặt sau thẻ ghi rõ EN/VI và mỗi lượt lật một thẻ mỗi bên; người nhớ đúng mọi vị trí vẫn
+        cần trung bình ~1,57 lượt mỗi cặp (mô phỏng). 3 sao ở 1,75× cho phép sai một hai lần,
+        thay cho mốc 1,25× cũ gần như chỉ đạt được nhờ may.
+        """
         pairs = cls.pairs_for(difficulty)
-        return math.ceil(pairs * 1.25), math.ceil(pairs * 1.75)
+        return math.ceil(pairs * 1.75), math.ceil(pairs * 2.5)
 
     @classmethod
     def stars_for(cls, difficulty: str, moves: int) -> int:
