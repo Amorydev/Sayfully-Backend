@@ -840,9 +840,9 @@ class Command(BaseCommand):
             )
             decks[code].items.all().delete()
 
-        # Gom từ trùng (headword, pos, nghĩa) giữa các bộ thành 1 Vocabulary; khác nghĩa → sense "", "s2", "s3"…
-        vocab_rows: dict[tuple, dict] = {}
-        senses: dict[tuple, int] = defaultdict(int)
+        # Mỗi (từ, loại từ) là 1 Vocabulary dù xuất hiện ở nhiều bộ với cách ghi nghĩa khác nhau;
+        # bộ nào cũng vẫn giữ thẻ của mình. Cấp CEFR xem merge_vocab_entries.
+        grouped: dict[tuple, list[dict]] = defaultdict(list)
         items: list[tuple] = []  # (deck_code, key, order, unit)
         order_in_deck: dict[str, int] = defaultdict(int)
         for r in self.rows("vocab"):
