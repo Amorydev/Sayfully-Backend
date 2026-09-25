@@ -81,11 +81,12 @@ _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
 
 def _suggested_scenarios(scenarios: list[tuple[RoleplayScenario, s.ScenarioOut]], profile) -> list[s.ScenarioOut]:
-    """Kịch bản hợp mục tiêu học: chưa làm lên trước, rồi cấp gần trình độ hồ sơ nhất."""
+    """Kịch bản hợp mục tiêu học: mở được trước, rồi chưa làm, rồi cấp gần trình độ hồ sơ nhất."""
     level = _CEFR_ORDER.index(profile.cefr_level) if profile.cefr_level in _CEFR_ORDER else 0
     matching = [out for sc, out in scenarios if profile.learning_goal in (sc.learning_goals or [])]
     matching.sort(
         key=lambda out: (
+            out.locked,
             out.completed,
             abs((_CEFR_ORDER.index(out.level) if out.level in _CEFR_ORDER else 0) - level),
         )
@@ -173,7 +174,8 @@ def _conversation_out(conv: AIConversation, user, profile) -> s.ConversationOut:
     summary="Hub Gia sư AI: quota, phiên dở, kịch bản đóng vai, lịch sử",
     description="`continue_session` là phiên chưa kết thúc gần nhất (nếu có). Kịch bản trả đủ mọi cấp, "
     "app lọc theo segmented A1/A2/B1. `locked` = kịch bản Premium và người dùng chưa Premium. "
-    "`suggested` là tối đa 3 kịch bản hợp `learning_goal` trong hồ sơ (chưa làm trước, cấp gần nhất trước).",
+    "`suggested` là tối đa 3 kịch bản hợp `learning_goal` trong hồ sơ (mở được trước, chưa làm trước, "
+    "cấp gần nhất trước).",
 )
 def ai_home(request):
     user = request.auth

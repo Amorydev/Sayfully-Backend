@@ -2247,12 +2247,13 @@ SUGGESTED_DECKS = 4
     summary="Thư viện bộ thẻ flashcard (C7a)",
     description="Bộ thẻ nhóm theo bộ sưu tập + cover, số thẻ, số học viên, cờ PRO. "
     "`continuing` là bộ mở gần nhất để vẽ thẻ 'Đang học'. Chưa kèm thẻ — bấm vào bộ mới gọi chi tiết. "
-    "`suggested` là tối đa 4 bộ hợp `learning_goal` trong hồ sơ, theo thứ tự thư viện.",
+    "`suggested` là tối đa 4 bộ hợp `learning_goal` trong hồ sơ: bộ mở được trước, rồi theo thứ tự thư viện.",
 )
 def flashcard_decks(request):
     user = request.auth
-    goal = ensure_profile(user).learning_goal
-    suggested: list[s.FlashcardDeckOut] = []
+    profile = ensure_profile(user)
+    goal = profile.learning_goal
+    matched: list[s.FlashcardDeckOut] = []
     decks = (
         VocabularyDeck.objects.select_related("collection", "level")
         .annotate(n_cards=Count("items", distinct=True), n_learners=Count("progress", distinct=True))
@@ -2281,8 +2282,8 @@ def flashcard_decks(request):
             collections.append(group)
         group.decks.append(out)
         group.deck_count += 1
-        if goal in (deck.learning_goals or []) and len(suggested) < SUGGESTED_DECKS:
-            suggested.append(out)
+        if goal in (deck.learning_goals or []):
+            matched.append(out)
 
     continuing = None
     last = (
@@ -2297,8 +2298,13 @@ def flashcard_decks(request):
                 if out.id == last.deck_id:
                     continuing = out
                     break
+    # Bộ mở được trước: gợi ý bộ PRO bị khoá cho người dùng miễn phí thì bấm vào cũng không học được.
+    matched.sort(key=lambda out: out.is_premium and not profile.is_premium)
     return s.FlashcardDecksOut(
-        continuing=continuing, collections=collections, learning_goal=goal, suggested=suggested
+        continuing=continuing,
+        collections=collections,
+        learning_goal=goal,
+        suggested=matched[:SUGGESTED_DECKS],
     )
 
 

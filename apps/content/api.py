@@ -1007,6 +1007,7 @@ def list_videos(
                 is_featured=vd.is_featured,
                 sentence_count=vd.sentence_count,
                 practice=_practice_summary_out(practice[vd.id]),
+                goal_match=vd.category in goal_categories,
             )
             for vd in items
         ],

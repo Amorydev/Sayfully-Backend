@@ -506,6 +506,8 @@ class VideoListOut(Schema):
     is_featured: bool = False
     sentence_count: int = 0
     practice: VideoPracticeSummaryOut = VideoPracticeSummaryOut()
+    # Thể loại của video hợp `learning_goal` trong hồ sơ: app gắn nhãn "Hợp mục tiêu của bạn".
+    goal_match: bool = False
 
 
 class VideoSubtitleOut(Schema):

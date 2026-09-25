@@ -11,10 +11,20 @@ from apps.common.models import LearningGoal
 
 GOAL_COLUMN = "Mục tiêu phù hợp"
 
+# Tên mục tiêu app hiển thị (thẻ onboarding, Cài đặt); sheet ghi theo tên này hay nhãn LearningGoal đều được.
+_APP_TITLES = {
+    "giao tiếp": LearningGoal.DAILY,
+    "du học (ielts)": LearningGoal.IELTS,
+    "công việc (toeic)": LearningGoal.TOEIC,
+    "du lịch": LearningGoal.TRAVEL,
+    "xem phim & show": LearningGoal.MEDIA,
+    "cho con": LearningGoal.KIDS,
+}
+
 
 def parse_goals(text: str | None) -> list[str]:
-    """'ielts, Du lịch khám phá' → ['ielts', 'travel']: nhận cả mã lẫn nhãn tiếng Việt, bỏ giá trị lạ."""
-    by_label = {str(label).lower(): value for value, label in LearningGoal.choices}
+    """'ielts, Du lịch' → ['ielts', 'travel']: nhận mã, nhãn LearningGoal hoặc tên app hiển thị; bỏ giá trị lạ."""
+    by_label = {str(label).lower(): value for value, label in LearningGoal.choices} | _APP_TITLES
     out: list[str] = []
     for part in re.split(r"[,;/|\n]", text or ""):
         key = part.strip().lower()

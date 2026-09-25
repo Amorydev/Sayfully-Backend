@@ -24,6 +24,7 @@ def _goal(user, goal: str):
 
 def test_doc_muc_tieu_nhan_ca_ma_lan_nhan_tieng_viet():
     assert parse_goals("ielts, Du lịch khám phá; lạ") == ["ielts", "travel"]
+    assert parse_goals("Du học (IELTS), Xem phim & show") == ["ielts", "media"]
     assert parse_goals("") == []
 
 
@@ -50,6 +51,19 @@ def test_thu_vien_the_goi_y_bo_hop_muc_tieu(api, token, user):
     assert len(body["collections"][0]["decks"]) == 3  # gợi ý không lấy bớt bộ nào khỏi thư viện
 
 
+def test_goi_y_bo_the_mo_duoc_len_truoc_voi_nguoi_mien_phi(api, token, user):
+    _goal(user, "ielts")
+    collection = VocabularyDeckCollection.objects.create(code="exam", title_vi="Luyện thi", order=1)
+    VocabularyDeck.objects.create(collection=collection, code="ielts-pro", title_vi="PRO", order=1,
+                                  is_free=False, learning_goals=["ielts"])
+    VocabularyDeck.objects.create(collection=collection, code="ielts-free", title_vi="Free", order=2,
+                                  learning_goals=["ielts"])
+
+    body = api.get("/learn/flashcard/decks", token=token).json()
+
+    assert [d["code"] for d in body["suggested"]] == ["ielts-free", "ielts-pro"]
+
+
 def test_thu_vien_the_khong_goi_y_khi_khong_bo_nao_khop(api, token, user):
     _goal(user, "kids")
     collection = VocabularyDeckCollection.objects.create(code="exam", title_vi="Luyện thi", order=1)
@@ -69,6 +83,7 @@ def test_video_xep_chu_de_hop_muc_tieu_len_truoc(api, token, user):
     items = api.get("/content/videos?limit=10", token=token).json()["items"]
 
     assert [v["category"] for v in items] == ["Điện ảnh", "Điện ảnh", "Giao tiếp"]
+    assert [v["goal_match"] for v in items] == [True, True, False]
 
 
 def test_video_giu_thu_tu_cu_khi_muc_tieu_khong_co_chu_de(api, token, user):
@@ -101,3 +116,4 @@ def test_hub_gia_su_goi_y_kich_ban_hop_muc_tieu(api, token, user, settings):
     ids = {sc.id for sc in RoleplayScenario.objects.all() if "travel" in sc.learning_goals}
     assert all(sc["id"] in ids for sc in body["suggested"])
     assert body["suggested"][0]["level"] == "A1"  # hồ sơ mặc định A1: cấp gần nhất lên trước
+    assert [sc["locked"] for sc in body["suggested"]] == sorted(sc["locked"] for sc in body["suggested"])
