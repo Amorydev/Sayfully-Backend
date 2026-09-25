@@ -18,7 +18,7 @@ def _vocab(v) -> dict:
         "id": v.id,
         "headword": v.headword,
         "pos": v.pos,
-        "level": v.level_id,
+        "level": v.level_id or "",
         "ipa_uk": v.ipa_uk,
         "ipa_us": v.ipa_us,
         "syllables": v.syllables,

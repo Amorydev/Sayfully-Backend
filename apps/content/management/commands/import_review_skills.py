@@ -275,6 +275,35 @@ def parse_word_list(text: str) -> list[dict]:
     return out
 
 
+CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+EXAMPLE_FIELDS = ("example_en", "example_vi", "ex_audio_us", "ex_audio_uk")
+FILL_FIELDS = ("definition_en", "definition_vi", "ipa_uk", "ipa_us", "audio_uk_path", "audio_us_path")
+
+
+def merge_vocab_entries(entries: list[dict]) -> dict:
+    """Gộp các dòng cùng (từ, loại từ) từ nhiều bộ thành 1 mục từ điển.
+
+    Cấp CEFR chỉ lấy từ các bộ Oxford (cấp thấp nhất nếu từ có ở nhiều cấp). Cấp của các bộ khác là
+    cấp của cả bộ (IELTS, SAT, thành ngữ… đều ghi A1), không phải độ khó của từng từ, nên từ chỉ có
+    ở những bộ đó không được gán cấp. Dòng chính là dòng Oxford, không có thì dòng có nghĩa dài
+    nhất; trường còn trống lấy từ các dòng khác, câu ví dụ lấy nguyên cụm từ cùng một dòng.
+    """
+    oxford = [e for e in entries if e["deck"].startswith("oxford-")]
+    primary = oxford[0] if oxford else max(entries, key=lambda e: len(e["meaning_vi"]))
+    merged = dict(primary)
+    for field in FILL_FIELDS:
+        if not merged[field]:
+            merged[field] = next((e[field] for e in entries if e[field]), "")
+    if not merged["example_en"]:
+        donor = next((e for e in entries if e["example_en"]), None)
+        if donor:
+            merged.update({f: donor[f] for f in EXAMPLE_FIELDS})
+    levels = sorted({e["level_code"] for e in oxford if e["level_code"] in CEFR_ORDER}, key=CEFR_ORDER.index)
+    merged["level_code"] = levels[0] if levels else None
+    merged["sense"] = ""
+    return merged
+
+
 class Command(BaseCommand):
     help = "Nạp 9 sheet của Data/REVIEW_skills.xlsx vào DB (nguồn sự thật duy nhất)."
 
@@ -823,17 +852,14 @@ class Command(BaseCommand):
                 continue
             head = cell(r["Từ vựng (Word)"])[:64]
             pos = POS_MAP.get(cell(r["Từ loại (POS)"]).lower(), "phr")
-            meaning = cell(r["Nghĩa tiếng Việt"])[:255]
-            key = (head.lower(), pos, meaning.lower())
-            if key not in vocab_rows:
-                senses[(head.lower(), pos)] += 1
-                n_sense = senses[(head.lower(), pos)]
-                vocab_rows[key] = {
+            key = (head.lower(), pos)
+            grouped[key].append(
+                {
+                    "deck": deck_code,
+                    "level_code": cell(r["Level"]).upper(),
                     "headword": head,
                     "pos": pos,
-                    "sense": "" if n_sense == 1 else f"s{n_sense}",
-                    "level": self.level(r["Level"]),
-                    "meaning_vi": meaning,
+                    "meaning_vi": cell(r["Nghĩa tiếng Việt"])[:255],
                     "definition_en": cell(r["Định nghĩa giải thích EN"]),
                     "definition_vi": cell(r["Định nghĩa giải thích VI"]),
                     "ipa_uk": cell(r["Phiên âm UK"])[:64],
@@ -845,10 +871,16 @@ class Command(BaseCommand):
                     "ex_audio_us": audio_path(r["Audio ví dụ US"]),
                     "ex_audio_uk": audio_path(r["Audio ví dụ UK"]),
                 }
+            )
             order_in_deck[deck_code] += 1
             items.append(
                 (deck_code, key, order_in_deck[deck_code], cell(r["Bài học (Unit)"])[:128])
             )
+        vocab_rows: dict[tuple, dict] = {}
+        for key, entries in grouped.items():
+            d = merge_vocab_entries(entries)
+            d["level"] = self.level(d["level_code"]) if d["level_code"] else None
+            vocab_rows[key] = d
 
         # Từ đã có trong DB từ nguồn khác (cùng headword/pos/sense) → dùng lại, không tạo trùng.
         existing = {
@@ -940,11 +972,13 @@ class Command(BaseCommand):
                 },
             )
         n = 0
+        seen: set[str] = set()
         views_by_cat: dict[str, list[tuple[int, str]]] = defaultdict(list)
         for r in self.rows("video"):
             yid = cell(r["YouTube ID"])
             if not yid:
                 continue
+            seen.add(yid)
             cat = cats.get(cell(r["Mã chủ đề"]), cell(r["Cụm chủ đề (Sayfully)"])[:48])
             views = int(re.sub(r"\D", "", cell(r["Lượt học / Lượt xem"])) or 0)
             m.Video.objects.update_or_create(

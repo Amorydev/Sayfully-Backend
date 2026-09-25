@@ -203,6 +203,28 @@ def test_vocab_q_tim_theo_nghia(api, token, levels, vocab):
     assert api.get("/content/vocabulary?q=zzz", token=token).json()["count"] == 0
 
 
+def _word(level, headword, **kw):
+    return Vocabulary.objects.create(headword=headword, pos=kw.pop("pos", "n"), level=level, meaning_vi="x", **kw)
+
+
+def test_vocab_list_xep_a_z_khong_phan_biet_hoa_thuong(api, token, levels):
+    a1, _ = levels
+    for w in ["Zulu", "apple", "AIDS"]:
+        _word(a1, w)
+    items = api.get("/content/vocabulary?level=A1", token=token).json()["items"]
+    assert [i["headword"] for i in items] == ["AIDS", "apple", "Zulu"]
+
+
+def test_vocab_game_chi_lay_tu_don_viet_thuong_ngan_truoc(api, token, levels):
+    a1, _ = levels
+    for w in ["World War I", "TV", "ice cream", "elephant", "cat", "e-mail"]:
+        _word(a1, w)
+    _word(a1, "look", pos="v", category="phrasal_verb")
+    body = api.get("/content/vocabulary?level=A1&game=true", token=token).json()
+    assert body["count"] == 3
+    assert [i["headword"] for i in body["items"]] == ["cat", "e-mail", "elephant"]
+
+
 def test_vocab_search_tra_trang_thai_da_luu(api, token, user, levels, vocab):
     from apps.learning.models import NotebookEntry
 
@@ -572,3 +594,44 @@ def test_audio_sample_uu_tien_tu_quen_co_du_hai_giong(api, token, levels, vocab,
     # không từ nào có audio → 404
     Vocabulary.objects.update(audio_uk_path="", audio_us_path="")
     assert api.get("/content/audio/sample", token=token).status_code == 404
+
+
+def _entry(deck, level, meaning, **kw):
+    base = {
+        "deck": deck, "level_code": level, "headword": "happy", "pos": "adj", "meaning_vi": meaning,
+        "definition_en": "", "definition_vi": "", "ipa_uk": "", "ipa_us": "",
+        "audio_uk_path": "", "audio_us_path": "",
+        "example_en": "", "example_vi": "", "ex_audio_us": "", "ex_audio_uk": "",
+    }
+    return {**base, **kw}
+
+
+def test_gop_tu_lay_cap_oxford_va_dien_truong_trong():
+    from apps.content.management.commands.import_review_skills import merge_vocab_entries
+
+    merged = merge_vocab_entries([
+        _entry("ielts-band-4-5", "A1", "hạnh phúc", ipa_us="/ˈhæpi/", example_en="I am happy.", example_vi="Tôi vui."),
+        _entry("oxford-3000-b1", "B1", "vui"),
+        _entry("oxford-3000-a1", "A1", "hạnh phúc, sung sướng, vui vẻ"),
+    ])
+    # Dòng chính là dòng Oxford đầu tiên; cấp là cấp Oxford thấp nhất; trường trống lấy từ dòng khác.
+    assert merged["meaning_vi"] == "vui" and merged["level_code"] == "A1" and merged["sense"] == ""
+    assert merged["ipa_us"] == "/ˈhæpi/" and merged["example_vi"] == "Tôi vui."
+
+
+def test_tu_ngoai_oxford_khong_gan_cap():
+    from apps.content.management.commands.import_review_skills import merge_vocab_entries
+
+    merged = merge_vocab_entries([
+        _entry("sat-essential", "A1", "phù du"),
+        _entry("ielts-idioms", "A1", "ngắn ngủi, phù du"),
+    ])
+    assert merged["level_code"] is None and merged["meaning_vi"] == "ngắn ngủi, phù du"
+
+
+def test_tu_khong_cap_tra_level_rong(api, token, levels):
+    v = Vocabulary.objects.create(headword="ephemeral", pos="adj", level=None, meaning_vi="phù du")
+    item = api.get("/content/vocabulary?q=ephemeral", token=token).json()["items"][0]
+    assert item["level"] == ""
+    assert api.get(f"/content/vocabulary/{v.id}", token=token).json()["level"] == ""
+    assert api.get("/content/vocabulary?level=A1", token=token).json()["count"] == 0

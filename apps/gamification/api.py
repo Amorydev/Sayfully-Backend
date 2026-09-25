@@ -889,7 +889,7 @@ def _record_stage(user, game, level: str, stage_index: int, score: int, accuracy
     response={200: s.GameStageMapOut, 401: ErrorOut, 404: ErrorOut, 422: ErrorOut},
     summary="Path map các chặng của một cấp",
     description="Chia từ vựng của cấp thành các chặng liên tiếp (25 từ/chặng) theo đúng thứ tự "
-    "của `GET /content/vocabulary?level=`, nên `offset` của chặng dùng thẳng để tải từ. "
+    "của `GET /content/vocabulary?level=&game=true`, nên `offset` của chặng dùng thẳng để tải từ. "
     "Chặng 0 luôn mở; chặng n mở khi chặng n-1 đã hoàn thành.",
 )
 def game_stages(request, code: str, level: str = Query(...)):
@@ -904,7 +904,7 @@ def game_stages(request, code: str, level: str = Query(...)):
         raise AppError("Cấp độ không hợp lệ", code="invalid_level", status_code=422)
 
     size = GameStageProgress.STAGE_SIZE
-    total = Vocabulary.objects.filter(level_id=level).count()
+    total = Vocabulary.objects.filter(level_id=level).for_game().count()
     stage_count = (total + size - 1) // size
     done = {
         row.stage_index: row

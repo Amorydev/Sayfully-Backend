@@ -1,6 +1,8 @@
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Length, Lower
 from django.utils import timezone
 
 from apps.common.models import CEFR, TimeStampedModel
@@ -319,6 +321,22 @@ class LessonObjective(models.Model):
         return f"{self.lesson_id} · {self.can_do_id}"
 
 
+class VocabularyQuerySet(models.QuerySet):
+    def dictionary_order(self):
+        """Từ có hạng tần suất lên trước, còn lại A–Z không phân biệt hoa thường (tên riêng không dồn lên đầu)."""
+        return self.order_by(F("frequency_rank").asc(nulls_last=True), Lower("headword"), "id")
+
+    def for_game(self):
+        """Từ đơn viết thường cho game: bỏ tên riêng, viết tắt và cụm từ; từ ngắn (thường cơ bản hơn) lên trước.
+
+        Thứ tự này quyết định từ của từng chặng (offset = chặng × cỡ chặng), nên danh sách từ và
+        số chặng phải cùng dùng hàm này.
+        """
+        return self.filter(category="word", headword__regex=r"^[a-z]+(-[a-z]+)*$").order_by(
+            F("frequency_rank").asc(nulls_last=True), Length("headword"), "headword", "id"
+        )
+
+
 class Vocabulary(TimeStampedModel):
     class POS(models.TextChoices):
         NOUN = "n", "Danh từ"
@@ -337,7 +355,10 @@ class Vocabulary(TimeStampedModel):
 
     headword = models.CharField(max_length=64)
     pos = models.CharField(max_length=6, choices=POS.choices)
-    level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="vocabulary")
+    # Chỉ từ trong danh sách Oxford có cấp CEFR; từ riêng của bộ luyện thi/thành ngữ để trống.
+    level = models.ForeignKey(
+        Level, on_delete=models.PROTECT, related_name="vocabulary", null=True, blank=True
+    )
 
     meaning_vi = models.CharField(max_length=255)
     definition_en = models.TextField(blank=True)
@@ -377,6 +398,8 @@ class Vocabulary(TimeStampedModel):
     source = models.ForeignKey(ContentSource, null=True, blank=True, on_delete=models.SET_NULL)
     source_ref = models.CharField(max_length=64, blank=True, db_index=True)  # "ID_00001050_01_UK"
     is_path_core = models.BooleanField(default=False)  # nằm trong lộ trình (≠ chỉ từ điển)
+
+    objects = VocabularyQuerySet.as_manager()
 
     class Meta:
         constraints = [

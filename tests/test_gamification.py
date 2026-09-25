@@ -465,3 +465,16 @@ def test_games_hub(api, token, user, django_user_model):
     assert [h["score"] for h in body["history"]] == [300, 500]
     assert body["history"][1]["is_best"] is True and body["history"][0]["is_best"] is False
     assert body["history"][1]["coins_earned"] == 5
+
+
+def test_word_rain_stages_dem_dung_tu_cua_game(api, token, user):
+    from apps.content.models import Level, Vocabulary
+
+    _game("word_rain")
+    a1 = Level.objects.create(code="A1", name_vi="Sơ cấp", order=1, is_free=True)
+    for w in ["cat", "dog", "World War I", "TV", "ice cream"]:
+        Vocabulary.objects.create(headword=w, pos="n", level=a1, meaning_vi="x")
+    body = api.get("/games/word_rain/stages?level=A1", token=token).json()
+    # Chỉ đếm từ game dùng được, để offset chặng khớp với /content/vocabulary?game=true.
+    assert body["total_words"] == 2 and len(body["stages"]) == 1
+    assert body["stages"][0]["word_count"] == 2

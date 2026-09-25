@@ -97,7 +97,7 @@ def _vocab_list(
         id=v.id,
         headword=v.headword,
         pos=v.pos,
-        level=v.level_id,
+        level=v.level_id or "",
         meaning_vi=v.meaning_vi,
         ipa=_ipa(v, accent),
         syllables=_syllables(v),
@@ -112,7 +112,7 @@ def _vocab_card(v: m.Vocabulary, accent: str) -> s.VocabCardOut:
         id=v.id,
         headword=v.headword,
         pos=v.pos,
-        level=v.level_id,
+        level=v.level_id or "",
         ipa=_ipa(v, accent),
         syllables=_syllables(v),
         meaning_vi=v.meaning_vi,
@@ -152,7 +152,7 @@ def _vocab_detail(
         id=v.id,
         headword=v.headword,
         pos=v.pos,
-        level=v.level_id,
+        level=v.level_id or "",
         ipa=_ipa(v, accent),
         ipa_uk=v.ipa_uk,
         ipa_us=v.ipa_us,
@@ -470,7 +470,8 @@ def audio_sample(request):
     "/vocabulary",
     response={200: s.Page[s.VocabListOut], 401: ErrorOut, 422: ErrorOut},
     summary="Danh sách / tìm từ vựng",
-    description="Lọc theo `level`, `topic`, `pos`; `q` tìm đồng thời từ + IPA + nghĩa.",
+    description="Lọc theo `level`, `topic`, `pos`; `q` tìm đồng thời từ + IPA + nghĩa. "
+    "`game=true`: chỉ từ đơn viết thường, xếp theo thứ tự chặng của game (từ ngắn trước).",
 )
 def list_vocabulary(
     request,
@@ -478,6 +479,7 @@ def list_vocabulary(
     topic: str | None = None,
     q: str | None = None,
     pos: str | None = None,
+    game: bool = False,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -496,7 +498,8 @@ def list_vocabulary(
             | Q(ipa_us__icontains=q)
             | Q(ipa_uk__icontains=q)
         )
-    qs = qs.distinct().order_by("frequency_rank", "headword")
+    qs = qs.distinct()
+    qs = qs.for_game() if game else qs.dictionary_order()
     count = qs.count()
     items = list(qs[offset : offset + limit])
     # Import cục bộ để content không tạo vòng import module với learning.
