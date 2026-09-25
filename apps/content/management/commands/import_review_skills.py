@@ -21,6 +21,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from apps.common.learning_goals import GOAL_COLUMN, deck_goals, parse_goals, video_category_goals
 from apps.content import models as m
 from apps.content.ipa_data import ALL_SOUNDS
 from apps.content.phonemics import sentence_ipa
@@ -836,6 +837,7 @@ class Command(BaseCommand):
                     "order": i,
                     "is_free": is_free(r["Phân hạng"]),
                     "description_vi": cell(r["Đặc điểm nội dung & Mục tiêu"])[:255],
+                    "learning_goals": parse_goals(cell(r.get(GOAL_COLUMN))) or deck_goals(code),
                 },
             )
             decks[code].items.all().delete()
@@ -963,12 +965,15 @@ class Command(BaseCommand):
         cats = {}
         for i, r in enumerate(self.rows_named("Video (Chủ đề)"), 1):
             name = cell(r["Cụm chủ đề sư phạm"])[:48]
-            cats[cell(r["Slug chủ đề"])] = name
+            slug = cell(r["Slug chủ đề"])
+            cats[slug] = name
             m.VideoCategory.objects.update_or_create(
                 name=name,
                 defaults={
+                    "slug": slug[:48],
                     "subtitle": cell(r["Đặc điểm nội dung & Mục tiêu đào tạo"])[:120],
                     "order": i,
+                    "learning_goals": parse_goals(cell(r.get(GOAL_COLUMN))) or video_category_goals(slug, name),
                 },
             )
         n = 0

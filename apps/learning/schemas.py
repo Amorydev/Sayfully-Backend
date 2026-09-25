@@ -810,6 +810,8 @@ class FlashcardDeckCollectionOut(Schema):
 class FlashcardDecksOut(Schema):
     continuing: FlashcardDeckOut | None  # thẻ "Đang học" ở hero; null nếu chưa mở bộ nào
     collections: list[FlashcardDeckCollectionOut]
+    learning_goal: str = ""  # mã mục tiêu trong hồ sơ, để app đặt tiêu đề khu gợi ý
+    suggested: list[FlashcardDeckOut] = []  # bộ hợp mục tiêu, vẽ thành khu "Gợi ý cho bạn"
 
 
 class FlashcardDeckCardOut(Schema):

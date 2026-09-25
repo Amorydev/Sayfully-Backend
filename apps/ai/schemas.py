@@ -76,6 +76,8 @@ class AiHubOut(Schema):
     history: list[HistoryItemOut]
     topics: list[TopicOut]
     notebook_words: list[str]
+    learning_goal: str = ""
+    suggested: list[ScenarioOut] = []  # kịch bản hợp mục tiêu học, vẽ thành khu "Gợi ý cho bạn"
 
 
 class CorrectionOut(Schema):

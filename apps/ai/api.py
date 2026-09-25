@@ -76,6 +76,23 @@ def _scenario_detail(sc: RoleplayScenario, profile, best: dict[int, int]) -> s.S
     )
 
 
+SUGGESTED_SCENARIOS = 3
+_CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+
+
+def _suggested_scenarios(scenarios: list[tuple[RoleplayScenario, s.ScenarioOut]], profile) -> list[s.ScenarioOut]:
+    """Kịch bản hợp mục tiêu học: chưa làm lên trước, rồi cấp gần trình độ hồ sơ nhất."""
+    level = _CEFR_ORDER.index(profile.cefr_level) if profile.cefr_level in _CEFR_ORDER else 0
+    matching = [out for sc, out in scenarios if profile.learning_goal in (sc.learning_goals or [])]
+    matching.sort(
+        key=lambda out: (
+            out.completed,
+            abs((_CEFR_ORDER.index(out.level) if out.level in _CEFR_ORDER else 0) - level),
+        )
+    )
+    return matching[:SUGGESTED_SCENARIOS]
+
+
 def _best_scores(user) -> dict[int, int]:
     best: dict[int, int] = {}
     qs = AIConversation.objects.filter(
@@ -155,7 +172,8 @@ def _conversation_out(conv: AIConversation, user, profile) -> s.ConversationOut:
     response={200: s.AiHubOut, 401: ErrorOut},
     summary="Hub Gia sư AI: quota, phiên dở, kịch bản đóng vai, lịch sử",
     description="`continue_session` là phiên chưa kết thúc gần nhất (nếu có). Kịch bản trả đủ mọi cấp, "
-    "app lọc theo segmented A1/A2/B1. `locked` = kịch bản Premium và người dùng chưa Premium.",
+    "app lọc theo segmented A1/A2/B1. `locked` = kịch bản Premium và người dùng chưa Premium. "
+    "`suggested` là tối đa 3 kịch bản hợp `learning_goal` trong hồ sơ (chưa làm trước, cấp gần nhất trước).",
 )
 def ai_home(request):
     user = request.auth
@@ -183,10 +201,13 @@ def ai_home(request):
     history = AIConversation.objects.filter(user=user, ended_at__isnull=False).order_by(
         "-ended_at"
     )[:3]
+    scenarios = [(sc, _scenario(sc, profile, best)) for sc in RoleplayScenario.objects.all()]
     return s.AiHubOut(
         quota=_quota(profile),
         continue_session=cont,
-        scenarios=[_scenario(sc, profile, best) for sc in RoleplayScenario.objects.all()],
+        scenarios=[out for _, out in scenarios],
+        learning_goal=profile.learning_goal,
+        suggested=_suggested_scenarios(scenarios, profile),
         history=[_history_item(c) for c in history],
         topics=[
             s.TopicOut(code=t["code"], emoji=t["emoji"], title_vi=t["title_vi"]) for t in TOPICS

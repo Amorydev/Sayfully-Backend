@@ -789,8 +789,10 @@ class VideoCategory(models.Model):
     """Thể loại video (khớp `Video.category` theo tên): mô tả hiện dưới tiêu đề section ở màn Video."""
 
     name = models.CharField(max_length=48, unique=True)
+    slug = models.SlugField(max_length=48, blank=True)  # cột "Slug chủ đề"
     subtitle = models.CharField(max_length=120, blank=True)
     order = models.PositiveSmallIntegerField(default=0)
+    learning_goals = models.JSONField(default=list, blank=True)  # mã LearningGoal, xem learning_goals.py
 
     class Meta:
         ordering = ["order", "name"]
@@ -1093,6 +1095,8 @@ class VocabularyDeck(models.Model):
     learner_base = models.PositiveIntegerField(
         default=0
     )  # số học viên nền khi seed; số hiển thị = learner_base + số người đã mở bộ
+    # Mã LearningGoal hợp với bộ này (xem apps.common.learning_goals); dùng để gợi ý theo hồ sơ.
+    learning_goals = models.JSONField(default=list, blank=True)
     vocabulary = models.ManyToManyField(
         Vocabulary, through="VocabularyDeckItem", related_name="decks"
     )

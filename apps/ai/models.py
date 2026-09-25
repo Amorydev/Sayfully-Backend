@@ -24,6 +24,8 @@ class RoleplayScenario(models.Model):
     xp_reward = models.PositiveSmallIntegerField(default=30)
     coin_reward = models.PositiveSmallIntegerField(default=15)
     is_premium = models.BooleanField(default=True)
+    # Mã LearningGoal hợp kịch bản (khác `goals` là nhiệm vụ trong hội thoại); xem learning_goals.py.
+    learning_goals = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["level", "order", "id"]

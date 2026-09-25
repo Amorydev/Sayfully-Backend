@@ -5,7 +5,7 @@ Chỉ trả NỘI DUNG; tiến độ người dùng thuộc G4. Cấp có `is_fr
 """
 
 from django.conf import settings
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, When
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from ninja import Query, Router
@@ -951,7 +951,8 @@ def get_story(request, id: int):
     "/videos",
     response={200: s.Page[s.VideoListOut], 401: ErrorOut},
     summary="Danh sách video học",
-    description="Lọc theo `level`, `category`, `featured=true` (hàng Nổi bật, sắp theo `featured_order`).",
+    description="Lọc theo `level`, `category`, `featured=true` (hàng Nổi bật, sắp theo `featured_order`). "
+    "Chủ đề hợp `learning_goal` trong hồ sơ được xếp lên trước, giữ thứ tự cũ bên trong từng chủ đề.",
 )
 def list_videos(
     request,
@@ -968,9 +969,24 @@ def list_videos(
         qs = qs.filter(category=category)
     if featured is not None:
         qs = qs.filter(is_featured=featured)
-    qs = qs.annotate(sentence_count=Count("subtitles")).order_by(
-        "-is_featured", "featured_order", "level__order", "id"
+    goal = ensure_profile(request.auth).learning_goal
+    goal_categories = [
+        name
+        for name, goals in m.VideoCategory.objects.values_list("name", "learning_goals")
+        if goal in (goals or [])
+    ]
+    rank = (
+        Case(
+            *[When(category=name, then=i) for i, name in enumerate(goal_categories)],
+            default=len(goal_categories),
+            output_field=IntegerField(),
+        )
+        if goal_categories
+        else None
     )
+    qs = qs.annotate(sentence_count=Count("subtitles"))
+    order = ["-is_featured", "featured_order", "level__order", "id"]
+    qs = qs.annotate(goal_rank=rank).order_by("goal_rank", *order) if rank is not None else qs.order_by(*order)
     count = qs.count()
     items = list(qs[offset : offset + limit])
     practice = video_practice.summaries(request.auth, [vd.id for vd in items])
