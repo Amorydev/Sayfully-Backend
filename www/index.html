@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sayfully · Luyện nói tiếng Anh mỗi ngày cùng rồng Long</title>
+<meta name="description" content="Sayfully giúp người Việt luyện nói tiếng Anh: nói theo câu mẫu và được chấm phát âm ngay trên máy, trò chuyện với gia sư AI, học qua video phụ đề song ngữ và lộ trình A1 → C1.">
+<meta name="theme-color" content="#140E2A">
+<meta property="og:title" content="Sayfully · Luyện nói tiếng Anh mỗi ngày">
+<meta property="og:description" content="Nói theo, được chấm phát âm ngay, trò chuyện với gia sư AI Long. Ứng dụng luyện nói tiếng Anh cho người Việt.">
+<meta property="og:image" content="https://sayfully.com/assets/long-mic.webp">
+<meta property="og:url" content="https://sayfully.com/">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&display=swap&subset=vietnamese" rel="stylesheet">
+<style>
+  :root {
+    --night: #140E2A;
+    --night-2: #241651;
+    --brand: #6F4CF4;
+    --brand-2: #9750E1;
+    --honey: #FFC53D;
+    --honey-ink: #5A2E00;
+    --ink: #211A31;
+    --muted: #5B5670;
+    --paper: #FAF9FF;
+    --line: #E7E3F5;
+    --mint: #1FA971;
+    --amber: #E08A00;
+    --display: "Bricolage Grotesque", "Be Vietnam Pro", system-ui, sans-serif;
+    --body: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --ipa: "Noto Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font: 17px/1.65 var(--body); color: var(--ink); background: var(--paper); -webkit-font-smoothing: antialiased; }
+  img { display: block; max-width: 100%; height: auto; }
+  a { color: inherit; }
+  .wrap { width: min(1160px, 100% - 40px); margin: 0 auto; }
+
+  /* ---------- nav ---------- */
+  .nav { position: absolute; inset: 0 0 auto; z-index: 10; }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; font: 700 22px/1 var(--display); letter-spacing: -.4px; }
+  .mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); display: grid; place-items: center; box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
+  .nav-links { display: flex; align-items: center; gap: 28px; font-size: 15px; }
+  .nav-links a { color: rgba(255,255,255,.78); text-decoration: none; }
+  .nav-links a:hover { color: #fff; }
+  .nav-links .pill { color: var(--night); background: #fff; padding: 9px 16px; border-radius: 999px; font-weight: 600; }
+  @media (max-width: 760px) { .nav-links a:not(.pill) { display: none; } }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; overflow: hidden; color: #fff; background:
+      radial-gradient(60% 70% at 78% 38%, rgba(151,80,225,.55), transparent 70%),
+      radial-gradient(40% 40% at 88% 85%, rgba(255,197,61,.20), transparent 70%),
+      linear-gradient(160deg, var(--night) 0%, var(--night-2) 100%);
+    padding: 120px 0 88px; }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(255,255,255,.55) 1px, transparent 1.4px); background-size: 34px 34px;
+    mask-image: linear-gradient(180deg, transparent, #000 30%, transparent 85%); }
+  .hero .wrap { position: relative; z-index: 1; display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; gap: 40px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--honey); background: rgba(255,197,61,.1); border: 1px solid rgba(255,197,61,.28); padding: 6px 12px; border-radius: 999px; }
+  .hero h1 { font: 800 clamp(40px, 6.2vw, 74px)/1.02 var(--display); letter-spacing: -2px; margin: 22px 0 22px; }
+  .hero h1 .hl { position: relative; white-space: nowrap; }
+  .hero h1 .hl::after { content: ""; position: absolute; left: -2px; right: -2px; bottom: .06em; height: .22em; background: var(--honey); border-radius: 4px; z-index: -1; transform-origin: left; animation: swipe .9s .5s cubic-bezier(.2,.8,.2,1) both; }
+  .hero h1 .hl span { position: relative; }
+  .lead { font-size: 19px; color: rgba(255,255,255,.78); max-width: 34ch; margin: 0 0 32px; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; font: 600 16px/1 var(--body); text-decoration: none; padding: 16px 22px; border-radius: 14px; transition: transform .2s, box-shadow .2s, background .2s; }
+  .btn-honey { background: var(--honey); color: var(--honey-ink); box-shadow: 0 10px 30px -10px rgba(255,197,61,.7), inset 0 -3px 0 rgba(0,0,0,.12); }
+  .btn-honey:hover { transform: translateY(-2px); }
+  .btn-ghost { color: #fff; border: 1px solid rgba(255,255,255,.28); }
+  .btn-ghost:hover { background: rgba(255,255,255,.08); }
+  .btn small { display: block; font-size: 11px; font-weight: 600; opacity: .75; margin-bottom: 3px; letter-spacing: .3px; text-transform: uppercase; }
+  .trust { margin-top: 26px; font-size: 14px; color: rgba(255,255,255,.6); display: flex; gap: 10px; align-items: center; }
+  .trust svg { flex: none; }
+
+  /* stage: Long + live phrase card */
+  .stage { position: relative; height: 580px; }
+  .stage .long { position: absolute; right: 0; bottom: 0; height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: right bottom; filter: drop-shadow(0 30px 40px rgba(0,0,0,.35)); animation: bob 6s ease-in-out infinite; }
+  .phrase { position: absolute; left: 0; top: 40px; width: min(360px, 92%); background: rgba(255,255,255,.96); color: var(--ink); border-radius: 22px; padding: 20px 20px 18px; box-shadow: 0 30px 60px -20px rgba(8,4,24,.6); transform: rotate(-3deg); }
+  .phrase .row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--brand); }
+  .phrase .row b { color: var(--muted); font-weight: 600; }
+  .say { font: 700 25px/1.25 var(--display); letter-spacing: -.4px; margin: 12px 0 6px; }
+  .say .w { transition: color .2s, background .2s; border-radius: 6px; padding: 0 2px; }
+  .say .w.on { background: rgba(111,76,244,.14); color: var(--brand); }
+  .ipa { font: 15px/1.4 var(--ipa); color: var(--muted); }
+  .vi { font-size: 15px; color: var(--ink); margin-top: 6px; }
+  .wave { display: flex; align-items: center; gap: 3px; height: 38px; margin: 14px 0 12px; }
+  .wave i { flex: 1; background: linear-gradient(180deg, var(--brand-2), var(--brand)); border-radius: 3px; height: 30%; animation: wave 1.1s ease-in-out infinite; }
+  .score { display: flex; align-items: center; justify-content: space-between; background: #F2FBF6; border: 1px solid #CDEFDC; border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+  .score strong { color: var(--mint); font: 800 20px/1 var(--display); }
+  .bubble { position: absolute; right: 8%; top: 8px; background: var(--honey); color: var(--honey-ink); font-weight: 700; font-size: 14px; padding: 8px 14px; border-radius: 16px 16px 4px 16px; box-shadow: 0 12px 24px -12px rgba(0,0,0,.5); transform: rotate(4deg); }
+
+  /* ---------- features ---------- */
+  section { padding: 110px 0; }
+  .kicker { font-size: 14px; font-weight: 700; color: var(--brand); letter-spacing: .4px; text-transform: uppercase; }
+  h2 { font: 800 clamp(32px, 4.4vw, 52px)/1.06 var(--display); letter-spacing: -1.4px; margin: 12px 0 0; max-width: 18ch; }
+  .intro { display: flex; align-items: end; justify-content: space-between; gap: 30px; flex-wrap: wrap; margin-bottom: 44px; }
+  .intro p { max-width: 38ch; color: var(--muted); margin: 0; }
+  .bento { display: grid; grid-template-columns: repeat(6, 1fr); grid-auto-rows: minmax(150px, auto); gap: 18px; }
+  .tile { background: #fff; border: 1px solid var(--line); border-radius: 26px; padding: 26px; position: relative; overflow: hidden; }
+  .tile h3 { font: 700 23px/1.2 var(--display); letter-spacing: -.4px; margin: 0 0 8px; }
+  .tile p { margin: 0; color: var(--muted); font-size: 16px; }
+  .t-speak { grid-column: span 4; grid-row: span 2; background: linear-gradient(160deg, #fff 0%, #F4F0FF 100%); display: flex; flex-direction: column; }
+  .t-speak .judge { margin-top: auto; }
+  .t-speak .note { align-self: flex-start; }
+  .t-tutor { grid-column: span 2; grid-row: span 2; background: var(--night); color: #fff; border: none; padding-bottom: 120px; }
+  .t-tutor p { color: rgba(255,255,255,.7); }
+  .t-video { grid-column: span 3; }
+  .t-path { grid-column: span 3; }
+  .t-widget { grid-column: span 2; }
+  .t-games { grid-column: span 4; }
+
+  .judge { margin-top: 28px; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 22px; }
+  .judge .line { font: 700 clamp(22px, 2.6vw, 30px)/1.3 var(--display); letter-spacing: -.4px; }
+  .judge .g { color: var(--mint); } .judge .a { color: var(--amber); text-decoration: underline wavy rgba(224,138,0,.5); text-underline-offset: 6px; }
+  .judge .legend { display: flex; gap: 18px; margin-top: 14px; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: 1px; }
+  .note { margin-top: 18px; display: inline-flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; color: var(--brand); background: rgba(111,76,244,.08); border-radius: 999px; padding: 7px 12px; }
+
+  .chat { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 10px; margin: 20px 0 0; font-size: 15px; }
+  .msg { padding: 10px 14px; border-radius: 16px; max-width: 92%; }
+  .msg.me { align-self: flex-end; background: #2F2566; border-radius: 16px 16px 4px 16px; }
+  .msg.long { background: #fff; color: var(--ink); border-radius: 16px 16px 16px 4px; }
+  .msg.long b { color: var(--brand); }
+  .tutor-face { position: absolute; right: 10px; bottom: -14px; width: 128px; }
+
+  .subs { margin-top: 18px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); }
+  .subs div { padding: 11px 14px; font-size: 15px; border-top: 1px solid var(--line); color: var(--muted); }
+  .subs div:first-child { border-top: none; }
+  .subs .cur { background: #F4F0FF; color: var(--ink); font-weight: 600; }
+  .subs .cur em { display: block; font-style: normal; font-weight: 400; color: var(--muted); font-size: 14px; }
+
+  .ladder { display: flex; gap: 8px; align-items: end; margin-top: 22px; height: 110px; }
+  .ladder span { flex: 1; border-radius: 12px 12px 6px 6px; background: #EFEAFF; display: flex; align-items: end; justify-content: center; padding-bottom: 8px; font: 700 15px/1 var(--display); color: var(--brand); }
+  .ladder span:nth-child(1){height:34%} .ladder span:nth-child(2){height:50%} .ladder span:nth-child(3){height:66%} .ladder span:nth-child(4){height:82%} .ladder span:nth-child(5){height:100%; background: var(--brand); color: #fff}
+
+  .mini-widget { margin: 18px auto 0; width: 150px; aspect-ratio: 1; border-radius: 22px; background: linear-gradient(135deg, #FFFDF7, #F9F1DF); border: 1px solid #E7D9BD; padding: 14px; box-shadow: 6px 6px 0 #EADFCB; transform: rotate(-4deg); }
+  .mini-widget .b { font: 700 11px/1 Georgia, serif; color: #B15C41; }
+  .mini-widget .w { font: 700 30px/1.1 Georgia, serif; color: #3E3228; margin-top: 14px; }
+  .mini-widget .p { font: 12px var(--ipa); color: #807466; }
+  .mini-widget hr { border: 0; border-top: 1px solid #E7D9BD; margin: 10px 0 6px; }
+  .mini-widget .m { font: 700 15px Georgia, serif; color: #B15C41; }
+
+  .games { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .games span { font-weight: 600; font-size: 15px; padding: 10px 14px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+
+  /* ---------- session steps ---------- */
+  .session { background: #fff; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 44px; counter-reset: s; }
+  .step { padding: 0 28px 0 0; position: relative; }
+  .step::before { counter-increment: s; content: counter(s); font: 800 64px/1 var(--display); color: transparent; -webkit-text-stroke: 1.5px var(--brand); display: block; margin-bottom: 18px; }
+  .step + .step { padding-left: 28px; border-left: 1px dashed var(--line); }
+  .step h3 { font: 700 22px/1.25 var(--display); margin: 0 0 8px; letter-spacing: -.3px; }
+  .step p { margin: 0; color: var(--muted); }
+  .step .min { display: inline-block; margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--honey-ink); background: #FFF3D1; padding: 4px 10px; border-radius: 999px; }
+
+  /* ---------- final cta ---------- */
+  .final { padding: 0 0 110px; }
+  .final .card { position: relative; overflow: hidden; border-radius: 34px; color: #fff; padding: 64px 56px; background:
+      radial-gradient(60% 90% at 90% 20%, rgba(255,197,61,.28), transparent 60%),
+      linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 55%, #5A2FC7 100%);
+    display: grid; grid-template-columns: 1.3fr .7fr; align-items: center; gap: 24px; }
+  .final h2 { max-width: 16ch; }
+  .final p { color: rgba(255,255,255,.82); max-width: 42ch; margin: 16px 0 28px; }
+  .final .long { width: 100%; max-width: 300px; justify-self: end; margin-bottom: -64px; filter: drop-shadow(0 20px 30px rgba(0,0,0,.3)); }
+  .final a.mail { color: #fff; font-weight: 600; }
+
+  footer { border-top: 1px solid var(--line); padding: 30px 0 40px; font-size: 15px; color: var(--muted); }
+  footer .wrap { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+  footer .brand { color: var(--ink); font-size: 19px; }
+  footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
+  footer nav a { text-decoration: none; }
+  footer nav a:hover { color: var(--brand); }
+
+  /* ---------- motion ---------- */
+  .rise { animation: rise .8s cubic-bezier(.2,.8,.2,1) both; }
+  .d1 { animation-delay: .08s } .d2 { animation-delay: .18s } .d3 { animation-delay: .28s } .d4 { animation-delay: .4s } .d5 { animation-delay: .55s }
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s cubic-bezier(.2,.8,.2,1), transform .7s cubic-bezier(.2,.8,.2,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @keyframes rise { from { opacity: 0; transform: translateY(26px) } to { opacity: 1; transform: none } }
+  @keyframes swipe { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+  @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-12px) } }
+  @keyframes wave { 0%,100% { height: 22% } 50% { height: 100% } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 960px) {
+    .hero { padding-top: 100px; }
+    .hero .wrap { grid-template-columns: 1fr; }
+    .stage { height: 520px; margin-top: 12px; }
+    .bento { grid-template-columns: 1fr 1fr; }
+    .t-speak, .t-tutor, .t-video, .t-path, .t-widget, .t-games { grid-column: span 2; grid-row: auto; }
+    .t-tutor { min-height: 330px; padding-bottom: 130px; }
+    .t-speak .judge { margin-top: 24px; }
+    .steps { grid-template-columns: 1fr; gap: 34px; }
+    .step, .step + .step { padding: 0; border: 0; }
+    .final .card { grid-template-columns: 1fr; padding: 44px 28px 0; }
+    .final .long { justify-self: center; margin: 0; max-width: 220px; }
+  }
+  @media (max-width: 520px) {
+    .stage { height: auto; }
+    .stage .long { position: relative; height: 300px; margin: 0 auto; right: auto; bottom: auto; }
+    .phrase { position: relative; top: auto; left: auto; margin: -48px auto 0; transform: rotate(-2deg); }
+    .say { font-size: 22px; }
+    .bubble { display: none; }
+    section { padding: 80px 0; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Sayfully — trang chủ">
+      <span class="mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="#fff"><rect x="2" y="5.5" width="3" height="7" rx="1.5"/><rect x="7.5" y="2" width="3" height="14" rx="1.5"/><rect x="13" y="5.5" width="3" height="7" rx="1.5"/></svg>
+      </span>
+      Sayfully
+    </a>
+    <nav class="nav-links" aria-label="Điều hướng">
+      <a href="#tinh-nang">Tính năng</a>
+      <a href="#buoi-hoc">Một buổi học</a>
+      <a href="/terms">Điều khoản</a>
+      <a class="pill" href="#tai-app">Tải ứng dụng</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow rise d1">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        Luyện nói tiếng Anh cho người Việt
+      </span>
+      <h1 id="hero-title" class="rise d2">Mở lời bằng tiếng Anh, <span class="hl"><span>mỗi ngày</span></span> một câu.</h1>
+      <p class="lead rise d3">Nói theo câu mẫu và được chấm phát âm ngay. Trò chuyện với gia sư AI Long. Học qua video có phụ đề song ngữ, theo lộ trình từ A1 đến C1.</p>
+      <div class="ctas rise d4">
+        <a class="btn btn-honey" href="#tai-app">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.6 2.3c-.3.3-.4.7-.4 1.2v17c0 .5.1.9.4 1.2l9.3-9.7-9.3-9.7Zm10.7 11.1-2.3 2.4-7 7.3c.3.1.7.1 1.1-.1l11-6.2-2.8-3.4Zm4.1-4.5L15.3 7l-3.3 3.5 3.3 3.5 3.1-1.8c.9-.5.9-1.9 0-2.4v1.1ZM5.1 1.4 12 8.6l2.3-2.4-8.1-4.6c-.4-.3-.8-.3-1.1-.2Z"/></svg>
+          <span><small>Sắp có trên</small>Google Play</span>
+        </a>
+        <a class="btn btn-ghost" href="#tinh-nang">Xem Long dạy thế nào</a>
+      </div>
+      <p class="trust rise d5">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.4 8.3 8 9 4.6-.7 8-4 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+        Chấm phát âm ngay trên điện thoại. Giọng nói của bạn không rời khỏi máy.
+      </p>
+    </div>
+
+    <div class="stage rise d3" aria-hidden="true">
+      <img class="long" src="/assets/long-mic.webp" width="480" height="720" alt="">
+      <div class="bubble">Nói theo mình nhé!</div>
+      <div class="phrase">
+        <div class="row"><span>Nói theo · Gọi món</span><b>Câu 3/12</b></div>
+        <div class="say" id="say">Could I get a latte, please?</div>
+        <div class="ipa">/kʊd aɪ ɡɛt ə ˈlɑːteɪ pliːz/</div>
+        <div class="vi">Cho mình một ly latte nhé.</div>
+        <div class="wave" id="wave"></div>
+        <div class="score"><span>Phát âm</span><span><strong>87%</strong> · Rất tốt!</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tinh-nang" aria-labelledby="f-title">
+  <div class="wrap">
+    <div class="intro reveal">
+      <div>
+        <div class="kicker">Tính năng</div>
+        <h2 id="f-title">Mọi thứ để bạn dám nói thành tiếng</h2>
+      </div>
+      <p>Không chỉ đọc và chọn đáp án. Mỗi bài học trong Sayfully đều kết thúc bằng việc bạn tự nói ra câu tiếng Anh.</p>
+    </div>
+
+    <div class="bento">
+      <article class="tile t-speak reveal">
+        <h3>Nói theo, chấm ngay từng từ</h3>
+        <p>Nghe câu mẫu giọng Mỹ hoặc Anh, nói lại và xem ngay từ nào chuẩn, từ nào cần luyện thêm.</p>
+        <div class="judge">
+          <div class="line"><span class="g">I'd like to</span> <span class="a">book</span> <span class="g">a table for</span> <span class="a">two</span><span class="g">.</span></div>
+          <div class="legend"><span><i class="dot" style="background:var(--mint)"></i>Chuẩn</span><span><i class="dot" style="background:var(--amber)"></i>Nói lại từ này</span></div>
+        </div>
+        <span class="note">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2"/></svg>
+          Chấm trên máy, không cần mạng
+        </span>
+      </article>
+
+      <article class="tile t-tutor reveal">
+        <h3>Gia sư AI Long</h3>
+        <p>Trò chuyện theo tình huống, Long sửa lỗi nhẹ nhàng ngay khi bạn nói.</p>
+        <div class="chat">
+          <div class="msg me">I goed to Đà Lạt last week.</div>
+          <div class="msg long">Gần đúng rồi! Mình nói <b>“I went to Đà Lạt”</b> nhé. Bạn đi với ai thế?</div>
+        </div>
+        <img class="tutor-face" src="/assets/long-tutor.webp" width="360" height="360" alt="" loading="lazy">
+      </article>
+
+      <article class="tile t-video reveal">
+        <h3>Học qua 1.185 video</h3>
+        <p>Hội thoại đời thường, phim, bài giảng ngắn. Mỗi câu đều có IPA và bản dịch.</p>
+        <div class="subs">
+          <div>Excuse me, is this seat taken?</div>
+          <div class="cur">No, go ahead. I'm just waiting for a friend. <em>Không, bạn cứ ngồi. Mình chỉ đang đợi bạn thôi.</em></div>
+          <div>Thanks! The coffee here is great.</div>
+        </div>
+      </article>
+
+      <article class="tile t-path reveal">
+        <h3>Lộ trình 420 bài, A1 → C1</h3>
+        <p>Từ chào hỏi đến tranh luận. Mỗi cấp có từ vựng, ngữ pháp, hội thoại và bài luyện.</p>
+        <div class="ladder" aria-label="Năm cấp độ A1 đến C1">
+          <span>A1</span><span>A2</span><span>B1</span><span>B2</span><span>C1</span>
+        </div>
+      </article>
+
+      <article class="tile t-widget reveal">
+        <h3>Từ mới ngay màn hình chính</h3>
+        <p>Widget đổi từ mỗi vài phút.</p>
+        <div class="mini-widget" aria-hidden="true">
+          <div class="b">Sayfully</div>
+          <div class="w">apple</div>
+          <div class="p">/ˈæp.əl/</div>
+          <hr>
+          <div class="m">quả táo</div>
+        </div>
+      </article>
+
+      <article class="tile t-games reveal">
+        <h3>Ôn 11.158 từ vựng mà không thấy chán</h3>
+        <p>Thẻ ôn tập giãn cách, cùng các trò chơi ngắn cho lúc rảnh tay.</p>
+        <div class="games">
+          <span>🌧️ Mưa từ vựng</span><span>🧩 Ghép cặp</span><span>⏱️ Gõ nhanh</span><span>🎙️ Nói nhanh</span><span>🎯 Trọng âm</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="buoi-hoc" class="session" aria-labelledby="s-title">
+  <div class="wrap">
+    <div class="kicker reveal">Một buổi học</div>
+    <h2 id="s-title" class="reveal">Mười phút mỗi ngày là đủ để tiến bộ</h2>
+    <div class="steps">
+      <div class="step reveal">
+        <h3>Nghe câu mẫu</h3>
+        <p>Nghe người bản xứ nói, xem IPA và nghĩa tiếng Việt của từng câu.</p>
+        <span class="min">~3 phút</span>
+      </div>
+      <div class="step reveal">
+        <h3>Nói theo và được chấm</h3>
+        <p>Nói lại từng câu. Từ nào chưa chuẩn được đánh dấu để bạn thử lại ngay.</p>
+        <span class="min">~5 phút</span>
+      </div>
+      <div class="step reveal">
+        <h3>Ôn lại từ khó</h3>
+        <p>Từ bạn vấp được đưa vào thẻ ôn tập và hiện lại đúng lúc sắp quên.</p>
+        <span class="min">~2 phút</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tai-app" class="final" aria-labelledby="c-title" style="padding-top:110px">
+  <div class="wrap">
+    <div class="card reveal">
+      <div>
+        <h2 id="c-title">Long đang chờ bạn nói câu đầu tiên</h2>
+        <p>Sayfully đang thử nghiệm và sẽ sớm có mặt trên Google Play. Muốn dùng thử sớm? Gửi email cho chúng tôi tại <a class="mail" href="mailto:support@sayfully.com?subject=Đăng%20ký%20dùng%20thử%20Sayfully">support@sayfully.com</a>.</p>
+        <a class="btn btn-honey" href="mailto:support@sayfully.com?subject=Đăng%20ký%20dùng%20thử%20Sayfully">Đăng ký dùng thử sớm</a>
+      </div>
+      <img class="long" src="/assets/long-wave.webp" width="475" height="520" alt="Rồng Long, linh vật của Sayfully, đang vẫy tay" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="#fff"><rect x="2" y="5.5" width="3" height="7" rx="1.5"/><rect x="7.5" y="2" width="3" height="14" rx="1.5"/><rect x="13" y="5.5" width="3" height="7" rx="1.5"/></svg></span>
+      Sayfully
+    </a>
+    <nav aria-label="Liên kết cuối trang">
+      <a href="/terms">Điều khoản sử dụng</a>
+      <a href="/privacy">Quyền riêng tư</a>
+      <a href="mailto:support@sayfully.com">support@sayfully.com</a>
+    </nav>
+    <span>© 2026 Sayfully</span>
+  </div>
+</footer>
+
+<script>
+  // Sóng âm: 34 vạch lệch pha để trông như giọng nói thật.
+  const wave = document.getElementById("wave");
+  for (let i = 0; i < 34; i++) {
+    const bar = document.createElement("i");
+    bar.style.animationDelay = `${(Math.sin(i * 1.7) * 0.5 + 0.5) * -1.1}s`;
+    bar.style.animationDuration = `${0.8 + ((i * 7) % 5) * 0.12}s`;
+    wave.appendChild(bar);
+  }
+
+  // Tô sáng lần lượt từng từ như khi nói theo trong app.
+  const say = document.getElementById("say");
+  const words = say.textContent.split(" ");
+  say.innerHTML = words.map((w) => `<span class="w">${w}</span>`).join(" ");
+  const spans = say.querySelectorAll(".w");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let k = 0;
+  if (!still) {
+    setInterval(() => {
+      spans.forEach((s, i) => s.classList.toggle("on", i === k));
+      k = (k + 1) % (spans.length + 3);
+    }, 480);
+  }
+
+  // Hiện dần các khối khi cuộn tới.
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach((el, i) => {
+    el.style.transitionDelay = `${(i % 3) * 0.08}s`;
+    io.observe(el);
+  });
+</script>
+</body>
+</html>
