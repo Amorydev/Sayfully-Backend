@@ -814,7 +814,7 @@ class Command(BaseCommand):
                     order=1,
                     kind="intro",
                     payload={
-                        "highlight_vi": f"{lvi} — luyện tập cùng EnGo.",
+                        "highlight_vi": f"{lvi} — luyện tập cùng Sayfully.",
                         "preview": [
                             {
                                 "text_en": lvocab.headword.capitalize(),
@@ -1677,7 +1677,7 @@ class Command(BaseCommand):
             )
         if not Notification.objects.filter(user=demo).exists():
             for title in (
-                "Chào mừng đến EnGo!",
+                "Chào mừng đến Sayfully!",
                 "Bạn có 14 từ đến hạn ôn",
                 "Chuỗi 4 ngày — giữ vững nhé!",
             ):
@@ -1741,11 +1741,11 @@ class Command(BaseCommand):
             tier=LeagueGroup.Tier.DIAMOND, iso_year=iso_year, iso_week=iso_week
         )
         rivals = [
-            ("linh.tran@demo.engo", "Linh Trần", 2450),
-            ("minh.pham@demo.engo", "Minh Phạm", 1980),
-            ("an.nguyen@demo.engo", "An Nguyễn", 1600),
-            ("hoa.le@demo.engo", "Hoa Lê", 900),
-            ("nam.vo@demo.engo", "Nam Võ", 700),
+            ("linh.tran@demo.sayfully.app", "Linh Trần", 2450),
+            ("minh.pham@demo.sayfully.app", "Minh Phạm", 1980),
+            ("an.nguyen@demo.sayfully.app", "An Nguyễn", 1600),
+            ("hoa.le@demo.sayfully.app", "Hoa Lê", 900),
+            ("nam.vo@demo.sayfully.app", "Nam Võ", 700),
         ]
         demo_week_xp = 1420  # dưới 3 người đầu → hạng 4; 1420/1800 = 78.8%
         for email, name, xp in rivals:
@@ -1763,7 +1763,7 @@ class Command(BaseCommand):
         # đệm nhóm ~82 người (đều dưới demo) để hạng 4 ≈ Top 5%
         for i in range(76):
             fr, frc = User.objects.get_or_create(
-                email=f"member{i:02d}@demo.engo", defaults={"full_name": f"Học viên {i + 1}"}
+                email=f"member{i:02d}@demo.sayfully.app", defaults={"full_name": f"Học viên {i + 1}"}
             )
             if frc:
                 fr.set_unusable_password()
