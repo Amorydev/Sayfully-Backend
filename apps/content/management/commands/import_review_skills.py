@@ -7,24 +7,37 @@
 9 sheet → model: Luyện nói (ShadowingDeck/Sentence) · Luyện nghe (ListeningTopic/Item) · Đọc hiểu
 (Reading/Sentence/Question) · Ngữ pháp (GrammarPoint/Example/Exercise) · IPA (IPASound) · Gốc từ vựng
 (WordRoot) · Từ vựng + Danh mục (VocabularyDeckCollection/Deck/Item, Vocabulary/Example) · Video
-(VideoCategory/Video). Level tạo nếu chưa có. Chạy lại là upsert theo khoá tự nhiên; riêng từ vựng
-xoá-nạp lại theo ContentSource `review_skills`. Audio: URL đầy đủ trên CDN → path R2 tương đối.
+(VideoCategory/Video) · Phụ đề chi tiết (VideoSubtitle) · Tài khoản ban đầu (User/UserProfile, huy hiệu,
+khung avatar, XP tuần). Level tạo nếu chưa có. Chạy lại là upsert theo khoá tự nhiên; riêng từ vựng
+xoá-nạp lại theo ContentSource `review_skills`, video tuyển chọn không còn trong sheet bị xoá, phụ đề thay
+trọn từng video, tài khoản đã có giữ nguyên mật khẩu. Audio: URL đầy đủ trên CDN → path R2 tương đối.
 """
 
 import re
+import urllib.request
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 import cmudict
 import openpyxl
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
+from apps.accounts.services import ensure_profile
 from apps.common.learning_goals import GOAL_COLUMN, deck_goals, parse_goals, video_category_goals
+from apps.common.models import LearningGoal
 from apps.content import models as m
 from apps.content.ipa_data import ALL_SOUNDS
 from apps.content.phonemics import sentence_ipa
+from apps.content.video_transcript import SubtitleDraft, replace_video_subtitles, sentence_to_ipa
+from apps.gamification.models import Badge, ShopItem, UserBadge, UserCosmetic
+from apps.gamification.services import current_week, ensure_league_membership
+from apps.learning.api import _AVATAR_TYPES, upload_avatar
+from apps.learning.models import WeeklyStat
 
 SHEETS = {
     "speaking": "Luyện nói",
@@ -35,6 +48,8 @@ SHEETS = {
     "roots": "Gốc từ vựng",
     "vocab": "Từ vựng",
     "video": "Video (Bài học Tuyển chọn)",
+    "subtitles": "Video (Phụ đề chi tiết)",
+    "accounts": "Tài khoản (Ban đầu)",
 }
 PALETTE = ["#4F46E5", "#22C55E", "#FF6B57", "#38BDF8", "#7C3AED", "#F59E0B"]
 SECONDS_PER_SENTENCE = 12
@@ -145,6 +160,11 @@ def audio_path(url: str) -> str:
 
 def is_free(v) -> bool:
     return not cell(v).lower().startswith("premium")
+
+
+def number(v) -> int:
+    """'Level 9' → 9 · '42 ngày' → 42 · '1,850' → 1850."""
+    return int(re.sub(r"\D", "", cell(v)) or 0)
 
 
 def phase_no(v) -> int:
@@ -306,14 +326,12 @@ def merge_vocab_entries(entries: list[dict]) -> dict:
 
 
 class Command(BaseCommand):
-    help = "Nạp 9 sheet của Data/REVIEW_skills.xlsx vào DB (nguồn sự thật duy nhất)."
+    help = "Nạp Data/REVIEW_skills.xlsx vào DB (nguồn sự thật duy nhất)."
 
     def add_arguments(self, parser):
         default = Path(__file__).resolve().parents[5] / "Data" / "REVIEW_skills.xlsx"
         parser.add_argument("--xlsx", default=str(default))
-        parser.add_argument(
-            "--only", default="", help="speaking,listening,reading,grammar,ipa,roots,vocab,video"
-        )
+        parser.add_argument("--only", default="", help=",".join(SHEETS))
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **opts):
@@ -326,6 +344,7 @@ class Command(BaseCommand):
             raise CommandError(f"--only không hợp lệ: {', '.join(sorted(unknown))}")
         self.wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         self.cmu = None
+        self.dry_run = opts["dry_run"]
         with transaction.atomic():
             self.levels = self.ensure_levels()
             for key in SHEETS:
@@ -371,6 +390,11 @@ class Command(BaseCommand):
         if self.cmu is None:
             self.cmu = cmudict.dict()
         return sentence_ipa(text, self.cmu)[:512]
+
+    def subtitle_ipa(self, text: str) -> str:
+        if self.cmu is None:
+            self.cmu = cmudict.dict()
+        return sentence_to_ipa(text, self.cmu)[0][:512]
 
     def log(self, msg: str):
         self.stdout.write(self.style.SUCCESS(msg))
@@ -1009,4 +1033,121 @@ class Command(BaseCommand):
             featured += [yid for _, yid in sorted(lst, reverse=True)[:VIDEO_FEATURED_PER_CATEGORY]]
         for i, yid in enumerate(featured, 1):
             m.Video.objects.filter(youtube_id=yid).update(is_featured=True, featured_order=i)
-        self.log(f"Video: {len(cats)} cụm chủ đề · {n} video · {len(featured)} nổi bật")
+        stale = m.Video.objects.filter(source=m.Video.Source.CURATED).exclude(youtube_id__in=seen)
+        removed = stale.count()
+        stale.delete()
+        self.log(
+            f"Video: {len(cats)} cụm chủ đề · {n} video · {len(featured)} nổi bật "
+            f"(xoá {removed} video không còn trong sheet)"
+        )
+
+    # ------------------------------------------------------------------ 9. Phụ đề video
+    def import_subtitles(self):
+        by_video: dict[str, list[dict]] = defaultdict(list)
+        for r in self.rows("subtitles"):
+            by_video[cell(r["YouTube ID"])].append(r)
+        videos = m.Video.objects.in_bulk(list(by_video), field_name="youtube_id")
+        n = 0
+        for yid, rows in by_video.items():
+            video = videos.get(yid)
+            if video is None:
+                self.stderr.write(f"  Phụ đề: không có video {yid!r}, bỏ qua")
+                continue
+            # Sheet để trống bản dịch thì giữ bản dịch đã có trong DB cho cùng câu.
+            kept_vi = dict(video.subtitles.exclude(text_vi="").values_list("text_en", "text_vi"))
+            drafts = []
+            for r in sorted(rows, key=lambda r: number(r["# (Thứ tự câu)"])):
+                text_en = cell(r["Câu phụ đề (EN)"])[:512]
+                drafts.append(
+                    SubtitleDraft(
+                        start_ms=number(r["Bắt đầu (ms)"]),
+                        end_ms=number(r["Kết thúc (ms)"]),
+                        text_en=text_en,
+                        ipa=cell(r["Phiên âm ngữ âm (IPA)"])[:512] or self.subtitle_ipa(text_en),
+                        text_vi=cell(r["Bản dịch tiếng Việt (VI)"])[:512]
+                        or kept_vi.get(text_en, ""),
+                    )
+                )
+            # Caption tự động hay chồng vài ms lên câu sau; cắt đuôi để qua validate_drafts.
+            for i in range(len(drafts) - 1):
+                if drafts[i].end_ms > drafts[i + 1].start_ms:
+                    drafts[i] = replace(drafts[i], end_ms=drafts[i + 1].start_ms)
+            n += replace_video_subtitles(video, drafts)
+        self.log(f"Phụ đề: {n} câu · {len(videos)} video")
+
+    # ------------------------------------------------------------------ 10. Tài khoản ban đầu
+    def import_accounts(self):
+        user_model = get_user_model()
+        goals = {label: value for value, label in LearningGoal.choices}
+        badges = {b.code: b for b in Badge.objects.all()}
+        frames = {i.code: i for i in ShopItem.objects.filter(category=ShopItem.Category.COSMETIC)}
+        year, week = current_week()
+        today = timezone.localdate()
+        n = created = 0
+        for r in self.rows("accounts"):
+            email = cell(r["Email"]).lower()
+            user = user_model.objects.filter(email=email).first()
+            if user is None:
+                user = user_model.objects.create_user(
+                    email=email, password=cell(r["Mật khẩu mặc định"])
+                )
+                created += 1
+            user.full_name = cell(r["Họ và tên"])[:120]
+            avatar = cell(r["Ảnh đại diện (CDN URL)"])
+            if avatar and not self.dry_run and (not user.avatar_path or "://" in user.avatar_path):
+                user.avatar_path = self.upload_avatar_from(user, avatar)
+            user.save(update_fields=["full_name", "avatar_path"])
+
+            streak = number(r["Streak (ngày)"])
+            frame = cell(r["Mã Khung"])
+            p = ensure_profile(user)
+            p.level = number(r["Cấp độ"]) or 1
+            p.cefr_level = cell(r["Khung CEFR"]).upper()
+            p.goal_level = cell(r["Mục tiêu CEFR"]).upper()
+            p.learning_goal = goals.get(cell(r["Mục tiêu học tập"]), LearningGoal.DAILY)
+            p.xp_total = number(r["XP Tổng"])
+            p.coins = number(r["Số xu (Coins)"])
+            p.streak_current = streak
+            p.streak_best = max(p.streak_best, streak)
+            p.last_active_date = today
+            p.accent = "UK" if "(UK)" in cell(r["Giọng phát âm"]) else "US"
+            p.is_premium = cell(r["Gói học"]).lower().startswith("có")
+            p.premium_until = None
+            p.avatar_frame = frame if frame in frames else ""
+            p.onboarding_completed = True
+            p.onboarding_completed_at = p.onboarding_completed_at or timezone.now()
+            p.save()
+
+            if frame in frames:
+                UserCosmetic.objects.get_or_create(user=user, item=frames[frame])
+            for code in re.split(r"[,\s]+", cell(r["Huy hiệu đạt được"])):
+                if code in badges:
+                    UserBadge.objects.get_or_create(user=user, badge=badges[code])
+            xp_week = number(r["XP Tuần"])
+            WeeklyStat.objects.update_or_create(
+                user=user,
+                iso_year=year,
+                iso_week=week,
+                defaults={"xp": xp_week, "days_active": min(streak, today.isoweekday())},
+            )
+            membership = ensure_league_membership(user)
+            membership.xp_week = xp_week
+            membership.save(update_fields=["xp_week"])
+            n += 1
+        self.log(
+            f"Tài khoản: {n} tài khoản ({created} tạo mới) · {len(badges)} huy hiệu · "
+            f"{len(frames)} khung · XP tuần {year}-W{week}"
+        )
+
+    def upload_avatar_from(self, user, url: str) -> str:
+        """Ảnh ngoài (Unsplash…) → R2 `avatars/<id>.<ext>`, cùng chỗ với ảnh người dùng tự tải."""
+        req = urllib.request.Request(
+            url, headers={"Accept": "image/jpeg,image/png,image/webp", "User-Agent": "Sayfully"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            content_type = resp.headers.get_content_type()
+            data = resp.read()
+        ext = _AVATAR_TYPES.get(content_type)
+        if ext is None:
+            raise CommandError(f"Ảnh đại diện {url!r}: không nhận kiểu {content_type}")
+        return upload_avatar(f"avatars/{user.id}.{ext}", data, content_type)
