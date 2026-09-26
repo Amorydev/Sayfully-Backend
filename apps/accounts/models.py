@@ -55,6 +55,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     avatar_path = models.CharField(max_length=255, blank=True)
 
     is_active = models.BooleanField(default=True)
+    # Chỉ đăng ký bằng email mới bắt đầu ở False; social/admin/tài khoản cũ coi như đã xác minh.
+    email_verified = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)  # xoá mềm, purge sau 30 ngày
@@ -80,6 +82,27 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_deleted(self) -> bool:
         return self.deleted_at is not None
+
+
+class EmailVerification(models.Model):
+    """Mã 6 số xác minh email sau khi đăng ký. Mỗi user một mã đang hiệu lực, gửi lại thì ghi đè.
+
+    Chỉ lưu HMAC của mã; nhập sai quá `MAX_ATTEMPTS` lần thì mã bị khoá, phải gửi mã mới.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, primary_key=True, related_name="email_verification"
+    )
+    code_hash = models.CharField(max_length=64)
+    sent_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "email_verifications"
+
+    def __str__(self) -> str:
+        return f"verify:{self.user_id}"
 
 
 class SocialAccount(TimeStampedModel):

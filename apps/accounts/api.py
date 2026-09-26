@@ -1,10 +1,12 @@
-"""12 endpoint xác thực, phục vụ đồng thời mobile (Bearer) và web (cookie).
+"""14 endpoint xác thực, phục vụ đồng thời mobile (Bearer) và web (cookie).
 
 Đây là MẪU CHUẨN tài liệu hoá cho các app sau:
 - mỗi endpoint có `summary` + `description`
 - khai báo đủ mã lỗi, tất cả trỏ tới `ErrorOut`
 - header `X-Client-Type` được khai báo để Swagger hiện ô nhập
 """
+
+import logging
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -36,11 +38,13 @@ from .schemas import (
     RegisterIn,
     ResetPasswordIn,
     TokenOut,
+    VerifyEmailIn,
 )
 from .social import verify_apple_identity_token, verify_google_id_token
 from .tokens import revoke, revoke_all, rotate_refresh
 
 router = Router()
+log = logging.getLogger(__name__)
 
 RATE_AUTH = "5/m"  # chống dò mật khẩu / spam email
 
@@ -74,6 +78,7 @@ def _me(user: User) -> MeOut:
         full_name=user.full_name,
         avatar_path=user.avatar_path,
         date_joined=user.date_joined,
+        email_verified=user.email_verified,
         profile=profile,
     )
 
@@ -86,6 +91,9 @@ def _me(user: User) -> MeOut:
     summary="Đăng ký bằng email",
     description=(
         "Tạo tài khoản mới và đăng nhập luôn. Mật khẩu tối thiểu 8 ký tự.\n\n"
+        "Tài khoản bắt đầu với `email_verified = false` và server gửi **mã 6 số** tới email; "
+        "client phải cho người dùng nhập mã qua `/email/verify` trước khi vào app.\n\n"
+        "Email đang thuộc một tài khoản chưa xác minh thì được đăng ký lại (ghi đè mật khẩu).\n\n"
         "Hồ sơ học tập (`UserProfile`) được tạo tự động ở trình độ **A1**.\n\n"
         "Lỗi thường gặp: `email_taken` (409)."
     ),
@@ -95,6 +103,11 @@ def register(
     request, data: RegisterIn, response: HttpResponse, x_client_type: str = CLIENT_TYPE_DOC
 ):
     user = services.register_user(data.email, data.password, data.full_name)
+    try:
+        services.send_verification_code(user, enforce_cooldown=False)
+    except Exception:
+        # Tài khoản vẫn tạo được; người dùng bấm "Gửi lại mã" ở màn xác minh.
+        log.exception("Không gửi được mã xác minh email sau đăng ký")
     access, refresh_raw = services.start_session(
         user, device_name=device_of(request), ip=ip_of(request)
     )
@@ -240,6 +253,42 @@ def logout_all(request, response: HttpResponse, x_client_type: str = CLIENT_TYPE
     if is_web(request):
         clear_refresh_cookie(response)
     return MessageOut(message="Đã đăng xuất khỏi tất cả thiết bị")
+
+
+# ------------------------------------------------------------------ xác minh email
+@router.post(
+    "/email/verify",
+    response={200: MeOut, 400: ErrorOut, 401: ErrorOut, 422: ErrorOut, 429: ErrorOut},
+    auth=bearer_auth,
+    summary="Xác minh email bằng mã 6 số",
+    description=(
+        "Nhập mã server đã gửi sau khi đăng ký. Thành công trả về hồ sơ với "
+        "`email_verified = true`; gọi lại khi đã xác minh cũng trả 200.\n\n"
+        "Mã hết hạn sau **10 phút** và bị khoá sau **5 lần** nhập sai.\n\n"
+        "Lỗi: `verify_code_invalid` (kèm `details.attempts_left`), `verify_code_expired`, "
+        "`verify_code_locked` — hai lỗi sau cần gửi lại mã mới."
+    ),
+)
+@ratelimit(key="ip", rate="10/m", method="POST", block=True)
+def verify_email(request, data: VerifyEmailIn):
+    services.verify_email_code(request.auth, data.code)
+    return _me(request.auth)
+
+
+@router.post(
+    "/email/resend",
+    response={200: MessageOut, 401: ErrorOut, 429: ErrorOut},
+    auth=bearer_auth,
+    summary="Gửi lại mã xác minh email",
+    description=(
+        "Tạo mã mới (mã cũ mất hiệu lực) và gửi lại email. Mỗi lần gửi cách nhau tối thiểu "
+        "**60 giây**; gửi sớm hơn trả `verify_resend_too_soon` (429, kèm `details.retry_after`)."
+    ),
+)
+@ratelimit(key="ip", rate=RATE_AUTH, method="POST", block=True)
+def resend_verification(request):
+    services.send_verification_code(request.auth)
+    return MessageOut(message=f"Đã gửi mã mới tới {request.auth.email}")
 
 
 # ------------------------------------------------------------------ mật khẩu

@@ -44,6 +44,10 @@ class ResetPasswordIn(Schema):
     new_password: str = Field(min_length=8)
 
 
+class VerifyEmailIn(Schema):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
 class ChangePasswordIn(Schema):
     old_password: str = ""  # rỗng với tài khoản chỉ đăng nhập bằng social
     new_password: str = Field(min_length=8)
@@ -103,6 +107,7 @@ class MeOut(Schema):
     full_name: str
     avatar_path: str
     date_joined: datetime
+    email_verified: bool
     profile: ProfileOut
 
 

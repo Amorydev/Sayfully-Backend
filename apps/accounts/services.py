@@ -1,6 +1,10 @@
 """Nghiệp vụ tài khoản. API layer chỉ gọi vào đây, không tự xử lý logic."""
 
+import hashlib
+import hmac
 import logging
+import secrets
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
@@ -9,9 +13,9 @@ from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
-from apps.common.exceptions import AppError, Conflict, Unauthorized
+from apps.common.exceptions import AppError, Conflict, RateLimited, Unauthorized
 
-from .models import SocialAccount, User, UserProfile
+from .models import EmailVerification, SocialAccount, User, UserProfile
 from .social import SocialProfile
 from .tokens import issue_access, issue_refresh, revoke_all
 
@@ -21,9 +25,27 @@ log = logging.getLogger(__name__)
 # ------------------------------------------------------------------ đăng ký
 @transaction.atomic
 def register_user(email: str, password: str, full_name: str = "") -> User:
+    """Tạo tài khoản chưa xác minh email.
+
+    Email đang thuộc một tài khoản chưa từng xác minh thì được đăng ký lại: người gõ nhầm email
+    không giữ chỗ mãi của chủ thật, và tài khoản đó chưa qua được bước xác minh nên chưa có gì để mất.
+    """
     email = User.objects.normalize_email(email)
+    stale = (
+        User.objects.active()
+        .filter(email__iexact=email, email_verified=False, social_accounts__isnull=True)
+        .first()
+    )
+    if stale is not None:
+        stale.set_password(password)
+        stale.full_name = full_name
+        stale.save(update_fields=["password", "full_name"])
+        revoke_all(stale)
+        return stale
     try:
-        return User.objects.create_user(email=email, password=password, full_name=full_name)
+        return User.objects.create_user(
+            email=email, password=password, full_name=full_name, email_verified=False
+        )
     except IntegrityError as exc:
         raise Conflict("Email đã được đăng ký", code="email_taken") from exc
 
@@ -66,6 +88,10 @@ def login_or_create_social(profile: SocialProfile) -> tuple[User, bool]:
         created = True
     elif user.deleted_at is not None or not user.is_active:
         raise Unauthorized("Tài khoản không hoạt động", code="account_inactive")
+    elif not user.email_verified and profile.email_verified:
+        # Google/Apple đã xác nhận chủ email nên không cần mã nữa.
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
 
     SocialAccount.objects.create(
         user=user, provider=profile.provider, provider_uid=profile.uid, email=profile.email
@@ -80,15 +106,8 @@ def start_session(user: User, *, device_name: str = "", ip: str | None = None) -
     return issue_access(user), refresh_raw
 
 
-# ------------------------------------------------------------------ mật khẩu
-def _send_reset_email(user: User, uid: str, token: str) -> None:
-    link = f"{settings.PASSWORD_RESET_URL}?uid={uid}&token={token}"
-    subject = "Đặt lại mật khẩu Sayfully"
-    body = (
-        f"Xin chào {user.full_name or 'bạn'},\n\n"
-        f"Nhấn vào liên kết sau để đặt lại mật khẩu (hết hạn sau 30 phút):\n{link}\n\n"
-        "Nếu không phải bạn yêu cầu, hãy bỏ qua email này."
-    )
+# ------------------------------------------------------------------ email
+def _send_email(to: str, subject: str, body: str) -> None:
     if settings.RESEND_API_KEY:
         import resend
 
@@ -96,7 +115,7 @@ def _send_reset_email(user: User, uid: str, token: str) -> None:
         resend.Emails.send(
             {
                 "from": settings.DEFAULT_FROM_EMAIL,
-                "to": [user.email],
+                "to": [to],
                 "subject": subject,
                 "text": body,
             }
@@ -104,7 +123,88 @@ def _send_reset_email(user: User, uid: str, token: str) -> None:
     else:
         from django.core.mail import send_mail
 
-        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
+
+
+# ------------------------------------------------------------------ xác minh email
+VERIFY_CODE_TTL = timedelta(minutes=10)
+VERIFY_RESEND_COOLDOWN = timedelta(seconds=60)
+VERIFY_MAX_ATTEMPTS = 5
+
+
+def _code_hash(user: User, code: str) -> str:
+    return hmac.new(
+        settings.SECRET_KEY.encode(), f"{user.pk}:{code}".encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def send_verification_code(user: User, *, enforce_cooldown: bool = True) -> None:
+    """Tạo mã 6 số mới (mã cũ mất hiệu lực) rồi gửi email. Gửi lại quá dày thì báo 429."""
+    if user.email_verified:
+        return
+    now = timezone.now()
+    current = EmailVerification.objects.filter(user=user).first()
+    if enforce_cooldown and current is not None and now - current.sent_at < VERIFY_RESEND_COOLDOWN:
+        wait = int((VERIFY_RESEND_COOLDOWN - (now - current.sent_at)).total_seconds()) + 1
+        raise RateLimited(
+            f"Vui lòng đợi {wait} giây để gửi lại mã",
+            code="verify_resend_too_soon",
+            details={"retry_after": [str(wait)]},
+        )
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    EmailVerification.objects.update_or_create(
+        user=user,
+        defaults={
+            "code_hash": _code_hash(user, code),
+            "sent_at": now,
+            "expires_at": now + VERIFY_CODE_TTL,
+            "attempts": 0,
+        },
+    )
+    _send_email(
+        user.email,
+        f"{code} là mã xác minh Sayfully của bạn",
+        f"Xin chào {user.full_name or 'bạn'},\n\n"
+        f"Mã xác minh email của bạn là: {code}\n\n"
+        "Mã có hiệu lực trong 10 phút. Nếu không phải bạn đăng ký Sayfully, hãy bỏ qua email này.",
+    )
+
+
+def verify_email_code(user: User, code: str) -> None:
+    """Không bọc transaction: lần nhập sai phải được lưu lại dù hàm kết thúc bằng lỗi."""
+    if user.email_verified:
+        return
+    record = EmailVerification.objects.filter(user=user).first()
+    if record is None or record.expires_at <= timezone.now():
+        raise AppError("Mã đã hết hạn, hãy gửi lại mã mới", code="verify_code_expired")
+    if record.attempts >= VERIFY_MAX_ATTEMPTS:
+        raise AppError("Nhập sai quá nhiều lần, hãy gửi lại mã mới", code="verify_code_locked")
+    if not hmac.compare_digest(record.code_hash, _code_hash(user, code.strip())):
+        record.attempts += 1
+        record.save(update_fields=["attempts"])
+        left = VERIFY_MAX_ATTEMPTS - record.attempts
+        if left == 0:
+            raise AppError("Nhập sai quá nhiều lần, hãy gửi lại mã mới", code="verify_code_locked")
+        raise AppError(
+            f"Mã chưa đúng, bạn còn {left} lần thử",
+            code="verify_code_invalid",
+            details={"attempts_left": [str(left)]},
+        )
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
+    record.delete()
+
+
+# ------------------------------------------------------------------ mật khẩu
+def _send_reset_email(user: User, uid: str, token: str) -> None:
+    link = f"{settings.PASSWORD_RESET_URL}?uid={uid}&token={token}"
+    _send_email(
+        user.email,
+        "Đặt lại mật khẩu Sayfully",
+        f"Xin chào {user.full_name or 'bạn'},\n\n"
+        f"Nhấn vào liên kết sau để đặt lại mật khẩu (hết hạn sau 30 phút):\n{link}\n\n"
+        "Nếu không phải bạn yêu cầu, hãy bỏ qua email này.",
+    )
 
 
 def request_password_reset(email: str) -> None:

@@ -19,13 +19,21 @@ class SocialAccountInline(admin.TabularInline):
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     inlines = [UserProfileInline, SocialAccountInline]
-    list_display = ("email", "full_name", "is_active", "is_staff", "date_joined", "deleted_at")
-    list_filter = ("is_active", "is_staff", "is_superuser")
+    list_display = (
+        "email",
+        "full_name",
+        "email_verified",
+        "is_active",
+        "is_staff",
+        "date_joined",
+        "deleted_at",
+    )
+    list_filter = ("email_verified", "is_active", "is_staff", "is_superuser")
     search_fields = ("email", "full_name")
     ordering = ("-date_joined",)
     readonly_fields = ("id", "date_joined", "last_login")
     fieldsets = (
-        (None, {"fields": ("id", "email", "password")}),
+        (None, {"fields": ("id", "email", "email_verified", "password")}),
         ("Thông tin", {"fields": ("full_name", "avatar_path")}),
         (
             "Quyền",
