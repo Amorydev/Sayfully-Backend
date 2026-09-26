@@ -1,4 +1,5 @@
 """Nạp lộ trình A1→C1 (PATH-SCHEMA.md) từ thư mục crawl/ vào DB. Idempotent: upsert theo code / source_ref.
+Từ vựng và điểm ngữ pháp đã nạp từ REVIEW_skills.xlsx giữ nguyên nội dung + ví dụ; lộ trình chỉ gắn vào.
 
   python manage.py import_path                      # ../crawl cạnh Backend/
   python manage.py import_path --crawl-dir /path/to/crawl --purge   # xoá unit/bài/ngữ pháp/hội thoại demo trước
@@ -503,8 +504,12 @@ class Command(BaseCommand):
             )
             obj = existing.get(ref)
             if obj:
+                # Điểm đã có (REVIEW_skills.xlsx): chỉ điền trường còn trống, không ghi đè nội dung sheet.
                 for k, v in vals.items():
-                    setattr(obj, k, v)
+                    if k == "is_path_core":
+                        obj.is_path_core = obj.is_path_core or v
+                    elif v and not getattr(obj, k):
+                        setattr(obj, k, v)
                 obj.save()
             else:
                 counter[lv] += 1
@@ -513,19 +518,19 @@ class Command(BaseCommand):
                 used_orders[lv].add(counter[lv])
                 obj = m.GrammarPoint.objects.create(order=counter[lv], **vals)
                 n_new += 1
-            obj.examples.all().delete()
-            m.GrammarExample.objects.bulk_create(
-                [
-                    m.GrammarExample(
-                        grammar_point=obj,
-                        order=i,
-                        text_en=e["en"][:255],
-                        text_vi=e["vi"][:255],
-                        **self.audio(f"{ref}#{i}"),
-                    )
-                    for i, e in enumerate(ex, 1)
-                ]
-            )
+            if not obj.examples.exists():
+                m.GrammarExample.objects.bulk_create(
+                    [
+                        m.GrammarExample(
+                            grammar_point=obj,
+                            order=i,
+                            text_en=e["en"][:255],
+                            text_vi=e["vi"][:255],
+                            **self.audio(f"{ref}#{i}"),
+                        )
+                        for i, e in enumerate(ex, 1)
+                    ]
+                )
             if gobj.get(ref):
                 obj.objectives.set([self.CANDO[c] for c in gobj[ref] if c in self.CANDO])
             self.GP[ref] = obj
@@ -543,6 +548,7 @@ class Command(BaseCommand):
                     seen.add(v)
                     ids.append(v)
         src_evp = m.ContentSource.objects.filter(code="evp").first()
+        src_sheet = m.ContentSource.objects.filter(code="review_skills").first()
         topics = {t.code: t for t in m.Topic.objects.all()}
         by_ref = {v.source_ref: v for v in m.Vocabulary.objects.exclude(source_ref="")}
         self.VOCAB = {}
@@ -551,7 +557,7 @@ class Command(BaseCommand):
             self.crawl / "framework" / "collocations.json"
         )  # {evp_id: [{"en","vi"}]} — cụm từ hay gặp trên thẻ từ
         self.COLLOC = json.load(open(colloc, encoding="utf-8")) if colloc.exists() else {}
-        n_new = n_adopt = 0
+        n_new = n_adopt = n_sheet = 0
         for vid in ids:
             e = self.EV[vid]
             pos = POS_MAP.get(e["pos"], "n")
@@ -589,7 +595,14 @@ class Command(BaseCommand):
                     ).first()
                     if obj:
                         n_adopt += 1
-            if obj:
+            # Từ của REVIEW_skills.xlsx: sheet giữ nghĩa/IPA/audio/ví dụ, lộ trình chỉ gắn vào.
+            from_sheet = obj is not None and src_sheet is not None and obj.source_id == src_sheet.pk
+            if from_sheet:
+                obj.source_ref = vid
+                obj.is_path_core = True
+                obj.save(update_fields=["source_ref", "is_path_core"])
+                n_sheet += 1
+            elif obj:
                 for k, v in vals.items():
                     setattr(obj, k, v)
                 obj.headword = head[:64]
@@ -606,19 +619,20 @@ class Command(BaseCommand):
                     for c in self.COLLOC.get(vid, [])
                 ]
             )
-            obj.examples.all().delete()
-            m.VocabularyExample.objects.bulk_create(
-                [
-                    m.VocabularyExample(
-                        vocabulary=obj,
-                        order=i,
-                        text_en=x["en"][:255],
-                        text_vi=x["vi"][:255],
-                        **self.audio(f"{vid}#{i}"),
-                    )
-                    for i, x in enumerate(e.get("examples") or [], 1)
-                ]
-            )
+            if not from_sheet:
+                obj.examples.all().delete()
+                m.VocabularyExample.objects.bulk_create(
+                    [
+                        m.VocabularyExample(
+                            vocabulary=obj,
+                            order=i,
+                            text_en=x["en"][:255],
+                            text_vi=x["vi"][:255],
+                            **self.audio(f"{vid}#{i}"),
+                        )
+                        for i, x in enumerate(e.get("examples") or [], 1)
+                    ]
+                )
             tps = [t.strip() for t in (e.get("topics") or "").split("|") if t.strip()]
             if tps:
                 objs = []
@@ -641,7 +655,7 @@ class Command(BaseCommand):
             .update(is_path_core=False)
         )  # từ bị thay khỏi lộ trình → về từ điển
         self.log(
-            f"Vocabulary (lộ trình): {len(self.VOCAB)} (bỏ khỏi lộ trình {stale}) (+{n_new} mới, {n_adopt} nhận lại demo) · VocabularyExample: {m.VocabularyExample.objects.filter(vocabulary__is_path_core=True).count()}"
+            f"Vocabulary (lộ trình): {len(self.VOCAB)} (bỏ khỏi lộ trình {stale}) (+{n_new} mới, {n_adopt} nhận lại demo, {n_sheet} giữ nguyên từ REVIEW_skills) · VocabularyExample: {m.VocabularyExample.objects.filter(vocabulary__is_path_core=True).count()}"
         )
 
     # ------------------------------------------------------------------ 4. unit / bài

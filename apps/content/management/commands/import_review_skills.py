@@ -8,8 +8,9 @@
 (Reading/Sentence/Question) · Ngữ pháp (GrammarPoint/Example/Exercise) · IPA (IPASound) · Gốc từ vựng
 (WordRoot) · Từ vựng + Danh mục (VocabularyDeckCollection/Deck/Item, Vocabulary/Example) · Video
 (VideoCategory/Video) · Phụ đề chi tiết (VideoSubtitle) · Tài khoản ban đầu (User/UserProfile, huy hiệu,
-khung avatar, XP tuần). Level tạo nếu chưa có. Chạy lại là upsert theo khoá tự nhiên; riêng từ vựng
-xoá-nạp lại theo ContentSource `review_skills`, video tuyển chọn không còn trong sheet bị xoá, phụ đề thay
+khung avatar, XP tuần). Level tạo nếu chưa có. Chạy lại là upsert theo khoá tự nhiên; từ vựng của
+ContentSource `review_skills` cập nhật tại chỗ (từ không còn trong sheet bị xoá, ví dụ thay theo sheet),
+video tuyển chọn không còn trong sheet bị xoá, phụ đề thay
 trọn từng video, tài khoản đã có giữ nguyên mật khẩu. Audio: URL đầy đủ trên CDN → path R2 tương đối.
 """
 
@@ -299,6 +300,7 @@ def parse_word_list(text: str) -> list[dict]:
 CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 EXAMPLE_FIELDS = ("example_en", "example_vi", "ex_audio_us", "ex_audio_uk")
 FILL_FIELDS = ("definition_en", "definition_vi", "ipa_uk", "ipa_us", "audio_uk_path", "audio_us_path")
+VOCAB_SHEET_FIELDS = ("level", "meaning_vi", *FILL_FIELDS)
 
 
 def merge_vocab_entries(entries: list[dict]) -> dict:
@@ -832,7 +834,6 @@ class Command(BaseCommand):
         source, _ = m.ContentSource.objects.get_or_create(
             code="review_skills", defaults={"name": "REVIEW_skills.xlsx", "usage": "content"}
         )
-        deleted, _ = m.Vocabulary.objects.filter(source=source).delete()
         collections = {}
         for i, (code, title, chip, _kw) in enumerate(DECK_COLLECTIONS, 1):
             collections[code], _ = m.VocabularyDeckCollection.objects.update_or_create(
@@ -908,36 +909,32 @@ class Command(BaseCommand):
             d["level"] = self.level(d["level_code"]) if d["level_code"] else None
             vocab_rows[key] = d
 
-        # Từ đã có trong DB từ nguồn khác (cùng headword/pos/sense) → dùng lại, không tạo trùng.
+        # Cập nhật tại chỗ thay vì xoá-nạp lại: bước bài học lộ trình (CASCADE) và SRS/sổ tay của người
+        # dùng trỏ vào các từ này. Từ của nguồn khác (cùng headword/pos/sense) chỉ dùng lại, không sửa.
         existing = {
             (v.headword.lower(), v.pos, v.sense): v
             for v in m.Vocabulary.objects.filter(
                 headword__in={d["headword"] for d in vocab_rows.values()}
             )
         }
-        to_create, key_by_identity = [], {}
+        to_create, to_update, key_by_identity = [], [], {}
         for key, d in vocab_rows.items():
             ident = (d["headword"].lower(), d["pos"], d["sense"])
             key_by_identity[ident] = key
-            if ident in existing:
-                continue
-            to_create.append(
-                m.Vocabulary(
-                    headword=d["headword"],
-                    pos=d["pos"],
-                    sense=d["sense"],
-                    level=d["level"],
-                    meaning_vi=d["meaning_vi"],
-                    definition_en=d["definition_en"],
-                    definition_vi=d["definition_vi"],
-                    ipa_uk=d["ipa_uk"],
-                    ipa_us=d["ipa_us"],
-                    audio_uk_path=d["audio_uk_path"],
-                    audio_us_path=d["audio_us_path"],
-                    source=source,
+            fields = {f: d[f] for f in VOCAB_SHEET_FIELDS}
+            v = existing.get(ident)
+            if v is None:
+                to_create.append(
+                    m.Vocabulary(
+                        headword=d["headword"], pos=d["pos"], sense=d["sense"], source=source, **fields
+                    )
                 )
-            )
+            elif v.source_id == source.pk:
+                for f, value in fields.items():
+                    setattr(v, f, value)
+                to_update.append(v)
         m.Vocabulary.objects.bulk_create(to_create, batch_size=1000)
+        m.Vocabulary.objects.bulk_update(to_update, VOCAB_SHEET_FIELDS, batch_size=1000)
         by_key: dict[tuple, m.Vocabulary] = {}
         for v in m.Vocabulary.objects.filter(
             headword__in={d["headword"] for d in vocab_rows.values()}
@@ -945,6 +942,13 @@ class Command(BaseCommand):
             ident = (v.headword.lower(), v.pos, v.sense)
             if ident in key_by_identity:
                 by_key[key_by_identity[ident]] = v
+        _, per_model = (
+            m.Vocabulary.objects.filter(source=source)
+            .exclude(pk__in=[v.pk for v in by_key.values()])
+            .delete()
+        )
+        deleted = per_model.get(m.Vocabulary._meta.label, 0)
+        m.VocabularyExample.objects.filter(vocabulary__source=source).delete()
         examples = [
             m.VocabularyExample(
                 vocabulary=by_key[key],
@@ -972,7 +976,8 @@ class Command(BaseCommand):
         m.VocabularyDeckItem.objects.bulk_create(deck_items, batch_size=1000)
         self.log(
             f"Từ vựng: {len(decks)} bộ · {len(deck_items)} thẻ · {len(to_create)} từ mới · "
-            f"{len(vocab_rows) - len(to_create)} từ dùng lại · {len(examples)} ví dụ (xoá {deleted} bản cũ)"
+            f"{len(to_update)} từ cập nhật · {len(vocab_rows) - len(to_create) - len(to_update)} từ dùng lại · "
+            f"{len(examples)} ví dụ (xoá {deleted} từ không còn trong sheet)"
         )
 
     def rows_named(self, sheet: str):
