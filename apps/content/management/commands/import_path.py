@@ -23,6 +23,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.content import models as m
+from apps.content.lesson_minutes import recompute_lesson_minutes
 from apps.content.phonemics import sentence_ipa, split_ipa
 
 POS_MAP = {
@@ -280,6 +281,7 @@ class Command(BaseCommand):
                 self.vocabulary()
             self.units()
             self.lessons()
+            self.log(f"est_minutes tính lại cho {recompute_lesson_minutes()} bài.")
             self.summary()
             if opts["dry_run"]:
                 transaction.set_rollback(True)

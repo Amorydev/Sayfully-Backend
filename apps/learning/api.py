@@ -4,6 +4,7 @@ Mọi thay đổi XP/xu/tim/streak đi qua `services.record`. `complete` idempot
 không cộng đôi). Chi tiết A2–C2 cần Premium; bài khoá theo lộ trình → `lesson_locked`.
 """
 
+import math
 import re
 from collections import Counter
 from datetime import date, datetime, timedelta
@@ -512,15 +513,20 @@ def home(request):
     )
     current = None
     if lp:
-        total_steps = lp.lesson.steps.count() or 1
-        percent = min(100, round(lp.step_index / total_steps * 100))
+        total_steps = lp.step_total or lp.lesson.steps.count() or 1
+        step_index = min(lp.step_index, total_steps)
+        percent = min(100, round(step_index / total_steps * 100))
         current = s.CurrentLessonOut(
             code=lp.lesson.code,
             level=lp.lesson.unit.level_id,
             unit_title=lp.lesson.unit.title_vi,
             title_vi=lp.lesson.title_vi,
             percent=percent,
-            minutes_left=max(0, round(lp.lesson.est_minutes * (1 - percent / 100))),
+            minutes_left=(
+                max(1, math.ceil(lp.lesson.est_minutes * (1 - percent / 100))) if percent < 100 else 0
+            ),
+            step_index=step_index,
+            step_total=total_steps,
         )
 
     due_count = SRSCard.objects.filter(user=user, due_at__lte=djtz.now()).exclude(state=4).count()
@@ -779,6 +785,7 @@ def _progress_out(lesson: Lesson, p: LessonProgress) -> s.LessonProgressOut:
         code=lesson.code,
         status=p.status,
         step_index=p.step_index,
+        step_total=p.step_total,
         correct_count=p.correct_count,
         total_questions=p.total_questions,
         stars=p.stars,
@@ -801,6 +808,30 @@ def start_lesson(request, code: str):
     if not _is_unlocked(user, lesson):
         raise Forbidden("Bài học chưa mở khoá", code="lesson_locked")
     p, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
+    return _progress_out(lesson, p)
+
+
+@router.post(
+    "/learn/lessons/{code}/progress",
+    response={200: s.LessonProgressOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
+    summary="Lưu bước đang học",
+    description=(
+        "App gửi bước hiện tại / tổng số bước mỗi khi chuyển màn trong bài; Home dùng để tính % và số phút "
+        "còn lại, lần mở sau app học tiếp từ bước này. Bài đã hoàn thành (học lại) không bị ghi đè."
+    ),
+)
+def save_lesson_progress(request, code: str, payload: s.LessonProgressIn):
+    user = request.auth
+    profile = ensure_profile(user)
+    lesson = _get_lesson(code)
+    _gate(profile, lesson.unit.level)
+    if not _is_unlocked(user, lesson):
+        raise Forbidden("Bài học chưa mở khoá", code="lesson_locked")
+    p, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
+    if p.status == LessonProgress.Status.IN_PROGRESS:
+        p.step_index = min(payload.step_index, payload.step_total)
+        p.step_total = payload.step_total
+        p.save(update_fields=["step_index", "step_total", "updated_at"])
     return _progress_out(lesson, p)
 
 
@@ -855,6 +886,7 @@ def lesson_progress(request, code: str):
             code=lesson.code,
             status="not_started",
             step_index=0,
+            step_total=0,
             correct_count=0,
             total_questions=0,
             stars=0,

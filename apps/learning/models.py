@@ -27,6 +27,8 @@ class LessonProgress(models.Model):
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="progress")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.IN_PROGRESS)
     step_index = models.PositiveSmallIntegerField(default=0)
+    # Tổng số bước app hiển thị (0 = app chưa báo, Home tính theo số LessonStep).
+    step_total = models.PositiveSmallIntegerField(default=0)
     correct_count = models.PositiveSmallIntegerField(default=0)
     total_questions = models.PositiveSmallIntegerField(default=0)
     stars = models.PositiveSmallIntegerField(default=0)

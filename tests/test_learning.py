@@ -288,6 +288,58 @@ def test_start_a2_premium(api, token, levels):
 
 
 # --------------------------------------------------------------- complete
+# --------------------------------------------------------------- progress
+def test_progress_luu_buoc_va_home_tinh_theo_buoc(api, token, unit):
+    lesson = _lesson_with_vocab(unit, 1, "a1-u1-l1", n_vocab=4)
+    Lesson.objects.filter(pk=lesson.pk).update(est_minutes=10)
+    r = api.post(
+        "/learn/lessons/a1-u1-l1/progress", {"step_index": 3, "step_total": 12}, token=token
+    )
+    assert r.status_code == 200
+    assert r.json()["step_index"] == 3 and r.json()["step_total"] == 12
+    current = api.get("/home", token=token).json()["current_lesson"]
+    assert current["percent"] == 25 and current["minutes_left"] == 8
+    assert current["step_index"] == 3 and current["step_total"] == 12
+
+
+def test_progress_bai_da_hoan_thanh_khong_bi_ghi_de(api, token, user, unit):
+    _lesson_with_vocab(unit, 1, "a1-u1-l1")
+    api.post("/learn/lessons/a1-u1-l1/complete", {"correct_count": 2, "total": 2}, token=token)
+    r = api.post(
+        "/learn/lessons/a1-u1-l1/progress", {"step_index": 1, "step_total": 5}, token=token
+    )
+    assert r.json()["status"] == "completed"
+    assert LessonProgress.objects.get(user=user).step_index == 0
+
+
+def test_progress_bai_khoa_403(api, token, unit):
+    _lesson_with_vocab(unit, 1, "a1-u1-l1")
+    _lesson_with_vocab(unit, 2, "a1-u1-l2")
+    r = api.post(
+        "/learn/lessons/a1-u1-l2/progress", {"step_index": 1, "step_total": 5}, token=token
+    )
+    assert r.status_code == 403
+
+
+def test_est_minutes_theo_so_buoc_va_luot_thoai(unit):
+    from apps.content.lesson_minutes import estimate_lesson_minutes, recompute_lesson_minutes
+    from apps.content.models import Dialogue, DialogueLine
+
+    lesson = _lesson_with_vocab(unit, 1, "a1-u1-l1", n_vocab=8)  # 8 × 0.5 = 4
+    d = Dialogue.objects.create(title_en="Hi", title_vi="Chào")
+    for i in range(10):  # 1 + 10 × 0.25 = 3.5
+        DialogueLine.objects.create(
+            dialogue=d, order=i + 1, speaker="A", text_en="Hi", text_vi="Chào"
+        )
+    LessonStep.objects.create(lesson=lesson, order=9, kind="dialogue", dialogue=d)
+    assert estimate_lesson_minutes(lesson) == 8
+    assert recompute_lesson_minutes() == 1
+    lesson.refresh_from_db()
+    assert lesson.est_minutes == 8
+    empty = Lesson.objects.create(unit=unit, order=2, code="a1-u1-l2", title_vi="B", title_en="L")
+    assert estimate_lesson_minutes(empty) == 3
+
+
 def test_complete_thuong_va_tao_srs(api, token, user, unit):
     _lesson_with_vocab(unit, 1, "a1-u1-l1", n_vocab=2, xp=50)
     r = api.post(

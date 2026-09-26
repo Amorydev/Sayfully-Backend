@@ -42,6 +42,8 @@ class CurrentLessonOut(Schema):
     title_vi: str
     percent: int
     minutes_left: int
+    step_index: int = 0
+    step_total: int = 0
 
 
 class HomeChallengeOut(Schema):
@@ -238,10 +240,16 @@ class WritingFeedbackOut(Schema):
     natural_tip_vi: str
 
 
+class LessonProgressIn(Schema):
+    step_index: int = Field(ge=0, le=1000)
+    step_total: int = Field(ge=1, le=1000)
+
+
 class LessonProgressOut(Schema):
     code: str
     status: str
     step_index: int
+    step_total: int
     correct_count: int
     total_questions: int
     stars: int
