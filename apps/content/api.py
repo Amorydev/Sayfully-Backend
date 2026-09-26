@@ -1098,7 +1098,8 @@ def remove_my_video(request, id: int):
     response={200: s.VideoDetailOut, 401: ErrorOut, 403: ErrorOut, 404: ErrorOut},
     summary="Chi tiết video kèm phụ đề",
     description=(
-        "Phụ đề song ngữ có timestamp + IPA. Cấp có `is_free=False` cần Premium. "
+        "Phụ đề song ngữ có timestamp + IPA. Video hoặc cấp có `is_free=False` cần Premium "
+        "(`premium_required` 403). "
         "Video người dùng thêm: chỉ người đã thêm mới xem được; chưa `ready` thì `subtitles` rỗng."
     ),
 )
@@ -1110,8 +1111,12 @@ def get_video(request, id: int):
     if vd.source == m.Video.Source.USER:
         if not video_import.can_view(profile, vd):
             raise NotFound(_NOTFOUND)
-    elif vd.level is not None:
-        _gate(profile, vd.level)
+    else:
+        # Cờ Free/Premium của từng video là chốt thật: danh sách chỉ khoá ở giao diện, còn mọi cấp đang mở.
+        if not vd.is_free and not profile.is_premium:
+            raise Forbidden(_PREMIUM, code="premium_required")
+        if vd.level is not None:
+            _gate(profile, vd.level)
     practice = video_practice.detail(request.auth, vd.id)
     return s.VideoDetailOut(
         id=vd.id,

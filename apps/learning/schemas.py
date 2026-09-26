@@ -116,6 +116,7 @@ class HomeVideoOut(Schema):
     sentence_count: int
     thumbnail_url: str | None
     learner_count: int
+    is_free: bool = True  # False → cần Premium, app hiện khoá như danh sách Video
     # featured: admin ghim · new: tạo ≤ 14 ngày · popular: ≥ HOME_VIDEO_POPULAR_MIN người đã luyện
     badge: Literal["featured", "new", "popular"] | None = None
 

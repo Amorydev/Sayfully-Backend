@@ -367,6 +367,7 @@ def _home_videos() -> list[s.HomeVideoOut]:
                 sentence_count=vd.sentence_count,
                 thumbnail_url=_media(vd.thumbnail_path),
                 learner_count=vd.learner_count,
+                is_free=vd.is_free,
                 badge=badge,
             )
         )

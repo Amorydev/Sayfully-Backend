@@ -95,3 +95,21 @@ def test_home_videos_xep_noi_bat_nguoi_hoc_moi(api, token, video, password):
     assert [v["id"] for v in videos] == [hot.id, popular.id, video.id]
     assert [v["badge"] for v in videos] == ["featured", "popular", "new"]
     assert videos[1]["learner_count"] == 5 and videos[2]["sentence_count"] == 3
+
+
+def test_video_premium_chan_tai_khoan_mien_phi_du_cap_dang_mo(api, token, user, video):
+    video.is_free = False
+    video.save(update_fields=["is_free"])
+    r = api.get(f"/content/videos/{video.id}", token=token)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "premium_required"
+
+    user.profile.is_premium = True
+    user.profile.save(update_fields=["is_premium"])
+    assert api.get(f"/content/videos/{video.id}", token=token).status_code == 200
+
+
+def test_home_video_noi_bat_tra_co_mien_phi(api, token, video):
+    video.is_free = False
+    video.save(update_fields=["is_free"])
+    items = api.get("/home", token=token).json()["videos"]
+    assert [(v["id"], v["is_free"]) for v in items] == [(video.id, False)]
