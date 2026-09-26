@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# pg_dump (custom format) → R2 backups/pg/, giữ 14 bản mới nhất. Cron: 0 3 * * * ~/sayfully/scripts/backup.sh
-# Cần trong .env: R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; cần `aws` CLI trên VPS.
+# pg_dump (custom format) → $BACKUP_DIR trên VPS, giữ 14 bản mới nhất. Cron: 0 3 * * * ~/sayfully/scripts/backup.sh
+# Không đẩy lên bucket R2 media: bucket đó public, dump chứa email + hash mật khẩu.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-set -a; . ./.env; . ./.env.db; set +a
+# Chỉ source .env.db; .env là env_file của docker (giá trị kiểu `Tên <email>` làm shell lỗi).
+set -a; . ./.env.db; set +a
+
+BACKUP_DIR="${BACKUP_DIR:-$HOME/sayfully-data/backups}"
+KEEP=14
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-FILE="/tmp/sayfully-${STAMP}.dump"
-docker compose -f compose.prod.yml $( [ -f compose.local.yml ] && echo "-f compose.local.yml" ) exec -T db pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" > "$FILE"
+FILE="$BACKUP_DIR/sayfully-${STAMP}.dump"
+COMPOSE="docker compose -f compose.prod.yml $( [ -f compose.local.yml ] && echo "-f compose.local.yml" )"
 
-export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION=auto
-ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-aws --endpoint-url "$ENDPOINT" s3 cp "$FILE" "s3://${R2_BUCKET}/backups/pg/$(basename "$FILE")" --only-show-errors
-rm -f "$FILE"
+# Ghi ra .part rồi mới đổi tên, để dump hỏng giữa chừng không bị tính là một bản backup.
+$COMPOSE exec -T db pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" > "$FILE.part"
+$COMPOSE exec -T db pg_restore -l < "$FILE.part" > /dev/null
+mv "$FILE.part" "$FILE"
+chmod 600 "$FILE"
 
-# Xoá bản cũ hơn 14 bản mới nhất
-aws --endpoint-url "$ENDPOINT" s3 ls "s3://${R2_BUCKET}/backups/pg/" | awk '{print $4}' | sort | head -n -14 \
-  | while read -r old; do [ -n "$old" ] && aws --endpoint-url "$ENDPOINT" s3 rm "s3://${R2_BUCKET}/backups/pg/${old}" --only-show-errors; done
-echo "backup OK ${STAMP}"
+# Xoá bản cũ hơn $KEEP bản mới nhất (tên theo mốc giờ UTC nên sắp theo tên là theo thời gian)
+ls -1 "$BACKUP_DIR"/sayfully-*.dump | sort | head -n -"$KEEP" | xargs -r rm -f
+echo "backup OK ${STAMP} $(du -h "$FILE" | cut -f1)"
